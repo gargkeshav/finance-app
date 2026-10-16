@@ -78,6 +78,7 @@ export async function runNativeSmoke() {
               observation,
               eventId: crypto.randomUUID(),
               decision: "new",
+              rejectedEventIds: [],
             })),
           },
         },

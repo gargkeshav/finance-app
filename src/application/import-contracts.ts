@@ -57,6 +57,7 @@ export const bankImportSchema = z
             observation: observationSchema,
             eventId: idSchema,
             decision: z.enum(["new", "existing"]),
+            rejectedEventIds: z.array(idSchema).max(10_000).default([]),
           })
           .strict(),
       )
@@ -75,6 +76,20 @@ export const bankImportSchema = z
         message:
           "Each source occurrence must map to a distinct event within one import.",
       });
+    }
+    for (const [index, row] of record.rows.entries()) {
+      if (
+        new Set(row.rejectedEventIds).size !== row.rejectedEventIds.length ||
+        row.rejectedEventIds.includes(row.eventId) ||
+        (row.decision === "existing" && row.rejectedEventIds.length > 0)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["rows", index, "rejectedEventIds"],
+          message:
+            "Rejected candidates must be unique and distinct from the selected event.",
+        });
+      }
     }
   });
 export type BankImport = z.infer<typeof bankImportSchema>;

@@ -10,6 +10,7 @@ export interface ImportMatchCandidate {
   exactSourceFields: boolean;
   balanceEvidence: "same" | "different" | "unknown";
   matchingNeighbors: number;
+  previouslyRejected: boolean;
 }
 
 function occurrenceKey(
@@ -41,6 +42,7 @@ export function rankImportMatches(
   }
 
   const priorByEvent = new Map<string, PriorOccurrence[]>();
+  const rejectedPairs = new Set<string>();
   for (const record of imports) {
     if (record.accountId !== accountId || record.profile !== profile) continue;
     const priorRows = [...record.rows].sort(
@@ -58,6 +60,11 @@ export function rankImportMatches(
             : null,
       });
       priorByEvent.set(row.eventId, occurrences);
+      for (const rejectedEventId of row.rejectedEventIds) {
+        rejectedPairs.add(
+          JSON.stringify([occurrenceKey(row.observation), rejectedEventId]),
+        );
+      }
     });
   }
 
@@ -93,6 +100,9 @@ export function rankImportMatches(
                   previousKey !== null && prior.previousKey === previousKey,
                 ) + Number(nextKey !== null && prior.nextKey === nextKey),
             ),
+          ),
+          previouslyRejected: rejectedPairs.has(
+            JSON.stringify([occurrenceKey(row), event.id]),
           ),
         };
       },

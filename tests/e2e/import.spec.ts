@@ -143,3 +143,66 @@ test("multi-file import confirms and commits each file independently", async ({
     page.getByRole("cell", { name: "AUD -2.00", exact: true }),
   ).toHaveCount(1);
 });
+
+test("kept-separate overlap decisions are persisted and can be revisited", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Add account", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Account name").fill("Rejection history account");
+  await page.getByRole("button", { name: "Save account" }).click();
+
+  const header = "Date,Description,Credit,Debit,Balance\n";
+  async function openImport(filename: string, description: string) {
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByLabel("Bank CSV", { exact: true }).setInputFiles({
+      name: filename,
+      mimeType: "text/csv",
+      buffer: Buffer.from(`${header}3/10/2026,${description},,-9.99,\n`),
+    });
+    await page
+      .getByLabel("Import account")
+      .selectOption({ label: "Rejection history account" });
+  }
+  async function confirmImport() {
+    await page.getByLabel("I confirm this account").check();
+    await page.getByRole("button", { name: "Confirm import" }).click();
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+  }
+
+  await openImport("original.csv", "Synthetic repeated purchase");
+  await confirmImport();
+
+  await openImport("kept-separate.csv", "Synthetic  repeated purchase");
+  const secondDecision = page.getByLabel("Occurrence decision for row 2");
+  await expect(secondDecision.locator("option")).toHaveCount(3);
+  await secondDecision.selectOption("new");
+  await confirmImport();
+
+  await openImport("review-again.csv", "Synthetic   repeated purchase");
+  const laterDecision = page.getByLabel("Occurrence decision for row 2");
+  await expect(
+    laterDecision.locator("option", { hasText: "previously kept separate" }),
+  ).toHaveCount(1);
+  const choices = await laterDecision.locator("option").evaluateAll((options) =>
+    options.map((option) => ({
+      value: (option as HTMLOptionElement).value,
+      text: option.textContent ?? "",
+    })),
+  );
+  const revisit = choices.find(
+    (choice) =>
+      choice.value &&
+      choice.value !== "new" &&
+      !choice.text.includes("previously kept separate"),
+  );
+  expect(revisit).toBeDefined();
+  await laterDecision.selectOption(revisit!.value);
+  await confirmImport();
+  await expect(
+    page.getByRole("cell", { name: "AUD -9.99", exact: true }),
+  ).toHaveCount(2);
+});

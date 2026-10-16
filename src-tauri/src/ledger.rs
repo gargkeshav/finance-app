@@ -111,6 +111,8 @@ struct ImportRow {
     observation: Observation,
     event_id: String,
     decision: String,
+    #[serde(default)]
+    rejected_event_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -241,8 +243,14 @@ fn validate(command: &Command) -> LedgerResult<()> {
                         .all(|rows| rows[0].observation.ordinal < rows[1].observation.ordinal)
                     && import.rows.iter().all(|row| {
                         let source = &row.observation;
+                        let unique_rejected: HashSet<_> = row.rejected_event_ids.iter().collect();
                         valid_id(&row.event_id)
                             && ["new", "existing"].contains(&row.decision.as_str())
+                            && row.rejected_event_ids.len() <= 10_000
+                            && unique_rejected.len() == row.rejected_event_ids.len()
+                            && row.rejected_event_ids.iter().all(|id| valid_id(id))
+                            && !row.rejected_event_ids.contains(&row.event_id)
+                            && (row.decision == "new" || row.rejected_event_ids.is_empty())
                             && source.ordinal > 0
                             && valid_date(&source.date)
                             && source.currency == "AUD"
@@ -652,6 +660,29 @@ impl Store {
                 if !exact {
                     for row in &import.rows {
                         let source = &row.observation;
+                        for rejected_id in &row.rejected_event_ids {
+                            let payload: Option<String> = transaction
+                                .query_row(
+                                    "SELECT payload FROM bank_events WHERE id = ?1",
+                                    [rejected_id],
+                                    |record| record.get(0),
+                                )
+                                .optional()
+                                .map_err(storage_error)?;
+                            let rejected: BankEvent = serde_json::from_str(
+                                &payload.ok_or("Rejected candidate no longer exists.")?,
+                            )
+                            .map_err(storage_error)?;
+                            if rejected.account_id != import.account_id
+                                || rejected.date != source.date
+                                || rejected.amount_cents != source.amount_cents
+                                || rejected.comparison_description != source.comparison_description
+                            {
+                                return Err(
+                                    "Rejected candidate is no longer compatible.".to_owned()
+                                );
+                            }
+                        }
                         if row.decision == "existing" {
                             let payload: Option<String> = transaction
                                 .query_row(
@@ -1318,6 +1349,7 @@ mod tests {
                 },
                 event_id: Uuid::new_v4().to_string(),
                 decision: "new".to_owned(),
+                rejected_event_ids: Vec::new(),
             })
             .collect();
         let record = BankImport {
@@ -1336,6 +1368,13 @@ mod tests {
             original_base64: Some(base64::engine::general_purpose::STANDARD.encode(csv)),
             rows,
         };
+        let mut legacy_row = serde_json::to_value(&record.rows[0]).unwrap();
+        legacy_row
+            .as_object_mut()
+            .unwrap()
+            .remove("rejectedEventIds");
+        let decoded_legacy_row: ImportRow = serde_json::from_value(legacy_row).unwrap();
+        assert!(decoded_legacy_row.rejected_event_ids.is_empty());
         let make_command = |record: BankImport, state: &Snapshot| Command {
             command_id: Uuid::new_v4().to_string(),
             expected_epoch: state.epoch.clone(),
@@ -1365,7 +1404,16 @@ mod tests {
         added.observation.ordinal = 5;
         added.event_id = Uuid::new_v4().to_string();
         added.decision = "new".to_owned();
+        added.rejected_event_ids = vec![overlap.rows[0].event_id.clone()];
         overlap.rows.push(added);
+        let mut invalid_overlap = overlap.clone();
+        invalid_overlap.rows[3].rejected_event_ids = vec![Uuid::new_v4().to_string()];
+        assert!(
+            store
+                .execute(make_command(invalid_overlap, &retry))
+                .is_err()
+        );
+        assert_eq!(store.read().unwrap().revision, retry.revision);
         let state = store.execute(make_command(overlap, &retry)).unwrap();
         assert_eq!(state.bank_events.len(), 4);
         assert_eq!(state.imports.len(), 2);
@@ -1377,6 +1425,10 @@ mod tests {
             .unwrap();
         assert_eq!(restored.snapshot.bank_events.len(), 4);
         assert_eq!(restored.snapshot.imports[0].rows.len(), 3);
+        assert_eq!(
+            restored.snapshot.imports[1].rows[3].rejected_event_ids,
+            vec![first.bank_events[0].id.clone()]
+        );
         assert_eq!(
             restored.snapshot.imports[0].original_base64,
             record.original_base64

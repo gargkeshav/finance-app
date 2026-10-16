@@ -1,8 +1,9 @@
 import { expect, it } from "vitest";
-import type {
-  BankEvent,
-  BankImport,
-  BankObservation,
+import {
+  bankImportSchema,
+  type BankEvent,
+  type BankImport,
+  type BankObservation,
 } from "../src/application/import-contracts";
 import { rankImportMatches } from "../src/domain/import-matching";
 
@@ -47,7 +48,11 @@ function event(
 
 function priorImport(
   id: string,
-  rows: Array<{ observation: BankObservation; eventId: string }>,
+  rows: Array<{
+    observation: BankObservation;
+    eventId: string;
+    rejectedEventIds?: string[];
+  }>,
   profile: BankImport["profile"] = "ing",
 ): BankImport {
   return {
@@ -58,10 +63,11 @@ function priorImport(
     contentHash: id.padEnd(64, "0"),
     headers: null,
     originalBase64: null,
-    rows: rows.map(({ observation: source, eventId }) => ({
+    rows: rows.map(({ observation: source, eventId, rejectedEventIds }) => ({
       observation: source,
       eventId,
       decision: "new",
+      rejectedEventIds: rejectedEventIds ?? [],
     })),
   };
 }
@@ -184,4 +190,43 @@ it("does not treat another profile's raw fields as matching evidence", () => {
     exactSourceFields: false,
     matchingNeighbors: 0,
   });
+});
+
+it("marks a previously rejected candidate while keeping it available", () => {
+  const row = observation(2, "Synthetic charge", -250, "source-row");
+  const eventId = "00000000-0000-4000-8000-000000000041";
+  const ranked = rankImportMatches(
+    [row],
+    accountId,
+    "ing",
+    [event(eventId, row.description, row.amountCents)],
+    [
+      priorImport("rejected", [
+        {
+          observation: row,
+          eventId: "00000000-0000-4000-8000-000000000042",
+          rejectedEventIds: [eventId],
+        },
+      ]),
+    ],
+  ).get(row.ordinal);
+
+  expect(ranked).toHaveLength(1);
+  expect(ranked?.[0].event.id).toBe(eventId);
+  expect(ranked?.[0].previouslyRejected).toBe(true);
+});
+
+it("defaults rejected candidate provenance for existing schema-3 imports", () => {
+  const row = observation(2, "Synthetic charge", -250, "source-row");
+  const eventId = "00000000-0000-4000-8000-000000000051";
+  const current = {
+    ...priorImport("legacy", [{ observation: row, eventId }]),
+    id: "00000000-0000-4000-8000-000000000061",
+    contentHash: "a".repeat(64),
+  };
+  const legacyRow: Record<string, unknown> = { ...current.rows[0] };
+  delete legacyRow.rejectedEventIds;
+  const parsed = bankImportSchema.parse({ ...current, rows: [legacyRow] });
+
+  expect(parsed.rows[0].rejectedEventIds).toEqual([]);
 });

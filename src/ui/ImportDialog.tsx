@@ -229,6 +229,11 @@ export function ImportDialog({
                   (choice && choice !== "new" ? choice : crypto.randomUUID()),
                 decision:
                   prior || (choice && choice !== "new") ? "existing" : "new",
+                rejectedEventIds:
+                  prior?.rejectedEventIds ??
+                  (choice === "new"
+                    ? matches(row).map((candidate) => candidate.event.id)
+                    : []),
               };
             }),
           },
@@ -464,15 +469,20 @@ export function ImportDialog({
                                       <option value="new">
                                         Keep as distinct new event
                                       </option>
-                                      {options.map(({ event: option }) => (
+                                      {options.map((candidate) => (
                                         <option
-                                          key={option.id}
-                                          value={option.id}
+                                          key={candidate.event.id}
+                                          value={candidate.event.id}
                                         >
-                                          Link {option.id.slice(0, 8)} /{" "}
-                                          {option.balanceCents === null
+                                          Link {candidate.event.id.slice(0, 8)}/{" "}
+                                          {candidate.previouslyRejected
+                                            ? "previously kept separate / "
+                                            : ""}
+                                          {candidate.event.balanceCents === null
                                             ? "unknown balance"
-                                            : formatAud(option.balanceCents)}
+                                            : formatAud(
+                                                candidate.event.balanceCents,
+                                              )}
                                         </option>
                                       ))}
                                     </select>
@@ -484,6 +494,9 @@ export function ImportDialog({
                                     >
                                       {candidate.exactSourceFields && (
                                         <span>Raw fields match exactly / </span>
+                                      )}
+                                      {candidate.previouslyRejected && (
+                                        <span>Previously kept separate / </span>
                                       )}
                                       {candidate.balanceEvidence === "same" && (
                                         <span>Balance matches / </span>

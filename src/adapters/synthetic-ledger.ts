@@ -59,6 +59,20 @@ export class SyntheticLedger implements Ledger {
       );
       if (!exact) {
         for (const row of record.rows) {
+          for (const rejectedEventId of row.rejectedEventIds) {
+            const rejected = next.bankEvents.find(
+              (event) => event.id === rejectedEventId,
+            );
+            if (
+              !rejected ||
+              rejected.accountId !== record.accountId ||
+              rejected.date !== row.observation.date ||
+              rejected.amountCents !== row.observation.amountCents ||
+              rejected.comparisonDescription !==
+                row.observation.comparisonDescription
+            )
+              throw new Error("Rejected overlap is no longer compatible.");
+          }
           const event = next.bankEvents.find(
             (event) => event.id === row.eventId,
           );
