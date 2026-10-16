@@ -206,3 +206,67 @@ test("kept-separate overlap decisions are persisted and can be revisited", async
     page.getByRole("cell", { name: "AUD -9.99", exact: true }),
   ).toHaveCount(2);
 });
+
+test("import history can explicitly relink a kept-new occurrence", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Add account", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Account name").fill("Reconciliation account");
+  await page.getByRole("button", { name: "Save account" }).click();
+
+  const header = "Date,Description,Credit,Debit,Balance\n";
+  async function importRow(filename: string, description: string) {
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByLabel("Bank CSV", { exact: true }).setInputFiles({
+      name: filename,
+      mimeType: "text/csv",
+      buffer: Buffer.from(`${header}3/10/2026,${description},,-9.99,\n`),
+    });
+    await page
+      .getByLabel("Import account")
+      .selectOption({ label: "Reconciliation account" });
+    await page.getByLabel("I confirm this account").check();
+  }
+  async function commitImport() {
+    await page.getByRole("button", { name: "Confirm import" }).click();
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+  }
+
+  await importRow("source-original.csv", "Synthetic recurring charge");
+  await commitImport();
+  await importRow("source-ambiguous.csv", "Synthetic  recurring charge");
+  await page.getByLabel("Occurrence decision for row 2").selectOption("new");
+  await commitImport();
+  await expect(
+    page.getByRole("cell", { name: "AUD -9.99", exact: true }),
+  ).toHaveCount(2);
+
+  await page.getByRole("button", { name: "Review kept-new matches" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Revisit import match" }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Rejected matching occurrence")
+    .selectOption({ index: 1 });
+  await page
+    .getByLabel("Reason for changing the match")
+    .fill("Confirmed same bank occurrence");
+  await page
+    .getByLabel(
+      "Relink this occurrence and retain the previous mapping in history.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Confirm relink" }).click();
+
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "AUD -9.99", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByText("Confirmed same bank occurrence", { exact: false }),
+  ).toBeVisible();
+});

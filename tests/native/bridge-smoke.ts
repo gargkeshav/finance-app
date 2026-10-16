@@ -54,6 +54,8 @@ export async function runNativeSmoke() {
       const preview = parseBankCsv(csv, "ing");
       if (preview.issues.length)
         throw new Error("Synthetic CSV parsing failed.");
+      const sourceEventId = crypto.randomUUID();
+      const sourceImportId = crypto.randomUUID();
       const contentHash = Array.from(
         new Uint8Array(
           await crypto.subtle.digest("SHA-256", new TextEncoder().encode(csv)),
@@ -67,20 +69,74 @@ export async function runNativeSmoke() {
         operation: {
           type: "commitImport",
           import: {
-            id: crypto.randomUUID(),
+            id: sourceImportId,
             accountId,
             profile: "ing",
             fileName: "synthetic-native.csv",
             contentHash,
             headers: preview.headers,
             originalBase64: null,
+            reconciliations: [],
             rows: preview.rows.map((observation) => ({
               observation,
-              eventId: crypto.randomUUID(),
+              eventId: sourceEventId,
               decision: "new",
               rejectedEventIds: [],
             })),
           },
+        },
+      });
+      const overlapCsv =
+        "Date,Description,Credit,Debit,Balance\n3/10/2026,Synthetic  imported groceries,,-15.18,\n";
+      const overlapPreview = parseBankCsv(overlapCsv, "ing");
+      if (overlapPreview.issues.length)
+        throw new Error("Synthetic overlap CSV parsing failed.");
+      const overlapEventId = crypto.randomUUID();
+      const overlapImportId = crypto.randomUUID();
+      const overlapHash = Array.from(
+        new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(overlapCsv),
+          ),
+        ),
+        (byte) => byte.toString(16).padStart(2, "0"),
+      ).join("");
+      snapshot = await ledger.execute({
+        commandId: crypto.randomUUID(),
+        expectedEpoch: snapshot.epoch,
+        expectedRevision: snapshot.revision,
+        operation: {
+          type: "commitImport",
+          import: {
+            id: overlapImportId,
+            accountId,
+            profile: "ing",
+            fileName: "synthetic-native-overlap.csv",
+            contentHash: overlapHash,
+            headers: overlapPreview.headers,
+            originalBase64: null,
+            reconciliations: [],
+            rows: overlapPreview.rows.map((observation) => ({
+              observation,
+              eventId: overlapEventId,
+              decision: "new",
+              rejectedEventIds: [sourceEventId],
+            })),
+          },
+        },
+      });
+      snapshot = await ledger.execute({
+        commandId: crypto.randomUUID(),
+        expectedEpoch: snapshot.epoch,
+        expectedRevision: snapshot.revision,
+        operation: {
+          type: "reconcileImport",
+          importId: overlapImportId,
+          ordinal: overlapPreview.rows[0].ordinal,
+          expectedEventId: overlapEventId,
+          candidateEventId: sourceEventId,
+          reason: "Synthetic duplicate confirmed",
         },
       });
       snapshot = await ledger.execute({
@@ -110,9 +166,14 @@ export async function runNativeSmoke() {
       });
     }
     if (
-      snapshot.revision !== 3 ||
-      snapshot.auditCount !== 3 ||
+      snapshot.revision !== 5 ||
+      snapshot.auditCount !== 5 ||
       snapshot.bankEvents[0]?.amountCents !== -1518 ||
+      snapshot.bankEvents.length !== 1 ||
+      snapshot.imports[1]?.rows[0]?.eventId !==
+        snapshot.imports[0]?.rows[0]?.eventId ||
+      snapshot.imports[1]?.reconciliations[0]?.reason !==
+        "Synthetic duplicate confirmed" ||
       snapshot.imports[0]?.rows[0]?.observation.rawFields[3] !== "-15.18" ||
       snapshot.expenses[0]?.amountCents !== 12000 ||
       snapshot.accounts[0]?.openingBalanceCents !== null

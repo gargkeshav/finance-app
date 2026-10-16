@@ -63,6 +63,7 @@ function priorImport(
     contentHash: id.padEnd(64, "0"),
     headers: null,
     originalBase64: null,
+    reconciliations: [],
     rows: rows.map(({ observation: source, eventId, rejectedEventIds }) => ({
       observation: source,
       eventId,
@@ -216,7 +217,7 @@ it("marks a previously rejected candidate while keeping it available", () => {
   expect(ranked?.[0].previouslyRejected).toBe(true);
 });
 
-it("defaults rejected candidate provenance for existing schema-3 imports", () => {
+it("defaults new provenance fields for existing schema-3 imports", () => {
   const row = observation(2, "Synthetic charge", -250, "source-row");
   const eventId = "00000000-0000-4000-8000-000000000051";
   const current = {
@@ -226,7 +227,13 @@ it("defaults rejected candidate provenance for existing schema-3 imports", () =>
   };
   const legacyRow: Record<string, unknown> = { ...current.rows[0] };
   delete legacyRow.rejectedEventIds;
-  const parsed = bankImportSchema.parse({ ...current, rows: [legacyRow] });
+  const legacyImport: Record<string, unknown> = {
+    ...current,
+    rows: [legacyRow],
+  };
+  delete legacyImport.reconciliations;
+  const parsed = bankImportSchema.parse(legacyImport);
 
   expect(parsed.rows[0].rejectedEventIds).toEqual([]);
+  expect(parsed.reconciliations).toEqual([]);
 });

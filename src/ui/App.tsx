@@ -40,7 +40,7 @@ import { bankProfileNames } from "../application/import-contracts";
 type View = "overview" | "transactions" | "accounts" | "data";
 type Modal = "account" | "expense" | null;
 const empty: Snapshot = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   epoch: crypto.randomUUID(),
   revision: 0,
   accounts: [],
@@ -204,7 +204,9 @@ export function App({
               ? "Expense reversed. Original record retained."
               : command.operation.type === "correctExpense"
                 ? "Expense corrected. Original record retained."
-                : "Expense saved.",
+                : command.operation.type === "reconcileImport"
+                  ? "Import occurrence relinked. Prior mapping retained in history."
+                  : "Expense saved.",
       );
     } finally {
       setBusy(false);
@@ -540,6 +542,9 @@ export function App({
                     <BankEventTable
                       snapshot={snapshot}
                       events={filteredBankEvents}
+                      busy={busy}
+                      pending={pending !== null}
+                      save={save}
                     />
                   )}
                 </>
@@ -705,11 +710,18 @@ export function App({
 function BankEventTable({
   snapshot,
   events,
+  busy,
+  pending,
+  save,
 }: {
   snapshot: Snapshot;
   events: Snapshot["bankEvents"];
+  busy: boolean;
+  pending: boolean;
+  save: (operation?: LedgerCommand["operation"]) => Promise<void>;
 }) {
   const [page, setPage] = useState(0);
+  const [reviewImportId, setReviewImportId] = useState<string | null>(null);
   const currentPage = Math.min(
     page,
     Math.max(0, Math.ceil(events.length / 50) - 1),
@@ -848,10 +860,253 @@ function BankEventTable({
               }{" "}
               / {record.rows.length} observations
             </span>
+            {record.rows.some(
+              (row) =>
+                row.decision === "new" &&
+                row.rejectedEventIds.some((id) =>
+                  snapshot.bankEvents.some((event) => event.id === id),
+                ),
+            ) && (
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => setReviewImportId(record.id)}
+              >
+                Review kept-new matches
+              </button>
+            )}
+            {record.reconciliations.map((reconciliation) => (
+              <p className="source-label" key={reconciliation.commandId}>
+                Row {reconciliation.ordinal} relinked from{" "}
+                {reconciliation.priorEventId.slice(0, 8)} to{" "}
+                {reconciliation.selectedEventId.slice(0, 8)}:{" "}
+                {reconciliation.reason}
+              </p>
+            ))}
           </div>
         ))}
       </section>
+      {reviewImportId && (
+        <ImportReconciliationDialog
+          record={snapshot.imports.find(
+            (record) => record.id === reviewImportId,
+          )!}
+          snapshot={snapshot}
+          busy={busy}
+          pending={pending}
+          close={() => {
+            if (!busy && !pending) setReviewImportId(null);
+          }}
+          save={save}
+        />
+      )}
     </>
+  );
+}
+
+function ImportReconciliationDialog({
+  record,
+  snapshot,
+  busy,
+  pending,
+  close,
+  save,
+}: {
+  record: Snapshot["imports"][number];
+  snapshot: Snapshot;
+  busy: boolean;
+  pending: boolean;
+  close: () => void;
+  save: (operation?: LedgerCommand["operation"]) => Promise<void>;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const reviewableRows = record.rows.filter(
+    (row) =>
+      row.decision === "new" &&
+      row.rejectedEventIds.some((id) =>
+        snapshot.bankEvents.some((event) => event.id === id),
+      ),
+  );
+  const [ordinal, setOrdinal] = useState<number | null>(
+    reviewableRows[0]?.observation.ordinal ?? null,
+  );
+  const [candidateId, setCandidateId] = useState("");
+  const [reason, setReason] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [error, setError] = useState("");
+  const previousRow = reviewableRows.find(
+    (row) => row.observation.ordinal === ordinal,
+  );
+  const candidates = (previousRow?.rejectedEventIds ?? []).flatMap((id) => {
+    const event = snapshot.bankEvents.find((candidate) => candidate.id === id);
+    return event ? [event] : [];
+  });
+  const selectedCandidate = candidates.find(
+    (event) => event.id === candidateId,
+  );
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const element = dialog.current;
+    element?.showModal();
+    return () => {
+      element?.close();
+      previous?.focus();
+    };
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    try {
+      if (pending) {
+        await save();
+        return;
+      }
+      if (!previousRow || !selectedCandidate || !confirmed || !reason.trim())
+        throw new Error("Choose a rejected candidate and confirm the reason.");
+      await save({
+        type: "reconcileImport",
+        importId: record.id,
+        ordinal: previousRow.observation.ordinal,
+        expectedEventId: previousRow.eventId,
+        candidateEventId: selectedCandidate.id,
+        reason: reason.trim(),
+      });
+      close();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  }
+
+  return (
+    <dialog
+      ref={dialog}
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+    >
+      <form onSubmit={submit}>
+        <div className="dialog-heading">
+          <h2 id={titleId}>Revisit import match</h2>
+          <button
+            className="icon-button"
+            type="button"
+            title="Close reconciliation"
+            aria-label="Close reconciliation"
+            onClick={close}
+            disabled={busy || pending}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        {error && (
+          <div className="banner error" role="alert">
+            <CircleAlert size={18} />
+            <span>{error}</span>
+          </div>
+        )}
+        <fieldset disabled={busy || pending}>
+          <label>
+            Source occurrence
+            <select
+              required
+              value={ordinal ?? ""}
+              onChange={(event) => {
+                setOrdinal(Number(event.target.value));
+                setCandidateId("");
+                setReason("");
+                setConfirmed(false);
+              }}
+            >
+              {reviewableRows.map((row) => (
+                <option
+                  key={row.observation.ordinal}
+                  value={row.observation.ordinal}
+                >
+                  Row {row.observation.ordinal}: {row.observation.date} /{" "}
+                  {row.observation.description}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Rejected matching occurrence
+            <select
+              required
+              value={candidateId}
+              onChange={(event) => setCandidateId(event.target.value)}
+            >
+              <option value="">Choose a candidate</option>
+              {candidates.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.date} / {candidate.description} /{" "}
+                  {formatAud(candidate.amountCents)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedCandidate && (
+            <p className="source-label">
+              This will combine the selected source occurrence with event{" "}
+              {selectedCandidate.id.slice(0, 8)}. Its prior event and rejected
+              decision remain in history.
+            </p>
+          )}
+          <label>
+            Reason for changing the match
+            <input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              required
+              maxLength={300}
+            />
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(event) => setConfirmed(event.target.checked)}
+              required
+            />
+            Relink this occurrence and retain the previous mapping in history.
+          </label>
+        </fieldset>
+        {pending && (
+          <p className="banner error" role="status">
+            Outcome unknown. Retry only the original reconciliation command.
+          </p>
+        )}
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={close}
+            disabled={busy || pending}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="primary"
+            disabled={
+              busy ||
+              (!pending && (!candidateId || !reason.trim() || !confirmed))
+            }
+          >
+            <Check size={17} />
+            {busy
+              ? "Saving..."
+              : pending
+                ? "Retry original command"
+                : "Confirm relink"}
+          </button>
+        </div>
+      </form>
+    </dialog>
   );
 }
 

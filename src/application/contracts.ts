@@ -76,7 +76,7 @@ export const expenseSchema = z
 
 export const snapshotSchema = z
   .object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     epoch: idSchema,
     revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     accounts: z.array(accountSchema),
@@ -109,6 +109,16 @@ export const commandSchema = z
     operation: z.discriminatedUnion("type", [
       z
         .object({ type: z.literal("commitImport"), import: bankImportSchema })
+        .strict(),
+      z
+        .object({
+          type: z.literal("reconcileImport"),
+          importId: idSchema,
+          ordinal: z.number().int().positive(),
+          expectedEventId: idSchema,
+          candidateEventId: idSchema,
+          reason: z.string().trim().min(1).max(300),
+        })
         .strict(),
       z
         .object({ type: z.literal("createAccount"), account: accountSchema })

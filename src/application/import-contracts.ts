@@ -41,6 +41,15 @@ export const bankEventSchema = z
   })
   .strict();
 export type BankEvent = z.infer<typeof bankEventSchema>;
+export const importReconciliationSchema = z
+  .object({
+    ordinal: z.number().int().positive(),
+    priorEventId: idSchema,
+    selectedEventId: idSchema,
+    reason: z.string().trim().min(1).max(300),
+    commandId: idSchema,
+  })
+  .strict();
 export const bankImportSchema = z
   .object({
     id: idSchema,
@@ -50,6 +59,10 @@ export const bankImportSchema = z
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
     headers: z.array(z.string()).nullable(),
     originalBase64: z.string().max(7_000_000).nullable(),
+    reconciliations: z
+      .array(importReconciliationSchema)
+      .max(10_000)
+      .default([]),
     rows: z
       .array(
         z

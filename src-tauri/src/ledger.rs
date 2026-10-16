@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const MAX_CENTS: i64 = 9_007_199_254_740_991;
+const MAX_IMPORT_ORDINAL: i64 = 10_001;
 type LedgerResult<T> = Result<T, String>;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -51,6 +52,14 @@ pub struct Expense {
 pub enum Operation {
     #[serde(rename = "commitImport")]
     CommitImport { import: BankImport },
+    #[serde(rename = "reconcileImport", rename_all = "camelCase")]
+    ReconcileImport {
+        import_id: String,
+        ordinal: i64,
+        expected_event_id: String,
+        candidate_event_id: String,
+        reason: String,
+    },
     #[serde(rename = "createAccount")]
     CreateAccount { account: Account },
     #[serde(rename = "createExpense")]
@@ -117,6 +126,16 @@ struct ImportRow {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ImportReconciliation {
+    ordinal: i64,
+    prior_event_id: String,
+    selected_event_id: String,
+    reason: String,
+    command_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BankImport {
     id: String,
     account_id: String,
@@ -125,6 +144,8 @@ pub struct BankImport {
     content_hash: String,
     headers: Option<Vec<String>>,
     original_base64: Option<String>,
+    #[serde(default)]
+    reconciliations: Vec<ImportReconciliation>,
     rows: Vec<ImportRow>,
 }
 
@@ -235,6 +256,7 @@ fn validate(command: &Command) -> LedgerResult<()> {
                         .bytes()
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
                     && (1..=10_000).contains(&import.rows.len())
+                    && import.reconciliations.is_empty()
                     && unique_events.len() == import.rows.len()
                     && unique_rows.len() == import.rows.len()
                     && import
@@ -274,6 +296,20 @@ fn validate(command: &Command) -> LedgerResult<()> {
             }
             Operation::ReverseExpense { expense_id, reason } => {
                 valid_id(expense_id) && valid_text(reason, 300)
+            }
+            Operation::ReconcileImport {
+                import_id,
+                ordinal,
+                expected_event_id,
+                candidate_event_id,
+                reason,
+            } => {
+                valid_id(import_id)
+                    && (1..=MAX_IMPORT_ORDINAL).contains(ordinal)
+                    && valid_id(expected_event_id)
+                    && valid_id(candidate_event_id)
+                    && expected_event_id != candidate_event_id
+                    && valid_text(reason, 300)
             }
             Operation::CreateAccount { account } => {
                 valid_id(&account.id)
@@ -346,7 +382,7 @@ impl Store {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(storage_error)?;
-        if version > 3 {
+        if version > 4 {
             return Err("This database requires a newer app. It was not modified.".to_owned());
         }
         if version == 0 {
@@ -381,6 +417,13 @@ impl Store {
                  CREATE TABLE bank_imports (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), profile TEXT NOT NULL, content_hash TEXT NOT NULL, payload TEXT NOT NULL CHECK(json_valid(payload)), UNIQUE(account_id,profile,content_hash));
                  PRAGMA user_version = 3;"
             ).map_err(storage_error)?;
+            transaction.commit().map_err(storage_error)?;
+        }
+        if version < 4 {
+            let transaction = connection.transaction().map_err(storage_error)?;
+            transaction
+                .execute_batch("PRAGMA user_version = 4;")
+                .map_err(storage_error)?;
             transaction.commit().map_err(storage_error)?;
         }
         Ok(Self {
@@ -447,7 +490,7 @@ impl Store {
         let mut document: ExportDocument =
             serde_json::from_str(text).map_err(|_| "Invalid or incomplete export.".to_owned())?;
         if document.format_version != 1
-            || ![2, 3].contains(&document.schema_version)
+            || ![2, 3, 4].contains(&document.schema_version)
             || document.snapshot.schema_version != i64::from(document.schema_version)
             || !document.unencrypted
             || !valid_id(&document.snapshot.epoch)
@@ -456,7 +499,7 @@ impl Store {
                 "Unsupported export version or format. Existing data was not changed.".to_owned(),
             );
         }
-        document.snapshot.schema_version = 3;
+        document.snapshot.schema_version = 4;
         let folder = self.path.parent().ok_or("Data folder is unavailable.")?;
         let staging = tempfile::tempdir_in(folder).map_err(storage_error)?;
         let mut staged = Store::open(&staging.path().join("staged.sqlite3"))?;
@@ -723,6 +766,92 @@ impl Store {
                     transaction.execute("INSERT INTO bank_imports(id,account_id,profile,content_hash,payload) VALUES(?1,?2,?3,?4,?5)", params![import.id, import.account_id, import.profile, import.content_hash, serde_json::to_string(import).map_err(storage_error)?]).map_err(storage_error)?;
                 }
             }
+            Operation::ReconcileImport {
+                import_id,
+                ordinal,
+                expected_event_id,
+                candidate_event_id,
+                reason,
+            } => {
+                let payload: Option<String> = transaction
+                    .query_row(
+                        "SELECT payload FROM bank_imports WHERE id = ?1",
+                        [import_id],
+                        |record| record.get(0),
+                    )
+                    .optional()
+                    .map_err(storage_error)?;
+                let mut record: BankImport =
+                    serde_json::from_str(&payload.ok_or("Import record not found.")?)
+                        .map_err(storage_error)?;
+                let row_index = record
+                    .rows
+                    .iter()
+                    .position(|row| row.observation.ordinal == *ordinal)
+                    .ok_or("Import occurrence not found.")?;
+                let row = &record.rows[row_index];
+                if row.decision != "new"
+                    || row.event_id != *expected_event_id
+                    || !row.rejected_event_ids.contains(candidate_event_id)
+                    || record.rows.iter().enumerate().any(|(index, other)| {
+                        index != row_index && other.event_id == *candidate_event_id
+                    })
+                {
+                    return Err("The rejected match is no longer available.".to_owned());
+                }
+                let source = &row.observation;
+                let event_payload: Option<String> = transaction
+                    .query_row(
+                        "SELECT payload FROM bank_events WHERE id = ?1",
+                        [candidate_event_id],
+                        |event| event.get(0),
+                    )
+                    .optional()
+                    .map_err(storage_error)?;
+                let candidate: BankEvent = serde_json::from_str(
+                    &event_payload.ok_or("Rejected candidate no longer exists.")?,
+                )
+                .map_err(storage_error)?;
+                if candidate.account_id != record.account_id
+                    || candidate.date != source.date
+                    || candidate.amount_cents != source.amount_cents
+                    || candidate.comparison_description != source.comparison_description
+                {
+                    return Err("Rejected candidate is no longer compatible.".to_owned());
+                }
+                let all_imports: Vec<BankImport> = read_payloads(
+                    &transaction,
+                    "SELECT payload FROM bank_imports ORDER BY rowid",
+                )?;
+                if !all_imports.iter().any(|item| {
+                    item.rows
+                        .iter()
+                        .any(|row| row.event_id == *candidate_event_id)
+                }) {
+                    return Err("Rejected candidate is no longer active.".to_owned());
+                }
+                let prior_event_id = record.rows[row_index].event_id.clone();
+                let row = &mut record.rows[row_index];
+                row.event_id = candidate_event_id.clone();
+                row.decision = "existing".to_owned();
+                row.rejected_event_ids.retain(|id| id != candidate_event_id);
+                record.reconciliations.push(ImportReconciliation {
+                    ordinal: *ordinal,
+                    prior_event_id,
+                    selected_event_id: candidate_event_id.clone(),
+                    reason: reason.clone(),
+                    command_id: command.command_id.clone(),
+                });
+                transaction
+                    .execute(
+                        "UPDATE bank_imports SET payload = ?1 WHERE id = ?2",
+                        params![
+                            serde_json::to_string(&record).map_err(storage_error)?,
+                            import_id
+                        ],
+                    )
+                    .map_err(storage_error)?;
+            }
             Operation::ReverseExpense { expense_id, .. }
             | Operation::CorrectExpense { expense_id, .. } => {
                 let exists: bool = transaction
@@ -798,7 +927,7 @@ fn serialize_export(connection: &Connection) -> LedgerResult<String> {
     )?;
     let output = serde_json::to_string_pretty(&ExportDocument {
         format_version: 1,
-        schema_version: 3,
+        schema_version: 4,
         unencrypted: true,
         snapshot,
         audit,
@@ -869,21 +998,32 @@ fn read_snapshot(connection: &Connection) -> LedgerResult<Snapshot> {
         .map_err(storage_error)?;
     let accounts = read_payloads(connection, "SELECT payload FROM accounts ORDER BY rowid")?;
     let expenses = read_payloads(connection, "SELECT payload FROM expenses ORDER BY rowid")?;
+    let imports: Vec<BankImport> = read_payloads(
+        connection,
+        "SELECT payload FROM bank_imports ORDER BY rowid",
+    )?;
+    let referenced_event_ids: HashSet<String> = imports
+        .iter()
+        .flat_map(|record| record.rows.iter().map(|row| row.event_id.clone()))
+        .collect();
+    let bank_events: Vec<BankEvent> =
+        read_payloads(connection, "SELECT payload FROM bank_events ORDER BY rowid")?;
+    let bank_events = bank_events
+        .into_iter()
+        .filter(|event| referenced_event_ids.contains(&event.id))
+        .collect();
     let reversals = read_payloads(
         connection,
         "SELECT json_object('expenseId', json_extract(request, '$.operation.expenseId'), 'reason', json_extract(request, '$.operation.reason')) FROM audit WHERE json_extract(request, '$.operation.type') IN ('reverseExpense','correctExpense') ORDER BY revision",
     )?;
     Ok(Snapshot {
-        schema_version: 3,
+        schema_version: 4,
         epoch,
         revision,
         accounts,
         expenses,
-        imports: read_payloads(
-            connection,
-            "SELECT payload FROM bank_imports ORDER BY rowid",
-        )?,
-        bank_events: read_payloads(connection, "SELECT payload FROM bank_events ORDER BY rowid")?,
+        imports,
+        bank_events,
         reversals,
         audit_count,
     })
@@ -1216,7 +1356,7 @@ mod tests {
             .unwrap();
         drop(legacy);
         let migrated = Store::open(&path).unwrap();
-        assert_eq!(migrated.read().unwrap().schema_version, 3);
+        assert_eq!(migrated.read().unwrap().schema_version, 4);
         assert_eq!(migrated.read().unwrap().accounts.len(), 1);
         let mut target = Store::open(&folder.path().join("restored.sqlite3")).unwrap();
         let state = target.read().unwrap();
@@ -1232,6 +1372,45 @@ mod tests {
             .query_row("SELECT request FROM audit", [], |row| row.get(0))
             .unwrap();
         assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn schema_three_database_migrates_to_four() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("schema-three.sqlite3");
+        let store = Store::open(&path).unwrap();
+        store
+            .connection
+            .execute_batch("PRAGMA user_version = 3;")
+            .unwrap();
+        drop(store);
+
+        let migrated = Store::open(&path).unwrap();
+        assert_eq!(migrated.read().unwrap().schema_version, 4);
+        let version: i64 = migrated
+            .connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 4);
+    }
+
+    #[test]
+    fn schema_three_export_remains_restorable() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut source = Store::open(&folder.path().join("source.sqlite3")).unwrap();
+        source.execute(account_command(&source)).unwrap();
+        let mut document: serde_json::Value =
+            serde_json::from_str(&source.export_json().unwrap()).unwrap();
+        document["schemaVersion"] = 3.into();
+        document["snapshot"]["schemaVersion"] = 3.into();
+        let mut target = Store::open(&folder.path().join("target.sqlite3")).unwrap();
+        let empty = target.read().unwrap();
+        let restored = target
+            .restore_json(&document.to_string(), &empty.epoch, empty.revision)
+            .unwrap();
+
+        assert_eq!(restored.snapshot.schema_version, 4);
+        assert_eq!(restored.snapshot.accounts.len(), 1);
     }
 
     #[test]
@@ -1366,6 +1545,7 @@ mod tests {
                 "Balance".to_owned(),
             ]),
             original_base64: Some(base64::engine::general_purpose::STANDARD.encode(csv)),
+            reconciliations: Vec::new(),
             rows,
         };
         let mut legacy_row = serde_json::to_value(&record.rows[0]).unwrap();
@@ -1417,6 +1597,70 @@ mod tests {
         let state = store.execute(make_command(overlap, &retry)).unwrap();
         assert_eq!(state.bank_events.len(), 4);
         assert_eq!(state.imports.len(), 2);
+        let mut reconsideration = record.clone();
+        reconsideration.id = Uuid::new_v4().to_string();
+        reconsideration.content_hash = "b".repeat(64);
+        reconsideration.original_base64 = None;
+        reconsideration.reconciliations.clear();
+        let mut reconsidered_row = record.rows[0].clone();
+        reconsidered_row.event_id = Uuid::new_v4().to_string();
+        reconsidered_row.decision = "new".to_owned();
+        reconsidered_row.rejected_event_ids = vec![first.bank_events[0].id.clone()];
+        reconsideration.rows = vec![reconsidered_row];
+        let before_reconciliation = store
+            .execute(make_command(reconsideration, &state))
+            .unwrap();
+        assert_eq!(before_reconciliation.bank_events.len(), 5);
+        let old_event_id = before_reconciliation.imports[2].rows[0].event_id.clone();
+        let selected_event_id = first.bank_events[0].id.clone();
+        let reconciliation = Command {
+            command_id: Uuid::new_v4().to_string(),
+            expected_epoch: before_reconciliation.epoch.clone(),
+            expected_revision: before_reconciliation.revision,
+            operation: Operation::ReconcileImport {
+                import_id: before_reconciliation.imports[2].id.clone(),
+                ordinal: 2,
+                expected_event_id: old_event_id.clone(),
+                candidate_event_id: selected_event_id.clone(),
+                reason: "Same bank occurrence confirmed".to_owned(),
+            },
+        };
+        let mut invalid_reconciliation = reconciliation.clone();
+        if let Operation::ReconcileImport {
+            candidate_event_id, ..
+        } = &mut invalid_reconciliation.operation
+        {
+            *candidate_event_id = Uuid::new_v4().to_string();
+        }
+        assert!(store.execute(invalid_reconciliation).is_err());
+        assert_eq!(
+            store.read().unwrap().revision,
+            before_reconciliation.revision
+        );
+        let reconciled = store.execute(reconciliation.clone()).unwrap();
+        assert_eq!(reconciled.bank_events.len(), 4);
+        assert_eq!(reconciled.imports[2].rows[0].event_id, selected_event_id);
+        assert_eq!(reconciled.imports[2].rows[0].decision, "existing");
+        assert!(reconciled.imports[2].rows[0].rejected_event_ids.is_empty());
+        assert_eq!(reconciled.imports[2].reconciliations.len(), 1);
+        assert_eq!(
+            reconciled.imports[2].reconciliations[0].prior_event_id,
+            old_event_id
+        );
+        assert_eq!(
+            reconciled.imports[2].reconciliations[0].reason,
+            "Same bank occurrence confirmed"
+        );
+        assert_eq!(store.execute(reconciliation).unwrap().audit_count, 6);
+        let old_event_still_stored: bool = store
+            .connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM bank_events WHERE id = ?1)",
+                [&old_event_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(old_event_still_stored);
         let exported = store.export_json().unwrap();
         let mut fresh = Store::open(&folder.path().join("fresh.sqlite3")).unwrap();
         let empty = fresh.read().unwrap();
@@ -1426,9 +1670,10 @@ mod tests {
         assert_eq!(restored.snapshot.bank_events.len(), 4);
         assert_eq!(restored.snapshot.imports[0].rows.len(), 3);
         assert_eq!(
-            restored.snapshot.imports[1].rows[3].rejected_event_ids,
-            vec![first.bank_events[0].id.clone()]
+            restored.snapshot.imports[2].rows[0].event_id,
+            selected_event_id
         );
+        assert_eq!(restored.snapshot.imports[2].reconciliations.len(), 1);
         assert_eq!(
             restored.snapshot.imports[0].original_base64,
             record.original_base64

@@ -217,6 +217,7 @@ export function ImportDialog({
             contentHash: file.hash,
             headers: preview.headers,
             originalBase64,
+            reconciliations: [],
             rows: rows.map((row) => {
               const prior = exact?.rows.find(
                 (previous) => previous.observation.ordinal === row.ordinal,
