@@ -34,6 +34,7 @@ import {
   sumCents,
 } from "../domain/value";
 import { calculateSpendingSummary } from "../domain/accounting";
+import { findPossibleTransfers } from "../domain/transfer-matching";
 import { ImportDialog } from "./ImportDialog";
 import { bankProfileNames } from "../application/import-contracts";
 
@@ -726,6 +727,12 @@ function BankEventTable({
     page,
     Math.max(0, Math.ceil(events.length / 50) - 1),
   );
+  const transferByEventId = new Map(
+    findPossibleTransfers(snapshot.bankEvents).flatMap((pair) => [
+      [pair.outgoing.id, pair] as const,
+      [pair.incoming.id, pair] as const,
+    ]),
+  );
   if (!events.length)
     return (
       <div className="empty-state">
@@ -758,64 +765,90 @@ function BankEventTable({
             {[...events]
               .reverse()
               .slice(currentPage * 50, (currentPage + 1) * 50)
-              .map((event) => (
-                <tr key={event.id}>
-                  <td className="date-cell">{event.date}</td>
-                  <td>
-                    <strong>{event.description}</strong>
-                    <details>
-                      <summary>Source observations</summary>
-                      {snapshot.imports.flatMap((record) =>
-                        record.rows
-                          .filter((row) => row.eventId === event.id)
-                          .map((row) => (
-                            <section
-                              className="source-observation"
-                              key={`${record.id}-${row.observation.ordinal}`}
-                            >
-                              <strong>
-                                {record.fileName} / row{" "}
-                                {row.observation.ordinal}
-                              </strong>
-                              <p>
-                                {bankProfileNames[record.profile]} /{" "}
-                                {row.decision === "new"
-                                  ? "New event"
-                                  : "Explicitly linked occurrence"}{" "}
-                                / Original{" "}
-                                {record.originalBase64 === null
-                                  ? "not retained"
-                                  : "retained"}
-                              </p>
-                              <ol>
-                                {row.observation.rawFields.map(
-                                  (field, index) => (
-                                    <li key={index}>{field || "(empty)"}</li>
-                                  ),
-                                )}
-                              </ol>
-                              <p>
-                                Source balance:{" "}
-                                {row.observation.balanceCents === null
-                                  ? "Unknown"
-                                  : formatAud(row.observation.balanceCents)}
-                              </p>
-                            </section>
-                          )),
+              .map((event) => {
+                const possibleTransfer = transferByEventId.get(event.id);
+                const counterpart = possibleTransfer
+                  ? possibleTransfer.outgoing.id === event.id
+                    ? possibleTransfer.incoming
+                    : possibleTransfer.outgoing
+                  : null;
+                return (
+                  <tr key={event.id}>
+                    <td className="date-cell">{event.date}</td>
+                    <td>
+                      <strong>{event.description}</strong>
+                      <details>
+                        <summary>Source observations</summary>
+                        {snapshot.imports.flatMap((record) =>
+                          record.rows
+                            .filter((row) => row.eventId === event.id)
+                            .map((row) => (
+                              <section
+                                className="source-observation"
+                                key={`${record.id}-${row.observation.ordinal}`}
+                              >
+                                <strong>
+                                  {record.fileName} / row{" "}
+                                  {row.observation.ordinal}
+                                </strong>
+                                <p>
+                                  {bankProfileNames[record.profile]} /{" "}
+                                  {row.decision === "new"
+                                    ? "New event"
+                                    : "Explicitly linked occurrence"}{" "}
+                                  / Original{" "}
+                                  {record.originalBase64 === null
+                                    ? "not retained"
+                                    : "retained"}
+                                </p>
+                                <ol>
+                                  {row.observation.rawFields.map(
+                                    (field, index) => (
+                                      <li key={index}>{field || "(empty)"}</li>
+                                    ),
+                                  )}
+                                </ol>
+                                <p>
+                                  Source balance:{" "}
+                                  {row.observation.balanceCents === null
+                                    ? "Unknown"
+                                    : formatAud(row.observation.balanceCents)}
+                                </p>
+                              </section>
+                            )),
+                        )}
+                      </details>
+                    </td>
+                    <td>
+                      {snapshot.accounts.find(
+                        (account) => account.id === event.accountId,
+                      )?.name ?? "Unknown account"}
+                    </td>
+                    <td>
+                      <span className="allocation-tag">
+                        Needs classification
+                      </span>
+                      {possibleTransfer && counterpart && (
+                        <details className="transfer-evidence">
+                          <summary>Possible transfer match</summary>
+                          <p>
+                            Same posting date, equal magnitude, opposite signs.
+                            Suggested only; no link is saved.
+                          </p>
+                          <p>
+                            {snapshot.accounts.find(
+                              (account) => account.id === counterpart.accountId,
+                            )?.name ?? "Other account"}
+                            : {counterpart.description} /{" "}
+                            {formatAud(counterpart.amountCents)}
+                          </p>
+                        </details>
                       )}
-                    </details>
-                  </td>
-                  <td>
-                    {snapshot.accounts.find(
-                      (account) => account.id === event.accountId,
-                    )?.name ?? "Unknown account"}
-                  </td>
-                  <td>
-                    <span className="allocation-tag">Needs classification</span>
-                  </td>
-                  <td className="amount">{formatAud(event.amountCents)}</td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="amount">{formatAud(event.amountCents)}</td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </div>

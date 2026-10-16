@@ -270,3 +270,68 @@ test("import history can explicitly relink a kept-new occurrence", async ({
     page.getByText("Confirmed same bank occurrence", { exact: false }),
   ).toBeVisible();
 });
+
+test("cross-account transfer evidence stays a suggestion, not a classification", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Add account", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Account name").fill("Transfer source account");
+  await page.getByRole("button", { name: "Save account" }).click();
+  await page.getByRole("button", { name: "Accounts", exact: true }).click();
+  await page.getByRole("button", { name: "Add account", exact: true }).click();
+  await page.getByLabel("Account name").fill("Transfer destination account");
+  await page.getByRole("button", { name: "Save account" }).click();
+
+  const header = "Date,Description,Credit,Debit,Balance\n";
+  async function importMovement(
+    filename: string,
+    account: string,
+    description: string,
+    credit: string,
+    debit: string,
+  ) {
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByLabel("Bank CSV", { exact: true }).setInputFiles({
+      name: filename,
+      mimeType: "text/csv",
+      buffer: Buffer.from(
+        `${header}3/10/2026,${description},${credit},${debit},\n`,
+      ),
+    });
+    await page.getByLabel("Import account").selectOption({ label: account });
+    await page.getByLabel("I confirm this account").check();
+    await page.getByRole("button", { name: "Confirm import" }).click();
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+  }
+
+  await importMovement(
+    "transfer-out.csv",
+    "Transfer source account",
+    "Synthetic account movement",
+    "",
+    "-25.00",
+  );
+  await importMovement(
+    "transfer-in.csv",
+    "Transfer destination account",
+    "Synthetic incoming movement",
+    "25.00",
+    "",
+  );
+  await page.getByLabel("Filter by account").selectOption("");
+
+  await expect(page.getByText("Possible transfer match")).toHaveCount(2);
+  await expect(page.getByText("Needs classification")).toHaveCount(2);
+  await page.getByText("Possible transfer match").first().click();
+  await expect(
+    page.getByText("Suggested only; no link is saved.", { exact: false }),
+  ).toHaveCount(2);
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await expect(
+    page.getByLabel("Manual ledger totals").getByText("AUD 0.00"),
+  ).toHaveCount(2);
+});

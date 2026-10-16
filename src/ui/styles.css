@@ -853,6 +853,13 @@ summary {
   color: var(--green);
   width: fit-content;
 }
+.transfer-evidence {
+  max-width: 240px;
+}
+.transfer-evidence p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
 details ol {
   padding-left: 20px;
   max-width: 400px;
