@@ -27,6 +27,7 @@ import {
   parseBankCsv,
 } from "../adapters/banks/parse-bank";
 import { formatAud } from "../domain/value";
+import { rankImportMatches } from "../domain/import-matching";
 
 interface SelectedFile {
   name: string;
@@ -142,24 +143,17 @@ export function ImportDialog({
             record.contentHash === file.hash,
         )
       : undefined;
-  const key = (
-    row: Pick<
-      BankObservation,
-      "date" | "amountCents" | "comparisonDescription"
-    >,
-  ) => JSON.stringify([row.date, row.amountCents, row.comparisonDescription]);
-  const candidateIndex = new Map<string, Snapshot["bankEvents"]>();
-  for (const event of snapshot.bankEvents) {
-    if (event.accountId !== accountId) continue;
-    const candidateKey = key(event);
-    const group = candidateIndex.get(candidateKey) ?? [];
-    group.push(event);
-    candidateIndex.set(candidateKey, group);
-  }
-  function matches(row: BankObservation) {
-    return candidateIndex.get(key(row)) ?? [];
-  }
   const rows = preview?.rows ?? [];
+  const rankedMatches = rankImportMatches(
+    rows,
+    accountId,
+    profile,
+    snapshot.bankEvents,
+    snapshot.imports,
+  );
+  function matches(row: BankObservation) {
+    return rankedMatches.get(row.ordinal) ?? [];
+  }
   const currentPage = Math.min(
     page,
     Math.max(0, Math.ceil(rows.length / 50) - 1),
@@ -470,7 +464,7 @@ export function ImportDialog({
                                       <option value="new">
                                         Keep as distinct new event
                                       </option>
-                                      {options.map((option) => (
+                                      {options.map(({ event: option }) => (
                                         <option
                                           key={option.id}
                                           value={option.id}
@@ -483,17 +477,34 @@ export function ImportDialog({
                                       ))}
                                     </select>
                                   </label>
-                                  {options.map((option) => (
+                                  {options.map((candidate) => (
                                     <div
                                       className="match-evidence"
-                                      key={option.id}
+                                      key={candidate.event.id}
                                     >
-                                      {option.id.slice(0, 8)} / {option.date} /{" "}
-                                      {formatAud(option.amountCents)} /{" "}
-                                      {option.description} /{" "}
-                                      {option.balanceCents === null
+                                      {candidate.exactSourceFields && (
+                                        <span>Raw fields match exactly / </span>
+                                      )}
+                                      {candidate.balanceEvidence === "same" && (
+                                        <span>Balance matches / </span>
+                                      )}
+                                      {candidate.balanceEvidence ===
+                                        "different" && (
+                                        <span>Balance differs / </span>
+                                      )}
+                                      {candidate.matchingNeighbors > 0 && (
+                                        <span>
+                                          {candidate.matchingNeighbors} adjacent
+                                          sequence match(es) /{" "}
+                                        </span>
+                                      )}
+                                      {candidate.event.id.slice(0, 8)} /{" "}
+                                      {candidate.event.date} /{" "}
+                                      {formatAud(candidate.event.amountCents)} /{" "}
+                                      {candidate.event.description} /{" "}
+                                      {candidate.event.balanceCents === null
                                         ? "Balance unknown"
-                                        : `Balance ${formatAud(option.balanceCents)}`}
+                                        : `Balance ${formatAud(candidate.event.balanceCents)}`}
                                     </div>
                                   ))}
                                 </>
