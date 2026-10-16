@@ -99,13 +99,38 @@ describe("House reimbursement claim derivation", () => {
       ],
       accounts,
       new Set(["reversed-house"]),
+      [{ expenseId: "mixed-house", amountCents: 4000 }],
     );
 
-    expect(claims.map((claim) => [claim.expenseId, claim.amountCents])).toEqual(
-      [
-        ["personal-house", 12000n],
-        ["mixed-house", 10000n],
-      ],
-    );
+    expect(
+      claims.map((claim) => [
+        claim.expenseId,
+        claim.amountCents,
+        claim.appliedCents,
+        claim.outstandingCents,
+      ]),
+    ).toEqual([
+      ["personal-house", 12000n, 0n, 12000n],
+      ["mixed-house", 10000n, 4000n, 6000n],
+    ]);
+  });
+
+  it("excludes a fully settled House claim", () => {
+    expect(
+      calculateHouseClaims(
+        [
+          {
+            id: "settled",
+            accountId: "personal",
+            date: "2026-10-01",
+            description: "Settled House expense",
+            allocations: [{ bucket: "house", amountCents: 5000 }],
+          },
+        ],
+        [{ id: "personal", role: "personal" }],
+        new Set(),
+        [{ expenseId: "settled", amountCents: 5000 }],
+      ),
+    ).toEqual([]);
   });
 });

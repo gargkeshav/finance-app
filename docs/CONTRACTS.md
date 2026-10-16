@@ -1,6 +1,6 @@
 # Current Implementation Contracts
 
-Stage: Gate 1, initial Gate 2, import-history reconciliation, and the first Gate 3 House-claim read model, schema 4. This is not the final V1 schema or a stable external API.
+Stage: Gate 1, initial Gate 2, import-history reconciliation, and the first Gate 3 House-claim/payment slice, schema 5. This is not the final V1 schema or a stable external API.
 
 ## Dependency Direction
 
@@ -14,7 +14,7 @@ Stage: Gate 1, initial Gate 2, import-history reconciliation, and the first Gate
 
 Overview calculates personal attribution from active manual allocations: personal portions plus one half of aggregate House allocations. Gross consumption and House allocations are aggregated in BigInt cents; if aggregate House cents are odd, the residual cent is assigned to the user's attribution. Reversed expenses are excluded.
 
-Sharing derives a provisional House reimbursement claim from each active manual expense's House allocation when its single funding account has personal ownership. The full House portion is claimed; common-account funding produces no personal claim. Corrections and reversals update the read model from active source expenses. These claims are not yet persisted independently and no settlement applications are represented, so displayed amounts are before reimbursement.
+Sharing derives House reimbursement claims from each active manual expense's House allocation when its single funding account has personal ownership. Common-account funding produces no personal claim. A manually confirmed House payment must come from a common asset account, explicitly allocate its full positive amount across one or more open claims, and cannot exceed any claim's outstanding balance. Partial and consolidated applications are supported. No unapplied advance/credit is created. Payment applications are persisted and included in audit/export/restore; the payment is not a new expense or income. Reversal/correction of a claim expense is rejected while linked payments remain; payment reversal/unapplication is not implemented yet. Payments are manually recorded and not yet reconciled to bank-event evidence. The displayed claim balance is derived from active House allocations less payment applications.
 
 ## Value Contract
 
@@ -22,11 +22,11 @@ AUD amounts are integer cents within the JavaScript safe-integer range. Input re
 
 ## Commands
 
-The strict envelope contains `commandId`, `expectedEpoch`, `expectedRevision`, and an allowlisted operation. Currently supported: `createAccount`, `createExpense`, `reverseExpense`, `correctExpense`, `commitImport`, and `reconcileImport`. Creation versions are exactly 1. A single ledger revision is an intentionally conservative optimistic-concurrency boundary. Restore regenerates the epoch so a pre-restore view cannot save against an accidentally matching revision.
+The strict envelope contains `commandId`, `expectedEpoch`, `expectedRevision`, and an allowlisted operation. Currently supported: `createAccount`, `createExpense`, `reverseExpense`, `correctExpense`, `commitImport`, `reconcileImport`, and `applyHousePayment`. Creation versions are exactly 1. A single ledger revision is an intentionally conservative optimistic-concurrency boundary. Restore regenerates the epoch so a pre-restore view cannot save against an accidentally matching revision.
 
 Accounts explicitly identify asset/credit kind and personal/common role. Opening balance/date are both supplied or both unknown. Even a supplied opening balance is not presented as a verified current balance without posted bank coverage.
 
-Expenses in this stage are positive, AUD, manually entered, fully funded from one existing account, with positive personal/House allocations summing exactly to the expense. The UI requires confirmation that the non-House remainder is personal. Person allocations, drafts, multiple funding sources, claims, and reversals are not supported yet, rather than silently inferred.
+Expenses in this stage are positive, AUD, manually entered, fully funded from one existing account, with positive personal/House allocations summing exactly to the expense. The UI requires confirmation that the non-House remainder is personal. Person allocations, drafts, and multiple funding sources are not supported yet, rather than silently inferred.
 
 SQLite `BEGIN IMMEDIATE` encloses the expense, allocations, funding, audit, and revision. Foreign keys and identity constraints are enabled. Stale revisions fail. An exact command retry returns current persisted state without another effect; a reused command ID with a different payload fails. `resolve_ledger` checks the canonical submitted command against audit evidence. On uncertain responses the UI retains the original command, locks its fields, and permits only that exact retry until the outcome is reconciled.
 
@@ -36,7 +36,7 @@ Reversal requires the active expense ID and a nonempty reason. It is a correctio
 
 ## Manual Recovery
 
-Export format 1/schema 4 is unencrypted JSON, limited to 32 MiB. Schema-2 and schema-3 exports remain restorable. It includes manual records, bank imports/events, raw observations, rejected-candidate evidence, import reconciliation history, optionally retained original CSV bytes, original audit requests/timestamps, and recovery history. A reconciliation preserves the prior event record physically and in audit history while snapshots expose only events still referenced by current import rows. Single-account funding is reconstructed deterministically from each audited creation/correction. No attachments, external IDs, rules, or credentials exist yet. Every native write checks the complete export size before commit, and staged restores check it before replacement. This intentionally conservative capacity check currently serializes the full ledger on each write; larger-history performance remains unverified. Each later schema expansion must expand and retest recovery before acceptance.
+Export format 1/schema 5 is unencrypted JSON, limited to 32 MiB. Schema-2 through schema-4 exports remain restorable. It includes manual records, House payment/application records, bank imports/events, raw observations, rejected-candidate evidence, import reconciliation history, optionally retained original CSV bytes, original audit requests/timestamps, and recovery history. A reconciliation preserves the prior event record physically and in audit history while snapshots expose only events still referenced by current import rows. Single-account funding is reconstructed deterministically from each audited creation/correction. No attachments, external IDs, rules, or credentials exist yet. Every native write checks the complete export size before commit, and staged restores check it before replacement. This intentionally conservative capacity check currently serializes the full ledger on each write; larger-history performance remains unverified. Each later schema expansion must expand and retest recovery before acceptance.
 
 Native file dialogs choose paths; the renderer cannot provide arbitrary paths. Export cannot target the live data directory. Restore requires both an in-app checkbox and native confirmation, stages replay in an isolated temporary SQLite database, validates original epochs (with compatibility for schema-1 journals), reconciles resulting records to the snapshot, and retains an unencrypted safety export. A `BEGIN IMMEDIATE` transaction rechecks epoch/revision and atomically replaces only allowlisted ledger tables. Failed staging or replacement leaves prior financial state unchanged. Recovery audit and a fresh epoch survive subsequent exports/restores. Invalid/newer/unknown-field documents are rejected; no archive path extraction occurs. Native file-dialog interaction is not yet verified.
 

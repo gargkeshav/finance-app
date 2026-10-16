@@ -45,11 +45,12 @@ import { bankProfileNames } from "../application/import-contracts";
 type View = "overview" | "transactions" | "sharing" | "accounts" | "data";
 type Modal = "account" | "expense" | null;
 const empty: Snapshot = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   epoch: crypto.randomUUID(),
   revision: 0,
   accounts: [],
   expenses: [],
+  housePayments: [],
   imports: [],
   bankEvents: [],
   reversals: [],
@@ -85,6 +86,7 @@ export function App({
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [restoreConfirmed, setRestoreConfirmed] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [housePaymentOpen, setHousePaymentOpen] = useState(false);
   const [transactionSource, setTransactionSource] = useState<"manual" | "bank">(
     "manual",
   );
@@ -211,7 +213,9 @@ export function App({
                 ? "Expense corrected. Original record retained."
                 : command.operation.type === "reconcileImport"
                   ? "Import occurrence relinked. Prior mapping retained in history."
-                  : "Expense saved.",
+                  : command.operation.type === "applyHousePayment"
+                    ? "House payment applications recorded."
+                    : "Expense saved.",
       );
     } finally {
       setBusy(false);
@@ -238,9 +242,14 @@ export function App({
     (expense) => expense.id === selectedExpenseId,
   );
   const spending = calculateSpendingSummary(activeExpenses);
-  const houseClaims = calculateHouseClaims(activeExpenses, snapshot.accounts);
+  const houseClaims = calculateHouseClaims(
+    activeExpenses,
+    snapshot.accounts,
+    new Set(),
+    snapshot.housePayments.flatMap((payment) => payment.applications),
+  );
   const houseClaimTotal = houseClaims.reduce(
-    (total, claim) => total + claim.amountCents,
+    (total, claim) => total + claim.outstandingCents,
     0n,
   );
 
@@ -592,44 +601,83 @@ export function App({
                   <p className="metric-note sharing-note">
                     Claims are derived from active House allocations paid from
                     personal accounts. Common-account funding does not create a
-                    personal claim.
+                    personal claim. Payments are manually recorded and are not
+                    yet reconciled to imported bank movements.
                   </p>
                   {houseClaims.length ? (
-                    <div className="table-scroll">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Posting date</th>
-                            <th>Expense</th>
-                            <th>Paid from</th>
-                            <th className="amount">Claim amount</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...houseClaims]
-                            .sort(
-                              (left, right) =>
-                                right.date.localeCompare(left.date) ||
-                                right.expenseId.localeCompare(left.expenseId),
+                    <>
+                      <div className="section-title">
+                        <span />
+                        <button
+                          className="primary"
+                          type="button"
+                          onClick={() => setHousePaymentOpen(true)}
+                          disabled={
+                            busy ||
+                            !snapshot.accounts.some(
+                              (account) =>
+                                account.role === "common" &&
+                                account.kind === "asset",
                             )
-                            .map((claim) => (
-                              <tr key={claim.expenseId}>
-                                <td className="date-cell">{claim.date}</td>
-                                <td>{claim.description}</td>
-                                <td>
-                                  {snapshot.accounts.find(
-                                    (account) =>
-                                      account.id === claim.paidFromAccountId,
-                                  )?.name ?? "Unknown account"}
-                                </td>
-                                <td className="amount">
-                                  {formatAudBigInt(claim.amountCents)}
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          }
+                          title={
+                            snapshot.accounts.some(
+                              (account) =>
+                                account.role === "common" &&
+                                account.kind === "asset",
+                            )
+                              ? "Record a confirmed common-account payment"
+                              : "Add a common bank/cash account first"
+                          }
+                        >
+                          <Check size={17} />
+                          Record House payment
+                        </button>
+                      </div>
+                      <div className="table-scroll">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Posting date</th>
+                              <th>Expense</th>
+                              <th>Paid from</th>
+                              <th className="amount">Claim</th>
+                              <th className="amount">Applied</th>
+                              <th className="amount">Outstanding</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[...houseClaims]
+                              .sort(
+                                (left, right) =>
+                                  right.date.localeCompare(left.date) ||
+                                  right.expenseId.localeCompare(left.expenseId),
+                              )
+                              .map((claim) => (
+                                <tr key={claim.expenseId}>
+                                  <td className="date-cell">{claim.date}</td>
+                                  <td>{claim.description}</td>
+                                  <td>
+                                    {snapshot.accounts.find(
+                                      (account) =>
+                                        account.id === claim.paidFromAccountId,
+                                    )?.name ?? "Unknown account"}
+                                  </td>
+                                  <td className="amount">
+                                    {formatAudBigInt(claim.amountCents)}
+                                  </td>
+                                  <td className="amount">
+                                    {formatAudBigInt(claim.appliedCents)}
+                                  </td>
+                                  <td className="amount">
+                                    {formatAudBigInt(claim.outstandingCents)}
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
                   ) : (
                     <div className="empty-state">
                       <UsersRound size={28} />
@@ -639,6 +687,61 @@ export function App({
                         here.
                       </p>
                     </div>
+                  )}
+                  {snapshot.housePayments.length > 0 && (
+                    <section className="accounts-band">
+                      <div className="section-title">
+                        <h2>House payment history</h2>
+                      </div>
+                      <div className="table-scroll">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Reference</th>
+                              <th>Paid from</th>
+                              <th>Applied claims</th>
+                              <th className="amount">Payment</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[...snapshot.housePayments]
+                              .sort(
+                                (left, right) =>
+                                  right.date.localeCompare(left.date) ||
+                                  right.id.localeCompare(left.id),
+                              )
+                              .map((payment) => (
+                                <tr key={payment.id}>
+                                  <td className="date-cell">{payment.date}</td>
+                                  <td>{payment.description}</td>
+                                  <td>
+                                    {snapshot.accounts.find(
+                                      (account) =>
+                                        account.id === payment.accountId,
+                                    )?.name ?? "Unknown account"}
+                                  </td>
+                                  <td>
+                                    {payment.applications
+                                      .map((application) => {
+                                        const expense = snapshot.expenses.find(
+                                          (candidate) =>
+                                            candidate.id ===
+                                            application.expenseId,
+                                        );
+                                        return `${expense?.description ?? "Unknown claim"} ${formatAud(application.amountCents)}`;
+                                      })
+                                      .join("; ")}
+                                  </td>
+                                  <td className="amount">
+                                    {formatAud(payment.amountCents)}
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
                   )}
                 </section>
               )}
@@ -758,6 +861,20 @@ export function App({
           save={save}
         />
       )}
+      {housePaymentOpen && (
+        <HousePaymentDialog
+          claims={houseClaims}
+          commonAccounts={snapshot.accounts.filter(
+            (account) => account.role === "common" && account.kind === "asset",
+          )}
+          busy={busy}
+          pending={pending !== null}
+          close={() => {
+            if (!busy && !pending) setHousePaymentOpen(false);
+          }}
+          save={save}
+        />
+      )}
       {modal && (
         <EntryDialog
           modal={modal}
@@ -797,6 +914,243 @@ export function App({
         />
       )}
     </div>
+  );
+}
+
+function HousePaymentDialog({
+  claims,
+  commonAccounts,
+  busy,
+  pending,
+  close,
+  save,
+}: {
+  claims: ReturnType<typeof calculateHouseClaims>;
+  commonAccounts: Account[];
+  busy: boolean;
+  pending: boolean;
+  close: () => void;
+  save: (operation?: LedgerCommand["operation"]) => Promise<void>;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const [accountId, setAccountId] = useState(commonAccounts[0]?.id ?? "");
+  const today = new Date();
+  const [date, setDate] = useState(
+    `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`,
+  );
+  const [description, setDescription] = useState("");
+  const [applications, setApplications] = useState<Record<string, string>>({});
+  const [confirmed, setConfirmed] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const element = dialog.current;
+    element?.showModal();
+    return () => {
+      element?.close();
+      previous?.focus();
+    };
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    try {
+      if (pending) {
+        await save();
+        close();
+        return;
+      }
+      if (!confirmed)
+        throw new Error("Confirm the common-account payment and applications.");
+      const chosen = Object.entries(applications)
+        .filter(([, amount]) => amount.trim() !== "")
+        .map(([expenseId, amount]) => ({
+          expenseId,
+          amountCents: parseAud(amount),
+        }));
+      if (
+        !chosen.length ||
+        chosen.some((application) => application.amountCents <= 0)
+      )
+        throw new Error("Enter at least one positive claim application.");
+      for (const application of chosen) {
+        const claim = claims.find(
+          (candidate) => candidate.expenseId === application.expenseId,
+        );
+        if (!claim || BigInt(application.amountCents) > claim.outstandingCents)
+          throw new Error(
+            "An application exceeds its current outstanding claim.",
+          );
+      }
+      const amountCents = chosen.reduce(
+        (total, application) => sumCents([total, application.amountCents]),
+        0,
+      );
+      await save({
+        type: "applyHousePayment",
+        payment: {
+          id: crypto.randomUUID(),
+          accountId,
+          date,
+          description: description.trim(),
+          amountCents,
+          applications: chosen,
+        },
+      });
+      close();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  }
+
+  return (
+    <dialog
+      ref={dialog}
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+    >
+      <form onSubmit={submit}>
+        <div className="dialog-heading">
+          <h2 id={titleId}>Record House payment</h2>
+          <button
+            className="icon-button"
+            type="button"
+            title="Close House payment"
+            aria-label="Close House payment"
+            onClick={close}
+            disabled={busy || pending}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        {error && (
+          <div className="banner error" role="alert">
+            <CircleAlert size={18} />
+            <span>{error}</span>
+          </div>
+        )}
+        <fieldset disabled={busy || pending}>
+          <label>
+            Paid from common account
+            <select
+              value={accountId}
+              onChange={(event) => setAccountId(event.target.value)}
+              required
+            >
+              {commonAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="form-grid">
+            <label>
+              Payment date
+              <input
+                type="date"
+                min="1900-01-01"
+                max="9999-12-31"
+                value={date}
+                onChange={(event) => setDate(event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Reference / evidence description
+              <input
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                maxLength={300}
+                required
+              />
+            </label>
+          </div>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>House claim</th>
+                  <th className="amount">Outstanding</th>
+                  <th className="amount">Apply (AUD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {claims.map((claim) => (
+                  <tr key={claim.expenseId}>
+                    <td>
+                      {claim.date} / {claim.description}
+                    </td>
+                    <td className="amount">
+                      {formatAudBigInt(claim.outstandingCents)}
+                    </td>
+                    <td className="amount">
+                      <input
+                        aria-label={`Apply payment to ${claim.description}`}
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        value={applications[claim.expenseId] ?? ""}
+                        onChange={(event) =>
+                          setApplications((previous) => ({
+                            ...previous,
+                            [claim.expenseId]: event.target.value,
+                          }))
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(event) => setConfirmed(event.target.checked)}
+              required
+            />
+            I confirm this payment came from the selected common account. All
+            entered amounts will be applied; no unapplied credit is created.
+          </label>
+        </fieldset>
+        {pending && (
+          <p className="banner error" role="status">
+            Payment outcome unknown. Retry only the original command.
+          </p>
+        )}
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={close}
+            disabled={busy || pending}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="primary"
+            disabled={
+              busy ||
+              (!pending && (!confirmed || !description.trim() || !accountId))
+            }
+          >
+            <Check size={17} />
+            {busy
+              ? "Saving..."
+              : pending
+                ? "Retry original command"
+                : "Confirm payment"}
+          </button>
+        </div>
+      </form>
+    </dialog>
   );
 }
 

@@ -34,6 +34,13 @@ export interface HouseClaim {
   description: string;
   paidFromAccountId: string;
   amountCents: bigint;
+  outstandingCents: bigint;
+  appliedCents: bigint;
+}
+
+export interface HouseClaimApplication {
+  expenseId: string;
+  amountCents: number;
 }
 
 export function calculateSpendingSummary(
@@ -62,10 +69,19 @@ export function calculateHouseClaims(
   expenses: readonly HouseClaimExpense[],
   accounts: readonly ClaimFundingAccount[],
   reversedExpenseIds: ReadonlySet<string> = new Set(),
+  applications: readonly HouseClaimApplication[] = [],
 ): HouseClaim[] {
   const accountRoles = new Map(
     accounts.map((account) => [account.id, account.role]),
   );
+  const appliedByExpense = new Map<string, bigint>();
+  for (const application of applications) {
+    appliedByExpense.set(
+      application.expenseId,
+      (appliedByExpense.get(application.expenseId) ?? 0n) +
+        BigInt(application.amountCents),
+    );
+  }
   const claims: HouseClaim[] = [];
   for (const expense of expenses) {
     if (
@@ -76,13 +92,17 @@ export function calculateHouseClaims(
     const amountCents = expense.allocations
       .filter((line) => line.bucket === "house")
       .reduce((total, line) => total + BigInt(line.amountCents), 0n);
-    if (amountCents <= 0n) continue;
+    const appliedCents = appliedByExpense.get(expense.id) ?? 0n;
+    const outstandingCents = amountCents - appliedCents;
+    if (outstandingCents <= 0n) continue;
     claims.push({
       expenseId: expense.id,
       date: expense.date,
       description: expense.description,
       paidFromAccountId: expense.accountId,
       amountCents,
+      appliedCents,
+      outstandingCents,
     });
   }
   return claims;

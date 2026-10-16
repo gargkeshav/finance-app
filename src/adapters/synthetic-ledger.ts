@@ -8,11 +8,12 @@ import {
 
 export class SyntheticLedger implements Ledger {
   private snapshot: Snapshot = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     epoch: crypto.randomUUID(),
     revision: 0,
     accounts: [],
     expenses: [],
+    housePayments: [],
     imports: [],
     bankEvents: [],
     reversals: [],
@@ -175,7 +176,54 @@ export class SyntheticLedger implements Ledger {
         throw new Error("Expense not found.");
       if (next.reversals.some((reversal) => reversal.expenseId === expenseId))
         throw new Error("Expense is already reversed.");
+      if (
+        next.housePayments.some((payment) =>
+          payment.applications.some(
+            (application) => application.expenseId === expenseId,
+          ),
+        )
+      )
+        throw new Error(
+          "Reverse linked House payments before reversing this expense.",
+        );
       next.reversals.push({ expenseId, reason });
+    } else if (command.operation.type === "applyHousePayment") {
+      const payment = command.operation.payment;
+      const account = next.accounts.find(
+        (candidate) => candidate.id === payment.accountId,
+      );
+      if (!account || account.role !== "common" || account.kind !== "asset")
+        throw new Error("House payments require a common asset account.");
+      if (next.housePayments.some((existing) => existing.id === payment.id))
+        throw new Error("House payment already exists.");
+      for (const application of payment.applications) {
+        const expense = next.expenses.find(
+          (candidate) => candidate.id === application.expenseId,
+        );
+        if (
+          !expense ||
+          next.reversals.some((reversal) => reversal.expenseId === expense.id)
+        )
+          throw new Error("House claim is no longer active.");
+        const funding = next.accounts.find(
+          (candidate) => candidate.id === expense.accountId,
+        );
+        if (!funding || funding.role !== "personal")
+          throw new Error("House claim is not personally funded.");
+        const claimCents = expense.allocations
+          .filter((line) => line.bucket === "house")
+          .reduce((total, line) => total + BigInt(line.amountCents), 0n);
+        const appliedCents = next.housePayments
+          .flatMap((existing) => existing.applications)
+          .filter((existing) => existing.expenseId === expense.id)
+          .reduce(
+            (total, existing) => total + BigInt(existing.amountCents),
+            0n,
+          );
+        if (BigInt(application.amountCents) > claimCents - appliedCents)
+          throw new Error("House payment exceeds the outstanding claim.");
+      }
+      next.housePayments.push(payment);
     } else {
       const operation = command.operation;
       if (operation.type === "correctExpense") {
@@ -189,6 +237,16 @@ export class SyntheticLedger implements Ledger {
           )
         )
           throw new Error("Expense is already reversed.");
+        if (
+          next.housePayments.some((payment) =>
+            payment.applications.some(
+              (application) => application.expenseId === operation.expenseId,
+            ),
+          )
+        )
+          throw new Error(
+            "Reverse linked House payments before correcting this expense.",
+          );
         next.reversals.push({
           expenseId: operation.expenseId,
           reason: operation.reason,

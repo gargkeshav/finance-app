@@ -115,7 +115,7 @@ test("Sharing shows personal-funded House claims but excludes common funding", a
   ).toBeVisible();
   await expect(
     page.getByRole("cell", { name: "AUD 120.00", exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(2);
 
   await page.getByRole("button", { name: "Accounts", exact: true }).click();
   await page.getByRole("button", { name: "Add account", exact: true }).click();
@@ -136,10 +136,104 @@ test("Sharing shows personal-funded House claims but excludes common funding", a
   await page.getByRole("button", { name: /^Sharing/ }).click();
   await expect(
     page.getByRole("cell", { name: "AUD 120.00", exact: true }),
-  ).toHaveCount(1);
+  ).toHaveCount(2);
   await expect(
     page.getByRole("cell", { name: "Common House purchase" }),
   ).toHaveCount(0);
+});
+
+test("House payments apply partially, reject excess, and do not become expenses", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Add account", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Account name").fill("Personal payer");
+  await page.getByRole("button", { name: "Save account" }).click();
+  await page.getByRole("button", { name: "Accounts", exact: true }).click();
+  await page.getByRole("button", { name: "Add account", exact: true }).click();
+  await page.getByLabel("Account name").fill("Settlement common");
+  await page.getByLabel("Ownership").selectOption("common");
+  await page.getByRole("button", { name: "Save account" }).click();
+  await page.getByRole("button", { name: "Add expense", exact: true }).click();
+  await page.getByLabel("Description").fill("Synthetic House claim");
+  await page.getByLabel("Posting date").fill("2026-10-03");
+  await page.getByLabel("Paid from").selectOption({ label: "Personal payer" });
+  await page.getByLabel("Expense total").fill("120.00");
+  await page.getByLabel("House portion").fill("120.00");
+  await page.getByLabel("I confirm").check();
+  await page.getByRole("button", { name: "Save expense" }).click();
+
+  await page.getByRole("button", { name: /^Sharing/ }).click();
+  await page.getByRole("button", { name: "Record House payment" }).click();
+  await page.getByLabel("Payment date").fill("2026-10-10");
+  await page
+    .getByLabel("Reference / evidence description")
+    .fill("Synthetic common-account reimbursement");
+  const application = page.getByLabel("Apply payment to Synthetic House claim");
+  await application.fill("40.00");
+  await page
+    .getByLabel(
+      "I confirm this payment came from the selected common account. All entered amounts will be applied; no unapplied credit is created.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Confirm payment" }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "AUD 80.00", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "AUD 40.00", exact: true }),
+  ).toHaveCount(2);
+  await expect(
+    page.getByRole("cell", { name: "Synthetic common-account reimbursement" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Record House payment" }).click();
+  await page.getByLabel("Payment date").fill("2026-10-11");
+  await page
+    .getByLabel("Reference / evidence description")
+    .fill("Synthetic remaining reimbursement");
+  const remainingApplication = page.getByLabel(
+    "Apply payment to Synthetic House claim",
+  );
+  await remainingApplication.fill("90.00");
+  await page
+    .getByLabel(
+      "I confirm this payment came from the selected common account. All entered amounts will be applied; no unapplied credit is created.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Confirm payment" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "exceeds its current outstanding claim",
+  );
+  await remainingApplication.fill("80.00");
+  await page
+    .getByLabel(
+      "I confirm this payment came from the selected common account. All entered amounts will be applied; no unapplied credit is created.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Confirm payment" }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "No House claims" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "Synthetic remaining reimbursement" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await expect(
+    page.getByLabel("Manual ledger totals").getByText("AUD 0.00"),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Manual ledger totals").getByText("AUD 60.00"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "AUD 120.00", exact: true }),
+  ).toBeVisible();
 });
 
 test("invalid money does not save, Escape restores focus, and preview cannot persist", async ({

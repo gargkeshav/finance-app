@@ -31,6 +31,7 @@ export async function runNativeSmoke() {
     let snapshot = await ledger.read();
     if (snapshot.revision === 0) {
       const accountId = crypto.randomUUID();
+      const houseExpenseId = crypto.randomUUID();
       snapshot = await ledger.execute({
         commandId: crypto.randomUUID(),
         expectedEpoch: snapshot.epoch,
@@ -146,7 +147,7 @@ export async function runNativeSmoke() {
         operation: {
           type: "createExpense",
           expense: {
-            id: crypto.randomUUID(),
+            id: houseExpenseId,
             accountId,
             date: "2026-10-03",
             description: "Synthetic native groceries",
@@ -164,10 +165,45 @@ export async function runNativeSmoke() {
           },
         },
       });
+      const commonAccountId = crypto.randomUUID();
+      snapshot = await ledger.execute({
+        commandId: crypto.randomUUID(),
+        expectedEpoch: snapshot.epoch,
+        expectedRevision: snapshot.revision,
+        operation: {
+          type: "createAccount",
+          account: {
+            id: commonAccountId,
+            name: "Synthetic native common account",
+            kind: "asset",
+            role: "common",
+            currency: "AUD",
+            openingBalanceCents: null,
+            openingDate: null,
+            version: 1,
+          },
+        },
+      });
+      snapshot = await ledger.execute({
+        commandId: crypto.randomUUID(),
+        expectedEpoch: snapshot.epoch,
+        expectedRevision: snapshot.revision,
+        operation: {
+          type: "applyHousePayment",
+          payment: {
+            id: crypto.randomUUID(),
+            accountId: commonAccountId,
+            date: "2026-10-10",
+            description: "Synthetic native partial reimbursement",
+            amountCents: 2000,
+            applications: [{ expenseId: houseExpenseId, amountCents: 2000 }],
+          },
+        },
+      });
     }
     if (
-      snapshot.revision !== 5 ||
-      snapshot.auditCount !== 5 ||
+      snapshot.revision !== 7 ||
+      snapshot.auditCount !== 7 ||
       snapshot.bankEvents[0]?.amountCents !== -1518 ||
       snapshot.bankEvents.length !== 1 ||
       snapshot.imports[1]?.rows[0]?.eventId !==
@@ -176,6 +212,7 @@ export async function runNativeSmoke() {
         "Synthetic duplicate confirmed" ||
       snapshot.imports[0]?.rows[0]?.observation.rawFields[3] !== "-15.18" ||
       snapshot.expenses[0]?.amountCents !== 12000 ||
+      snapshot.housePayments[0]?.applications[0]?.amountCents !== 2000 ||
       snapshot.accounts[0]?.openingBalanceCents !== null
     ) {
       throw new Error("Native persistence invariant failed.");

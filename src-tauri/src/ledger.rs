@@ -72,6 +72,8 @@ pub enum Operation {
         reason: String,
         replacement: Expense,
     },
+    #[serde(rename = "applyHousePayment")]
+    ApplyHousePayment { payment: HousePayment },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -92,6 +94,8 @@ pub struct Snapshot {
     revision: i64,
     accounts: Vec<Account>,
     expenses: Vec<Expense>,
+    #[serde(default)]
+    house_payments: Vec<HousePayment>,
     #[serde(default)]
     imports: Vec<BankImport>,
     #[serde(default)]
@@ -167,6 +171,24 @@ struct BankEvent {
 struct Reversal {
     expense_id: String,
     reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HousePaymentApplication {
+    expense_id: String,
+    amount_cents: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HousePayment {
+    id: String,
+    account_id: String,
+    date: String,
+    description: String,
+    amount_cents: i64,
+    applications: Vec<HousePaymentApplication>,
 }
 
 pub struct Store {
@@ -311,6 +333,31 @@ fn validate(command: &Command) -> LedgerResult<()> {
                     && expected_event_id != candidate_event_id
                     && valid_text(reason, 300)
             }
+            Operation::ApplyHousePayment { payment } => {
+                let applied_total = payment
+                    .applications
+                    .iter()
+                    .try_fold(0i64, |total, application| {
+                        total.checked_add(application.amount_cents)
+                    });
+                let unique_claims: HashSet<_> = payment
+                    .applications
+                    .iter()
+                    .map(|application| &application.expense_id)
+                    .collect();
+                valid_id(&payment.id)
+                    && valid_id(&payment.account_id)
+                    && valid_date(&payment.date)
+                    && valid_text(&payment.description, 300)
+                    && (1..=MAX_CENTS).contains(&payment.amount_cents)
+                    && (1..=100).contains(&payment.applications.len())
+                    && applied_total == Some(payment.amount_cents)
+                    && unique_claims.len() == payment.applications.len()
+                    && payment.applications.iter().all(|application| {
+                        valid_id(&application.expense_id)
+                            && (1..=MAX_CENTS).contains(&application.amount_cents)
+                    })
+            }
             Operation::CreateAccount { account } => {
                 valid_id(&account.id)
                     && valid_text(&account.name, 100)
@@ -382,7 +429,7 @@ impl Store {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(storage_error)?;
-        if version > 4 {
+        if version > 5 {
             return Err("This database requires a newer app. It was not modified.".to_owned());
         }
         if version == 0 {
@@ -424,6 +471,14 @@ impl Store {
             transaction
                 .execute_batch("PRAGMA user_version = 4;")
                 .map_err(storage_error)?;
+            transaction.commit().map_err(storage_error)?;
+        }
+        if version < 5 {
+            let transaction = connection.transaction().map_err(storage_error)?;
+            transaction.execute_batch(
+                "CREATE TABLE house_payments (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), payload TEXT NOT NULL CHECK(json_valid(payload)));
+                 PRAGMA user_version = 5;",
+            ).map_err(storage_error)?;
             transaction.commit().map_err(storage_error)?;
         }
         Ok(Self {
@@ -490,7 +545,7 @@ impl Store {
         let mut document: ExportDocument =
             serde_json::from_str(text).map_err(|_| "Invalid or incomplete export.".to_owned())?;
         if document.format_version != 1
-            || ![2, 3, 4].contains(&document.schema_version)
+            || ![2, 3, 4, 5].contains(&document.schema_version)
             || document.snapshot.schema_version != i64::from(document.schema_version)
             || !document.unencrypted
             || !valid_id(&document.snapshot.epoch)
@@ -499,7 +554,7 @@ impl Store {
                 "Unsupported export version or format. Existing data was not changed.".to_owned(),
             );
         }
-        document.snapshot.schema_version = 4;
+        document.snapshot.schema_version = 5;
         let folder = self.path.parent().ok_or("Data folder is unavailable.")?;
         let staging = tempfile::tempdir_in(folder).map_err(storage_error)?;
         let mut staged = Store::open(&staging.path().join("staged.sqlite3"))?;
@@ -606,10 +661,11 @@ impl Store {
                 return Err("The ledger changed. Restore was not applied.".to_owned());
             }
             transaction.execute_batch(
-                "DELETE FROM allocations; DELETE FROM funding; DELETE FROM expenses; DELETE FROM bank_imports; DELETE FROM bank_events; DELETE FROM accounts; DELETE FROM audit; DELETE FROM recovery_log;
+                "DELETE FROM allocations; DELETE FROM funding; DELETE FROM expenses; DELETE FROM bank_imports; DELETE FROM bank_events; DELETE FROM house_payments; DELETE FROM accounts; DELETE FROM audit; DELETE FROM recovery_log;
                  INSERT INTO accounts SELECT * FROM restored.accounts;
                  INSERT INTO bank_events SELECT * FROM restored.bank_events;
                  INSERT INTO bank_imports SELECT * FROM restored.bank_imports;
+                 INSERT INTO house_payments SELECT * FROM restored.house_payments;
                  INSERT INTO expenses SELECT * FROM restored.expenses;
                  INSERT INTO allocations SELECT * FROM restored.allocations;
                  INSERT INTO funding SELECT * FROM restored.funding;
@@ -852,6 +908,104 @@ impl Store {
                     )
                     .map_err(storage_error)?;
             }
+            Operation::ApplyHousePayment { payment } => {
+                let account_payload: Option<String> = transaction
+                    .query_row(
+                        "SELECT payload FROM accounts WHERE id = ?1",
+                        [&payment.account_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(storage_error)?;
+                let account: Account = serde_json::from_str(
+                    &account_payload.ok_or("House payment account not found.")?,
+                )
+                .map_err(storage_error)?;
+                if account.role != "common" || account.kind != "asset" {
+                    return Err("House payments require a common bank/cash account.".to_owned());
+                }
+                let already_exists: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM house_payments WHERE id = ?1)",
+                        [&payment.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(storage_error)?;
+                if already_exists {
+                    return Err("House payment already exists.".to_owned());
+                }
+                let previous_payments: Vec<HousePayment> = read_payloads(
+                    &transaction,
+                    "SELECT payload FROM house_payments ORDER BY rowid",
+                )?;
+                for application in &payment.applications {
+                    let expense_payload: Option<String> = transaction
+                        .query_row(
+                            "SELECT payload FROM expenses WHERE id = ?1",
+                            [&application.expense_id],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(storage_error)?;
+                    let expense: Expense = serde_json::from_str(
+                        &expense_payload.ok_or("House claim expense not found.")?,
+                    )
+                    .map_err(storage_error)?;
+                    let reversed: bool = transaction
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM audit WHERE json_extract(request, '$.operation.type') IN ('reverseExpense','correctExpense') AND json_extract(request, '$.operation.expenseId') = ?1)",
+                            [&application.expense_id],
+                            |row| row.get(0),
+                        )
+                        .map_err(storage_error)?;
+                    if reversed {
+                        return Err("House claim is no longer active.".to_owned());
+                    }
+                    let funding_payload: Option<String> = transaction
+                        .query_row(
+                            "SELECT payload FROM accounts WHERE id = ?1",
+                            [&expense.account_id],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(storage_error)?;
+                    let funding: Account = serde_json::from_str(
+                        &funding_payload.ok_or("Claim funding account not found.")?,
+                    )
+                    .map_err(storage_error)?;
+                    if funding.role != "personal" {
+                        return Err("House claim is not personally funded.".to_owned());
+                    }
+                    let claim_cents = expense
+                        .allocations
+                        .iter()
+                        .filter(|line| line.bucket == "house")
+                        .try_fold(0i64, |total, line| total.checked_add(line.amount_cents))
+                        .ok_or("House claim exceeds the supported range.")?;
+                    let applied_cents = previous_payments
+                        .iter()
+                        .flat_map(|prior| prior.applications.iter())
+                        .filter(|prior| prior.expense_id == application.expense_id)
+                        .try_fold(0i64, |total, prior| total.checked_add(prior.amount_cents))
+                        .ok_or("Applied House payments exceed the supported range.")?;
+                    let outstanding = claim_cents
+                        .checked_sub(applied_cents)
+                        .ok_or("House claim balance is inconsistent.")?;
+                    if application.amount_cents > outstanding {
+                        return Err("House payment exceeds the outstanding claim.".to_owned());
+                    }
+                }
+                transaction
+                    .execute(
+                        "INSERT INTO house_payments(id,account_id,payload) VALUES(?1,?2,?3)",
+                        params![
+                            payment.id,
+                            payment.account_id,
+                            serde_json::to_string(payment).map_err(storage_error)?
+                        ],
+                    )
+                    .map_err(storage_error)?;
+            }
             Operation::ReverseExpense { expense_id, .. }
             | Operation::CorrectExpense { expense_id, .. } => {
                 let exists: bool = transaction
@@ -867,6 +1021,18 @@ impl Store {
                 let reversed: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM audit WHERE json_extract(request, '$.operation.type') IN ('reverseExpense','correctExpense') AND json_extract(request, '$.operation.expenseId') = ?1)", [expense_id], |row| row.get(0)).map_err(storage_error)?;
                 if reversed {
                     return Err("Expense is already reversed.".to_owned());
+                }
+                let linked_payment: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM house_payments WHERE EXISTS (SELECT 1 FROM json_each(house_payments.payload, '$.applications') AS application WHERE json_extract(application.value, '$.expenseId') = ?1))",
+                        [expense_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(storage_error)?;
+                if linked_payment {
+                    return Err(
+                        "Reverse linked House payments before changing this expense.".to_owned(),
+                    );
                 }
                 if let Operation::CorrectExpense { replacement, .. } = &command.operation {
                     insert_expense(&transaction, replacement)?;
@@ -927,7 +1093,7 @@ fn serialize_export(connection: &Connection) -> LedgerResult<String> {
     )?;
     let output = serde_json::to_string_pretty(&ExportDocument {
         format_version: 1,
-        schema_version: 4,
+        schema_version: 5,
         unencrypted: true,
         snapshot,
         audit,
@@ -998,6 +1164,10 @@ fn read_snapshot(connection: &Connection) -> LedgerResult<Snapshot> {
         .map_err(storage_error)?;
     let accounts = read_payloads(connection, "SELECT payload FROM accounts ORDER BY rowid")?;
     let expenses = read_payloads(connection, "SELECT payload FROM expenses ORDER BY rowid")?;
+    let house_payments = read_payloads(
+        connection,
+        "SELECT payload FROM house_payments ORDER BY rowid",
+    )?;
     let imports: Vec<BankImport> = read_payloads(
         connection,
         "SELECT payload FROM bank_imports ORDER BY rowid",
@@ -1017,11 +1187,12 @@ fn read_snapshot(connection: &Connection) -> LedgerResult<Snapshot> {
         "SELECT json_object('expenseId', json_extract(request, '$.operation.expenseId'), 'reason', json_extract(request, '$.operation.reason')) FROM audit WHERE json_extract(request, '$.operation.type') IN ('reverseExpense','correctExpense') ORDER BY revision",
     )?;
     Ok(Snapshot {
-        schema_version: 4,
+        schema_version: 5,
         epoch,
         revision,
         accounts,
         expenses,
+        house_payments,
         imports,
         bank_events,
         reversals,
@@ -1349,14 +1520,14 @@ mod tests {
         let path = folder.path().join("legacy.sqlite3");
         let mut legacy = Store::open(&path).unwrap();
         legacy.execute(account_command(&legacy)).unwrap();
-        legacy.connection.execute_batch("UPDATE audit SET request = json_remove(request, '$.expectedEpoch'); ALTER TABLE ledger_state DROP COLUMN epoch; DROP TABLE recovery_log; DROP TABLE bank_imports; DROP TABLE bank_events; PRAGMA user_version = 1;").unwrap();
+        legacy.connection.execute_batch("UPDATE audit SET request = json_remove(request, '$.expectedEpoch'); ALTER TABLE ledger_state DROP COLUMN epoch; DROP TABLE recovery_log; DROP TABLE house_payments; DROP TABLE bank_imports; DROP TABLE bank_events; PRAGMA user_version = 1;").unwrap();
         let original: String = legacy
             .connection
             .query_row("SELECT request FROM audit", [], |row| row.get(0))
             .unwrap();
         drop(legacy);
         let migrated = Store::open(&path).unwrap();
-        assert_eq!(migrated.read().unwrap().schema_version, 4);
+        assert_eq!(migrated.read().unwrap().schema_version, 5);
         assert_eq!(migrated.read().unwrap().accounts.len(), 1);
         let mut target = Store::open(&folder.path().join("restored.sqlite3")).unwrap();
         let state = target.read().unwrap();
@@ -1375,23 +1546,193 @@ mod tests {
     }
 
     #[test]
-    fn schema_three_database_migrates_to_four() {
+    fn schema_four_database_migrates_to_five() {
         let folder = tempfile::tempdir().unwrap();
-        let path = folder.path().join("schema-three.sqlite3");
+        let path = folder.path().join("schema-four.sqlite3");
         let store = Store::open(&path).unwrap();
         store
             .connection
-            .execute_batch("PRAGMA user_version = 3;")
+            .execute_batch("DROP TABLE house_payments; PRAGMA user_version = 4;")
             .unwrap();
         drop(store);
 
         let migrated = Store::open(&path).unwrap();
-        assert_eq!(migrated.read().unwrap().schema_version, 4);
+        assert_eq!(migrated.read().unwrap().schema_version, 5);
         let version: i64 = migrated
             .connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
+    }
+
+    #[test]
+    fn house_payments_apply_partially_and_consolidate_without_overpayment() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&folder.path().join("house-payments.sqlite3")).unwrap();
+        let personal = store.execute(account_command(&store)).unwrap();
+        let common_command = Command {
+            command_id: Uuid::new_v4().to_string(),
+            expected_epoch: personal.epoch.clone(),
+            expected_revision: personal.revision,
+            operation: Operation::CreateAccount {
+                account: Account {
+                    id: Uuid::new_v4().to_string(),
+                    name: "Synthetic common account".to_owned(),
+                    kind: "asset".to_owned(),
+                    role: "common".to_owned(),
+                    currency: "AUD".to_owned(),
+                    opening_balance_cents: None,
+                    opening_date: None,
+                    version: 1,
+                },
+            },
+        };
+        let with_common = store.execute(common_command).unwrap();
+        let mut first_expense = expense_command(&store, &personal.accounts[0].id);
+        first_expense.expected_revision = with_common.revision;
+        let first_id = match &first_expense.operation {
+            Operation::CreateExpense { expense } => expense.id.clone(),
+            _ => unreachable!(),
+        };
+        let first_expense_state = store.execute(first_expense).unwrap();
+        let mut second_expense = expense_command(&store, &personal.accounts[0].id);
+        second_expense.expected_revision = first_expense_state.revision;
+        if let Operation::CreateExpense { expense } = &mut second_expense.operation {
+            expense.id = Uuid::new_v4().to_string();
+            expense.description = "Synthetic second House expense".to_owned();
+            expense.amount_cents = 8000;
+            expense.allocations[0].amount_cents = 8000;
+        }
+        let second_id = match &second_expense.operation {
+            Operation::CreateExpense { expense } => expense.id.clone(),
+            _ => unreachable!(),
+        };
+        let state = store.execute(second_expense).unwrap();
+        let common_id = with_common.accounts[1].id.clone();
+        let invalid_source = Command {
+            command_id: Uuid::new_v4().to_string(),
+            expected_epoch: state.epoch.clone(),
+            expected_revision: state.revision,
+            operation: Operation::ApplyHousePayment {
+                payment: HousePayment {
+                    id: Uuid::new_v4().to_string(),
+                    account_id: personal.accounts[0].id.clone(),
+                    date: "2026-10-10".to_owned(),
+                    description: "Synthetic invalid personal source".to_owned(),
+                    amount_cents: 1000,
+                    applications: vec![HousePaymentApplication {
+                        expense_id: first_id.clone(),
+                        amount_cents: 1000,
+                    }],
+                },
+            },
+        };
+        assert!(store.execute(invalid_source).is_err());
+        assert_eq!(store.read().unwrap().revision, state.revision);
+        let payment = HousePayment {
+            id: Uuid::new_v4().to_string(),
+            account_id: common_id.clone(),
+            date: "2026-10-10".to_owned(),
+            description: "Synthetic consolidated reimbursement".to_owned(),
+            amount_cents: 5000,
+            applications: vec![
+                HousePaymentApplication {
+                    expense_id: first_id.clone(),
+                    amount_cents: 3000,
+                },
+                HousePaymentApplication {
+                    expense_id: second_id.clone(),
+                    amount_cents: 2000,
+                },
+            ],
+        };
+        let command = Command {
+            command_id: Uuid::new_v4().to_string(),
+            expected_epoch: state.epoch.clone(),
+            expected_revision: state.revision,
+            operation: Operation::ApplyHousePayment {
+                payment: payment.clone(),
+            },
+        };
+        let partially_applied = store.execute(command.clone()).unwrap();
+        assert_eq!(partially_applied.house_payments.len(), 1);
+        assert_eq!(partially_applied.house_payments[0].amount_cents, 5000);
+        assert_eq!(
+            store.execute(command.clone()).unwrap().audit_count,
+            partially_applied.audit_count
+        );
+
+        let next_payment = HousePayment {
+            id: Uuid::new_v4().to_string(),
+            account_id: common_id,
+            date: "2026-10-11".to_owned(),
+            description: "Synthetic final reimbursement".to_owned(),
+            amount_cents: 15000,
+            applications: vec![
+                HousePaymentApplication {
+                    expense_id: first_id.clone(),
+                    amount_cents: 9000,
+                },
+                HousePaymentApplication {
+                    expense_id: second_id.clone(),
+                    amount_cents: 6000,
+                },
+            ],
+        };
+        let next_command = Command {
+            command_id: Uuid::new_v4().to_string(),
+            expected_epoch: partially_applied.epoch.clone(),
+            expected_revision: partially_applied.revision,
+            operation: Operation::ApplyHousePayment {
+                payment: next_payment,
+            },
+        };
+        let settled = store.execute(next_command).unwrap();
+        assert_eq!(settled.house_payments.len(), 2);
+        let overpayment = Command {
+            command_id: Uuid::new_v4().to_string(),
+            expected_epoch: settled.epoch.clone(),
+            expected_revision: settled.revision,
+            operation: Operation::ApplyHousePayment {
+                payment: HousePayment {
+                    id: Uuid::new_v4().to_string(),
+                    account_id: settled.accounts[1].id.clone(),
+                    date: "2026-10-12".to_owned(),
+                    description: "Synthetic overpayment".to_owned(),
+                    amount_cents: 1,
+                    applications: vec![HousePaymentApplication {
+                        expense_id: first_id.clone(),
+                        amount_cents: 1,
+                    }],
+                },
+            },
+        };
+        assert!(store.execute(overpayment).is_err());
+        assert_eq!(store.read().unwrap().revision, settled.revision);
+
+        let reversal = Command {
+            command_id: Uuid::new_v4().to_string(),
+            expected_epoch: settled.epoch.clone(),
+            expected_revision: settled.revision,
+            operation: Operation::ReverseExpense {
+                expense_id: first_id,
+                reason: "Attempted after settlement".to_owned(),
+            },
+        };
+        assert!(store.execute(reversal).is_err());
+        assert_eq!(store.read().unwrap().revision, settled.revision);
+
+        let exported = store.export_json().unwrap();
+        let mut restored = Store::open(&folder.path().join("restored.sqlite3")).unwrap();
+        let empty = restored.read().unwrap();
+        let restored_state = restored
+            .restore_json(&exported, &empty.epoch, empty.revision)
+            .unwrap();
+        assert_eq!(restored_state.snapshot.house_payments.len(), 2);
+        assert_eq!(
+            restored_state.snapshot.house_payments[0].applications.len(),
+            2
+        );
     }
 
     #[test]
@@ -1409,7 +1750,7 @@ mod tests {
             .restore_json(&document.to_string(), &empty.epoch, empty.revision)
             .unwrap();
 
-        assert_eq!(restored.snapshot.schema_version, 4);
+        assert_eq!(restored.snapshot.schema_version, 5);
         assert_eq!(restored.snapshot.accounts.len(), 1);
     }
 

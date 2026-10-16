@@ -74,13 +74,56 @@ export const expenseSchema = z
     }
   });
 
+export const housePaymentSchema = z
+  .object({
+    id: idSchema,
+    accountId: idSchema,
+    date: bankDateSchema,
+    description: z.string().trim().min(1).max(300),
+    amountCents: centsSchema.refine((amount) => amount > 0),
+    applications: z
+      .array(
+        z
+          .object({
+            expenseId: idSchema,
+            amountCents: centsSchema.refine((amount) => amount > 0),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+  })
+  .strict()
+  .superRefine((payment, context) => {
+    if (
+      sumCents(
+        payment.applications.map((application) => application.amountCents),
+      ) !== payment.amountCents
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Payment applications must equal the payment amount.",
+      });
+    }
+    if (
+      new Set(payment.applications.map((application) => application.expenseId))
+        .size !== payment.applications.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A payment may apply to each claim only once.",
+      });
+    }
+  });
+
 export const snapshotSchema = z
   .object({
-    schemaVersion: z.literal(4),
+    schemaVersion: z.literal(5),
     epoch: idSchema,
     revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     accounts: z.array(accountSchema),
     expenses: z.array(expenseSchema),
+    housePayments: z.array(housePaymentSchema).default([]),
     imports: z.array(bankImportSchema).default([]),
     bankEvents: z.array(bankEventSchema).default([]),
     reversals: z
@@ -128,6 +171,12 @@ export const commandSchema = z
         .strict(),
       z
         .object({
+          type: z.literal("applyHousePayment"),
+          payment: housePaymentSchema,
+        })
+        .strict(),
+      z
+        .object({
           type: z.literal("reverseExpense"),
           expenseId: idSchema,
           reason: z.string().trim().min(1).max(300),
@@ -147,6 +196,7 @@ export const commandSchema = z
 
 export type Account = z.infer<typeof accountSchema>;
 export type Expense = z.infer<typeof expenseSchema>;
+export type HousePayment = z.infer<typeof housePaymentSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type LedgerCommand = z.infer<typeof commandSchema>;
 
