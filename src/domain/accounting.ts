@@ -15,6 +15,27 @@ export interface SpendingSummary {
   attributedCents: bigint;
 }
 
+export interface HouseClaimExpense {
+  id: string;
+  accountId: string;
+  date: string;
+  description: string;
+  allocations: readonly SpendingLine[];
+}
+
+export interface ClaimFundingAccount {
+  id: string;
+  role: "personal" | "common";
+}
+
+export interface HouseClaim {
+  expenseId: string;
+  date: string;
+  description: string;
+  paidFromAccountId: string;
+  amountCents: bigint;
+}
+
 export function calculateSpendingSummary(
   expenses: readonly SpendingExpense[],
   reversedExpenseIds: ReadonlySet<string> = new Set(),
@@ -35,4 +56,34 @@ export function calculateSpendingSummary(
     houseCents,
     attributedCents: personalCents + (houseCents + 1n) / 2n,
   };
+}
+
+export function calculateHouseClaims(
+  expenses: readonly HouseClaimExpense[],
+  accounts: readonly ClaimFundingAccount[],
+  reversedExpenseIds: ReadonlySet<string> = new Set(),
+): HouseClaim[] {
+  const accountRoles = new Map(
+    accounts.map((account) => [account.id, account.role]),
+  );
+  const claims: HouseClaim[] = [];
+  for (const expense of expenses) {
+    if (
+      reversedExpenseIds.has(expense.id) ||
+      accountRoles.get(expense.accountId) !== "personal"
+    )
+      continue;
+    const amountCents = expense.allocations
+      .filter((line) => line.bucket === "house")
+      .reduce((total, line) => total + BigInt(line.amountCents), 0n);
+    if (amountCents <= 0n) continue;
+    claims.push({
+      expenseId: expense.id,
+      date: expense.date,
+      description: expense.description,
+      paidFromAccountId: expense.accountId,
+      amountCents,
+    });
+  }
+  return claims;
 }

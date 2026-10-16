@@ -1,6 +1,6 @@
 # Current Implementation Contracts
 
-Stage: Gate 1, initial Gate 2, import-history reconciliation, and a first Gate 3 reporting calculation, schema 4. This is not the final V1 schema or a stable external API.
+Stage: Gate 1, initial Gate 2, import-history reconciliation, and the first Gate 3 House-claim read model, schema 4. This is not the final V1 schema or a stable external API.
 
 ## Dependency Direction
 
@@ -12,7 +12,9 @@ Stage: Gate 1, initial Gate 2, import-history reconciliation, and a first Gate 3
 
 ## Current Spending Attribution
 
-Overview calculates personal attribution from active manual allocations: personal portions plus one half of aggregate House allocations. Gross consumption and House allocations are aggregated in BigInt cents; if aggregate House cents are odd, the residual cent is assigned to the user's attribution. Reversed expenses are excluded. This is reporting only and creates no reimbursement claims, partner debts, or settlements. Bank movements remain unclassified and excluded.
+Overview calculates personal attribution from active manual allocations: personal portions plus one half of aggregate House allocations. Gross consumption and House allocations are aggregated in BigInt cents; if aggregate House cents are odd, the residual cent is assigned to the user's attribution. Reversed expenses are excluded.
+
+Sharing derives a provisional House reimbursement claim from each active manual expense's House allocation when its single funding account has personal ownership. The full House portion is claimed; common-account funding produces no personal claim. Corrections and reversals update the read model from active source expenses. These claims are not yet persisted independently and no settlement applications are represented, so displayed amounts are before reimbursement.
 
 ## Value Contract
 

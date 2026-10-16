@@ -15,6 +15,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  UsersRound,
   Wallet,
   Upload,
   X,
@@ -33,12 +34,15 @@ import {
   parseAud,
   sumCents,
 } from "../domain/value";
-import { calculateSpendingSummary } from "../domain/accounting";
+import {
+  calculateHouseClaims,
+  calculateSpendingSummary,
+} from "../domain/accounting";
 import { findPossibleTransfers } from "../domain/transfer-matching";
 import { ImportDialog } from "./ImportDialog";
 import { bankProfileNames } from "../application/import-contracts";
 
-type View = "overview" | "transactions" | "accounts" | "data";
+type View = "overview" | "transactions" | "sharing" | "accounts" | "data";
 type Modal = "account" | "expense" | null;
 const empty: Snapshot = {
   schemaVersion: 4,
@@ -234,6 +238,11 @@ export function App({
     (expense) => expense.id === selectedExpenseId,
   );
   const spending = calculateSpendingSummary(activeExpenses);
+  const houseClaims = calculateHouseClaims(activeExpenses, snapshot.accounts);
+  const houseClaimTotal = houseClaims.reduce(
+    (total, claim) => total + claim.amountCents,
+    0n,
+  );
 
   return (
     <div className="app-shell">
@@ -275,6 +284,17 @@ export function App({
             </span>
           </button>
           <button
+            className={view === "sharing" ? "nav-item active" : "nav-item"}
+            onClick={() => setView("sharing")}
+            aria-current={view === "sharing" ? "page" : undefined}
+          >
+            <UsersRound size={18} />
+            Sharing
+            {houseClaims.length > 0 && (
+              <span className="nav-count">{houseClaims.length}</span>
+            )}
+          </button>
+          <button
             className={view === "accounts" ? "nav-item active" : "nav-item"}
             onClick={() => setView("accounts")}
             aria-current={view === "accounts" ? "page" : undefined}
@@ -307,9 +327,11 @@ export function App({
                 ? "Overview"
                 : view === "transactions"
                   ? "Transactions"
-                  : view === "accounts"
-                    ? "Accounts"
-                    : "Data"}
+                  : view === "sharing"
+                    ? "Sharing"
+                    : view === "accounts"
+                      ? "Accounts"
+                      : "Data"}
             </strong>
           </span>
           <div>
@@ -347,9 +369,11 @@ export function App({
                   ? "Overview"
                   : view === "transactions"
                     ? "Transactions"
-                    : view === "accounts"
-                      ? "Accounts"
-                      : "Data management"}
+                    : view === "sharing"
+                      ? "Sharing"
+                      : view === "accounts"
+                        ? "Accounts"
+                        : "Data management"}
               </h1>
             </div>
             {view !== "data" && (
@@ -419,6 +443,15 @@ export function App({
                       <strong>{formatAudBigInt(spending.houseCents)}</strong>
                       <span className="metric-note">
                         Shared equally; residual cent attributed to you
+                      </span>
+                    </div>
+                    <div>
+                      <span className="metric-label">
+                        House reimbursement claims <UsersRound size={15} />
+                      </span>
+                      <strong>{formatAudBigInt(houseClaimTotal)}</strong>
+                      <span className="metric-note">
+                        Active House portions paid from personal accounts
                       </span>
                     </div>
                     <div>
@@ -549,6 +582,65 @@ export function App({
                     />
                   )}
                 </>
+              )}
+              {view === "sharing" && (
+                <section className="sharing-view" aria-label="House claims">
+                  <div className="section-title">
+                    <h2>House reimbursement claims</h2>
+                    <strong>{formatAudBigInt(houseClaimTotal)}</strong>
+                  </div>
+                  <p className="metric-note sharing-note">
+                    Claims are derived from active House allocations paid from
+                    personal accounts. Common-account funding does not create a
+                    personal claim.
+                  </p>
+                  {houseClaims.length ? (
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Posting date</th>
+                            <th>Expense</th>
+                            <th>Paid from</th>
+                            <th className="amount">Claim amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...houseClaims]
+                            .sort(
+                              (left, right) =>
+                                right.date.localeCompare(left.date) ||
+                                right.expenseId.localeCompare(left.expenseId),
+                            )
+                            .map((claim) => (
+                              <tr key={claim.expenseId}>
+                                <td className="date-cell">{claim.date}</td>
+                                <td>{claim.description}</td>
+                                <td>
+                                  {snapshot.accounts.find(
+                                    (account) =>
+                                      account.id === claim.paidFromAccountId,
+                                  )?.name ?? "Unknown account"}
+                                </td>
+                                <td className="amount">
+                                  {formatAudBigInt(claim.amountCents)}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <UsersRound size={28} />
+                      <h3>No House claims</h3>
+                      <p>
+                        Active House spending from personal accounts will appear
+                        here.
+                      </p>
+                    </div>
+                  )}
+                </section>
               )}
               {view === "accounts" && (
                 <>

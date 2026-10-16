@@ -82,10 +82,64 @@ test("synthetic manual account and expense journey remains exact and accessible"
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(
     page.getByLabel("Manual ledger totals").getByText("AUD 0.00"),
-  ).toHaveCount(2);
+  ).toHaveCount(3);
   await expect(
     page.getByRole("cell", { name: "AUD 586.32", exact: true }),
   ).toBeVisible();
+});
+
+test("Sharing shows personal-funded House claims but excludes common funding", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Add account", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Account name").fill("Personal account");
+  await page.getByRole("button", { name: "Save account" }).click();
+  await page.getByRole("button", { name: "Add expense", exact: true }).click();
+  await page.getByLabel("Description").fill("Personal House purchase");
+  await page.getByLabel("Posting date").fill("2026-10-03");
+  await page
+    .getByLabel("Paid from")
+    .selectOption({ label: "Personal account" });
+  await page.getByLabel("Expense total").fill("120.00");
+  await page.getByLabel("House portion").fill("120.00");
+  await page.getByLabel("I confirm").check();
+  await page.getByRole("button", { name: "Save expense" }).click();
+
+  await page.getByRole("button", { name: /^Sharing/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "House reimbursement claims" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "AUD 120.00", exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Accounts", exact: true }).click();
+  await page.getByRole("button", { name: "Add account", exact: true }).click();
+  await page.getByLabel("Account name").fill("House common account");
+  await page.getByLabel("Ownership").selectOption("common");
+  await page.getByRole("button", { name: "Save account" }).click();
+  await page.getByRole("button", { name: "Add expense", exact: true }).click();
+  await page.getByLabel("Description").fill("Common House purchase");
+  await page.getByLabel("Posting date").fill("2026-10-04");
+  await page
+    .getByLabel("Paid from")
+    .selectOption({ label: "House common account" });
+  await page.getByLabel("Expense total").fill("80.00");
+  await page.getByLabel("House portion").fill("80.00");
+  await page.getByLabel("I confirm").check();
+  await page.getByRole("button", { name: "Save expense" }).click();
+
+  await page.getByRole("button", { name: /^Sharing/ }).click();
+  await expect(
+    page.getByRole("cell", { name: "AUD 120.00", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("cell", { name: "Common House purchase" }),
+  ).toHaveCount(0);
 });
 
 test("invalid money does not save, Escape restores focus, and preview cannot persist", async ({

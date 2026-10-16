@@ -91,7 +91,7 @@ test("import preserves multiplicity, exact retries and explicit overlapping occu
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(
     page.getByLabel("Manual ledger totals").getByText("AUD 0.00"),
-  ).toHaveCount(2);
+  ).toHaveCount(3);
 });
 
 test("multi-file import confirms and commits each file independently", async ({
@@ -333,5 +333,5 @@ test("cross-account transfer evidence stays a suggestion, not a classification",
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(
     page.getByLabel("Manual ledger totals").getByText("AUD 0.00"),
-  ).toHaveCount(2);
+  ).toHaveCount(3);
 });
