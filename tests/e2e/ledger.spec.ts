@@ -236,6 +236,57 @@ test("House payments apply partially, reject excess, and do not become expenses"
   ).toBeVisible();
 });
 
+test("expense can split House funding between account and labelled other source", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Add account", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Account name").fill("Personal funding account");
+  await page.getByRole("button", { name: "Save account" }).click();
+  await page.getByRole("button", { name: "Add expense", exact: true }).click();
+  await page
+    .getByLabel("Description")
+    .fill("Synthetic mixed-funded House purchase");
+  await page.getByLabel("Posting date").fill("2026-10-03");
+  await page.getByLabel("Expense total").fill("20.18");
+  await page.getByLabel("House portion").fill("15.18");
+  await page.getByRole("button", { name: "Add funding source" }).click();
+  await page.getByLabel("Funding source type 1").selectOption("other");
+  await page.getByLabel("Funding source label 1").fill("Cashback benefit");
+  await page.getByLabel("Funding source amount 1").fill("2.00");
+  await page.getByRole("button", { name: "Add funding source" }).click();
+  await page.getByLabel("Funding source type 2").selectOption("other");
+  await page.getByLabel("Funding source label 2").fill("Gift card / points");
+  await page.getByLabel("Funding source amount 2").fill("10.00");
+  await page.getByLabel("Funding source House amount 2").fill("10.00");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByLabel("I confirm").check();
+  await page.getByRole("button", { name: "Save expense" }).click();
+
+  await page.getByRole("button", { name: "Sharing" }).click();
+  await expect(
+    page.getByRole("cell", { name: "AUD 5.18", exact: true }),
+  ).toHaveCount(2);
+  await page.getByRole("button", { name: /^Transactions/ }).click();
+  await page
+    .getByRole("button", { name: "Synthetic mixed-funded House purchase" })
+    .click();
+  await expect(page.getByText("Cashback benefit: AUD 2.00")).toBeVisible();
+  await expect(page.getByText("Gift card / points: AUD 10.00")).toBeVisible();
+  await expect(
+    page.getByText("Personal funding account: AUD 8.18"),
+  ).toBeVisible();
+});
+
 test("invalid money does not save, Escape restores focus, and preview cannot persist", async ({
   page,
 }) => {

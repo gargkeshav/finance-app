@@ -576,6 +576,31 @@ fieldset select {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
+.funding-editor {
+  margin: 10px 0 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.funding-editor .section-title {
+  margin-bottom: 8px;
+}
+.funding-editor .section-title h3 {
+  font-size: 14px;
+  font-weight: 500;
+}
+.funding-source-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 36px;
+  gap: 0 12px;
+  align-items: end;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.funding-source-row > button {
+  grid-column: 3;
+  grid-row: 1;
+  margin-bottom: 18px;
+}
 .checkbox-label {
   flex-direction: row;
   align-items: center;

@@ -133,4 +133,34 @@ describe("House reimbursement claim derivation", () => {
       ),
     ).toEqual([]);
   });
+
+  it("claims only account-funded House portions of a mixed-source allocation", () => {
+    const claims = calculateHouseClaims(
+      [
+        {
+          id: "mixed-funding-house",
+          accountId: "personal",
+          date: "2026-10-01",
+          description: "Synthetic mixed-funding House purchase",
+          allocations: [
+            {
+              bucket: "house",
+              amountCents: 1518,
+              fundingSources: [
+                {
+                  kind: "account",
+                  accountId: "personal",
+                  amountCents: 518,
+                },
+                { kind: "other", accountId: null, amountCents: 1000 },
+              ],
+            },
+          ],
+        },
+      ],
+      [{ id: "personal", role: "personal" }],
+    );
+
+    expect(claims[0].amountCents).toBe(518n);
+  });
 });

@@ -5,6 +5,7 @@
 Build a local-first desktop finance app that answers: Where did my money go? Who owes me, what do I owe, and what is due from House?
 
 Confirmed scope:
+
 - AUD only initially; carry currency explicitly and reject unsupported currency rather than convert silently.
 - ING transaction, HSBC joint, ANZ transaction, and ANZ credit CSV imports. More accounts can use supported profiles; more formats come later.
 - Multiple personal/joint accounts, credit cards, cash, and stored-value/payment wallets. Support manual entries for expenses paid by others or outside bank feeds.
@@ -18,11 +19,20 @@ Confirmed scope:
 
 Deferred: encryption/passphrase/vault, automatic backups, server, multi-device sync, phone capture/balances, mobile reconciliation, budgets, forecasting, investments, savings-interest integration, AI categorization. Preserve sensible boundaries, not speculative implementations.
 
+### Core-First Implementation Priority
+
+Preserve already implemented imports, overlap review, transfer suggestions, House claims/payments, correction/reversal, and recovery. Prioritize the pending core expense workflow: imported bank observations remain immutable; users can create or amend a separate interpreted expense whose total may differ from a single bank movement; one expense supports multiple explicitly labelled funding sources; allocation totals and funding totals each balance exactly to the interpreted total. Account-funded portions retain account identity. Non-account sources require a label and do not create reimbursement claims unless explicitly identified as personally owned account-equivalent funding. Defer points units, stored-value balance tracking, dedicated reward/refund subsystems, advanced rules/reports, and Splitwise until this workflow is verified.
+
+### Core-First Implementation Priority
+
+Preserve already implemented imports, transfer suggestions, House claims/payments, correction/reversal, and recovery. Reprioritize pending work around the core expense workflow: imported bank observations remain immutable; a user may create or amend a distinct interpreted expense with a total independent of any one bank movement; one expense supports multiple explicitly labelled funding sources; allocation totals and funding totals each balance independently to the expense total. Account-funded portions retain account identity. Non-account sources require an explicit label and do not create reimbursement claims unless the source is explicitly classified as personally owned account-equivalent funding. Defer points units, gift-card balance tracking, dedicated reward/refund subsystems, advanced rules/reports, and Splitwise until this vertical slice is verified.
+
 ## 2. Architecture
 
 Use React + TypeScript, Tauri 2, and SQLite. Verify current compatible maintained dependency versions at Gate 0 and lock them. No public server is required.
 
 Suggested layout (adjust naming only, preserve dependency direction):
+
 - src/domain: money/date types, allocation/claim/report logic, matching policy, rule evaluation; pure TypeScript.
 - src/application: command/query contracts, workflow validation, domain orchestration; no React or native APIs.
 - src/adapters: bank parsing profiles, Splitwise normalization, repository/native client implementations.
@@ -90,16 +100,17 @@ Support safe archive/deactivation of referenced categories/people instead of del
 
 Workflow: choose files -> detect candidate profile -> confirm account/profile -> preview parsed rows and matching decisions -> resolve blockers -> atomic commit -> actionable summary. Allow multi-file batches with explicit account mappings. State atomicity per file/batch before confirmation. Parser errors must be visible; no silent skips.
 
-| Profile | Required behavior |
-| --- | --- |
-| ING | D/M/YYYY; separate credit/debit; negative debits already signed; optional balance; empty is not zero |
-| HSBC | D Mon YYYY with leading spaces; quoted comma amounts; NBSP in description; empty trailing header field; preserve unexpected nonempty columns or reject visibly |
-| ANZ credit | Headerless 8-column family; first row is data; signed amount in column 2; preserve trailing empty fields |
-| ANZ transaction | Same family; additional columns can contain references, names, messages, identifier-like negative strings; do not parse those as money |
+| Profile         | Required behavior                                                                                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ING             | D/M/YYYY; separate credit/debit; negative debits already signed; optional balance; empty is not zero                                                           |
+| HSBC            | D Mon YYYY with leading spaces; quoted comma amounts; NBSP in description; empty trailing header field; preserve unexpected nonempty columns or reject visibly |
+| ANZ credit      | Headerless 8-column family; first row is data; signed amount in column 2; preserve trailing empty fields                                                       |
+| ANZ transaction | Same family; additional columns can contain references, names, messages, identifier-like negative strings; do not parse those as money                         |
 
 Account identity is explicit, independent of filenames. The ANZ families are ambiguous from some contents: request confirmation, remember profile settings, never promise perfect subtype detection. Parse Australian dates strictly and preserve date-only semantics. Normalize whitespace for comparison separately from raw text. Receipt/reference extraction adds evidence without assuming stability or uniqueness.
 
 Duplicate policy:
+
 - Exact-file reimport is idempotent for its assigned account and profile interpretation; importing the same bytes into a different account is a separate explicit action.
 - Within an account, reconcile occurrence multiplicity across comparable overlapping exports. Preserve identical-looking legitimate transactions. Row ordinal is provenance, not stable event identity.
 - Date, amount/currency, reference, raw/normalized description, available balance and surrounding sequence are evidence; no date watermark or single hash can replace reconciliation.
@@ -137,15 +148,15 @@ Use a restrained neutral palette with distinct functional accents, clear typogra
 
 Every package delivers implementation, synthetic fixtures, tests, and concise evidence. Lead owns dependency contracts. Do not parallelize dependent packages until the prerequisite gate passes.
 
-| Gate | Work package and owner | Completion evidence |
-| --- | --- | --- |
-| 0 | Lead/native specialist: verify prerequisites, scaffold minimal Tauri/React/SQLite, pin dependencies, define money/date/command contracts | Native launch; typed command; transactional write/read; restart persistence; core TS test; packaged smoke; actual tool versions |
-| 1 | Lead: schema/migrations and manual ledger vertical slice | Manual account/expense, funding and allocation, audit, stale-write rejection, rollback, clean restart; minimal full export/restore roundtrip early |
-| 2 | Lead import coordinator; bounded adapter subagents after contracts | Four parsers + fixtures in parallel; shared multiplicity matcher owned separately; preview/commit journey and overlap/older-history tests |
-| 3 | Lead accounting; bounded UI/test agents | House/local person claims, refunds, gift cards/points funding, advances and settlement applications; all accounting examples in VERIFICATION.md |
-| 4 | Rules and reporting specialists under fixed domain contracts | Rule previews/locks/explanations, review inbox, personal/House toggle, reports reconciled to fixture ledger and drill-down |
-| 5 | Integration specialist supervised by lead | Splitwise feasibility result, mock contracts, read/reconcile, confirmed publish, secure credentials, unknown-outcome tests; live tests only with user permission |
-| 6 | Independent QA + lead fixes | Complete export/restore, packaged native journeys, browser/accessibility/responsive checks, requirement matrix, defects resolved or accepted |
+| Gate | Work package and owner                                                                                                                   | Completion evidence                                                                                                                                              |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Lead/native specialist: verify prerequisites, scaffold minimal Tauri/React/SQLite, pin dependencies, define money/date/command contracts | Native launch; typed command; transactional write/read; restart persistence; core TS test; packaged smoke; actual tool versions                                  |
+| 1    | Lead: schema/migrations and manual ledger vertical slice                                                                                 | Manual account/expense, funding and allocation, audit, stale-write rejection, rollback, clean restart; minimal full export/restore roundtrip early               |
+| 2    | Lead import coordinator; bounded adapter subagents after contracts                                                                       | Four parsers + fixtures in parallel; shared multiplicity matcher owned separately; preview/commit journey and overlap/older-history tests                        |
+| 3    | Lead accounting; bounded UI/test agents                                                                                                  | House/local person claims, refunds, gift cards/points funding, advances and settlement applications; all accounting examples in VERIFICATION.md                  |
+| 4    | Rules and reporting specialists under fixed domain contracts                                                                             | Rule previews/locks/explanations, review inbox, personal/House toggle, reports reconciled to fixture ledger and drill-down                                       |
+| 5    | Integration specialist supervised by lead                                                                                                | Splitwise feasibility result, mock contracts, read/reconcile, confirmed publish, secure credentials, unknown-outcome tests; live tests only with user permission |
+| 6    | Independent QA + lead fixes                                                                                                              | Complete export/restore, packaged native journeys, browser/accessibility/responsive checks, requirement matrix, defects resolved or accepted                     |
 
 Within each gate complete a thin usable journey before broadening. UI follows real contracts, not static mock data that hides missing workflows. Export/restore begins at Gate 1 and is retested at every schema expansion.
 

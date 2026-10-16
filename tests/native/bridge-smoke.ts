@@ -159,6 +159,15 @@ export async function runNativeSmoke() {
                 bucket: "house",
                 personId: null,
                 amountCents: 12000,
+                fundingSources: [
+                  {
+                    id: crypto.randomUUID(),
+                    kind: "account",
+                    accountId,
+                    label: "Synthetic native account",
+                    amountCents: 12000,
+                  },
+                ],
               },
             ],
             version: 1,

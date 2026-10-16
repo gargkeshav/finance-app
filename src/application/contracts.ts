@@ -32,12 +32,27 @@ export const accountSchema = z
     },
   );
 
+export const fundingSourceSchema = z
+  .object({
+    id: idSchema,
+    kind: z.enum(["account", "other"]),
+    accountId: idSchema.nullable(),
+    label: z.string().trim().min(1).max(100),
+    amountCents: centsSchema.refine((amount) => amount > 0),
+  })
+  .strict()
+  .refine(
+    (source) => (source.kind === "account") === (source.accountId !== null),
+    "Account funding requires an account; other funding must not invent one.",
+  );
+
 export const allocationSchema = z
   .object({
     id: idSchema,
     bucket: z.enum(["personal", "house"]),
     personId: z.null(),
     amountCents: centsSchema.refine((amount) => amount > 0),
+    fundingSources: z.array(fundingSourceSchema).max(20).default([]),
   })
   .strict();
 
@@ -71,6 +86,43 @@ export const expenseSchema = z
         code: "custom",
         message: "Allocation IDs must be unique.",
       });
+    }
+    const hasFundingDetail = expense.allocations.some(
+      (line) => line.fundingSources.length > 0,
+    );
+    if (hasFundingDetail) {
+      if (
+        expense.allocations.some(
+          (line) =>
+            line.fundingSources.length === 0 ||
+            new Set(line.fundingSources.map((source) => source.id)).size !==
+              line.fundingSources.length ||
+            sumCents(
+              line.fundingSources.map((source) => source.amountCents),
+            ) !== line.amountCents,
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Funding sources for each allocation must equal that allocation.",
+        });
+      }
+      if (
+        !expense.allocations.some((line) =>
+          line.fundingSources.some(
+            (source) =>
+              source.kind === "account" &&
+              source.accountId === expense.accountId,
+          ),
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "The primary account must fund at least one allocation portion.",
+        });
+      }
     }
   });
 
@@ -118,7 +170,7 @@ export const housePaymentSchema = z
 
 export const snapshotSchema = z
   .object({
-    schemaVersion: z.literal(5),
+    schemaVersion: z.literal(6),
     epoch: idSchema,
     revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     accounts: z.array(accountSchema),

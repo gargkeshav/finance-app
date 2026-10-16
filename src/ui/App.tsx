@@ -44,8 +44,49 @@ import { bankProfileNames } from "../application/import-contracts";
 
 type View = "overview" | "transactions" | "sharing" | "accounts" | "data";
 type Modal = "account" | "expense" | null;
+type FundingInput = {
+  id: string;
+  kind: "account" | "other";
+  accountId: string;
+  label: string;
+  amount: string;
+  houseAmount: string;
+};
+
+function initialAdditionalFunding(original: Expense | null): FundingInput[] {
+  if (!original) return [];
+  const allSources = original.allocations.flatMap((line) =>
+    line.fundingSources.map((source) => ({ ...source, bucket: line.bucket })),
+  );
+  if (!allSources.length) return [];
+  const grouped = new Map<string, FundingInput>();
+  for (const source of allSources) {
+    const existing = grouped.get(source.id);
+    const amountCents =
+      (existing ? parseAud(existing.amount) : 0) + source.amountCents;
+    const houseCents =
+      (existing ? parseAud(existing.houseAmount) : 0) +
+      (source.bucket === "house" ? source.amountCents : 0);
+    grouped.set(source.id, {
+      id: source.id,
+      kind: source.kind,
+      accountId: source.accountId ?? "",
+      label: source.label,
+      amount: formatAud(amountCents).slice(4),
+      houseAmount: formatAud(houseCents).slice(4),
+    });
+  }
+  const sources = [...grouped.values()];
+  const primaryIndex = sources.findIndex(
+    (source) =>
+      source.kind === "account" && source.accountId === original.accountId,
+  );
+  if (primaryIndex >= 0) sources.splice(primaryIndex, 1);
+  return sources;
+}
+
 const empty: Snapshot = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   epoch: crypto.randomUUID(),
   revision: 0,
   accounts: [],
@@ -1727,6 +1768,19 @@ function ExpenseDetail({
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState("");
+  const fundingSources = new Map<
+    string,
+    { label: string; amountCents: number }
+  >();
+  for (const allocation of expense.allocations) {
+    for (const source of allocation.fundingSources) {
+      const previous = fundingSources.get(source.id);
+      fundingSources.set(source.id, {
+        label: source.label,
+        amountCents: sumCents([previous?.amountCents ?? 0, source.amountCents]),
+      });
+    }
+  }
   useEffect(() => {
     const element = dialog.current;
     const previous = document.activeElement as HTMLElement | null;
@@ -1791,8 +1845,14 @@ function ExpenseDetail({
         <div>
           <dt>Funding</dt>
           <dd>
-            {account?.name ?? "Unknown account"} /{" "}
-            {formatAud(expense.amountCents)}
+            {fundingSources.size
+              ? [...fundingSources.values()]
+                  .map(
+                    (source) =>
+                      `${source.label}: ${formatAud(source.amountCents)}`,
+                  )
+                  .join("; ")
+              : `${account?.name ?? "Unknown account"} / ${formatAud(expense.amountCents)}`}
           </dd>
         </div>
         {expense.allocations.map((line) => (
@@ -1910,6 +1970,9 @@ function EntryDialog({
   const titleId = useId();
   const [error, setError] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [additionalFunding, setAdditionalFunding] = useState<FundingInput[]>(
+    () => initialAdditionalFunding(original),
+  );
   useEffect(() => {
     const element = dialog.current;
     const previous = document.activeElement as HTMLElement | null;
@@ -1956,6 +2019,107 @@ function EntryDialog({
           throw new Error(
             "Expense must be positive; House portion must be between zero and the expense total.",
           );
+        const additionalSources = additionalFunding
+          .map((source) => ({
+            ...source,
+            amountCents: source.amount.trim() ? parseAud(source.amount) : 0,
+            houseCents: source.houseAmount.trim()
+              ? parseAud(source.houseAmount)
+              : 0,
+            label:
+              source.kind === "account"
+                ? (accounts.find((account) => account.id === source.accountId)
+                    ?.name ?? "")
+                : source.label,
+          }))
+          .filter((source) => source.amountCents > 0);
+        if (
+          additionalFunding.some(
+            (source) =>
+              source.amount.trim() === "" && source.houseAmount.trim() !== "",
+          ) ||
+          additionalSources.some(
+            (source) =>
+              !source.label.trim() ||
+              source.houseCents < 0 ||
+              source.houseCents > source.amountCents ||
+              (source.kind === "account" && !source.accountId),
+          )
+        )
+          throw new Error(
+            "Complete each additional funding source and keep its House amount within its source total.",
+          );
+        const additionalTotal = additionalSources.reduce(
+          (total, source) => sumCents([total, source.amountCents]),
+          0,
+        );
+        const additionalHouse = additionalSources.reduce(
+          (total, source) => sumCents([total, source.houseCents]),
+          0,
+        );
+        const primaryAmount = sumCents([amount, -additionalTotal]);
+        const primaryHouse = sumCents([house, -additionalHouse]);
+        if (
+          primaryAmount <= 0 ||
+          primaryHouse < 0 ||
+          primaryHouse > primaryAmount
+        )
+          throw new Error(
+            "The primary account must fund a positive remainder, and source House portions must total the House allocation.",
+          );
+        const primaryAccountId = String(data.get("account"));
+        const fundingSources: Expense["allocations"][number]["fundingSources"] =
+          [
+            {
+              id: crypto.randomUUID(),
+              kind: "account",
+              accountId: primaryAccountId,
+              label:
+                accounts.find((account) => account.id === primaryAccountId)
+                  ?.name ?? "Account",
+              amountCents: primaryAmount,
+            },
+            ...additionalSources.map((source) => ({
+              id: source.id,
+              kind: source.kind,
+              accountId: source.kind === "account" ? source.accountId : null,
+              label: source.label.trim(),
+              amountCents: source.amountCents,
+            })),
+          ];
+        const houseFundingSources = [
+          ...(primaryHouse > 0
+            ? [{ ...fundingSources[0], amountCents: primaryHouse }]
+            : []),
+          ...additionalSources
+            .filter((source) => source.houseCents > 0)
+            .map((source) => ({
+              id: source.id,
+              kind: source.kind,
+              accountId: source.kind === "account" ? source.accountId : null,
+              label: source.label.trim(),
+              amountCents: source.houseCents,
+            })),
+        ];
+        const personalFundingSources = [
+          ...(primaryAmount - primaryHouse > 0
+            ? [
+                {
+                  ...fundingSources[0],
+                  amountCents: primaryAmount - primaryHouse,
+                },
+              ]
+            : []),
+          ...additionalSources
+            .filter((source) => source.amountCents - source.houseCents > 0)
+            .map((source) => ({
+              id: source.id,
+              kind: source.kind,
+              accountId: source.kind === "account" ? source.accountId : null,
+              label: source.label.trim(),
+              amountCents: source.amountCents - source.houseCents,
+            })),
+        ];
         const personal = sumCents([amount, -house]);
         const allocations: Expense["allocations"] = [];
         if (house)
@@ -1964,6 +2128,7 @@ function EntryDialog({
             bucket: "house",
             personId: null,
             amountCents: house,
+            fundingSources: houseFundingSources,
           });
         if (personal)
           allocations.push({
@@ -1971,10 +2136,11 @@ function EntryDialog({
             bucket: "personal",
             personId: null,
             amountCents: personal,
+            fundingSources: personalFundingSources,
           });
         const expense: Expense = {
           id: crypto.randomUUID(),
-          accountId: String(data.get("account")),
+          accountId: primaryAccountId,
           date: String(data.get("date")),
           description: String(data.get("description")).trim(),
           currency: "AUD",
@@ -2154,6 +2320,154 @@ function EntryDialog({
                   />
                 </label>
               </div>
+              <section className="funding-editor" aria-label="Expense funding">
+                <div className="section-title">
+                  <h3>Funding sources</h3>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() =>
+                      setAdditionalFunding((sources) => [
+                        ...sources,
+                        {
+                          id: crypto.randomUUID(),
+                          kind: "other",
+                          accountId: "",
+                          label: "",
+                          amount: "",
+                          houseAmount: "0.00",
+                        },
+                      ])
+                    }
+                  >
+                    <Plus size={16} />
+                    Add funding source
+                  </button>
+                </div>
+                <p className="metric-note">
+                  The selected primary account funds the remaining total. Assign
+                  each source's House-funded portion explicitly.
+                </p>
+                {additionalFunding.map((source, index) => (
+                  <div className="funding-source-row" key={source.id}>
+                    <label>
+                      Source type
+                      <select
+                        aria-label={`Funding source type ${index + 1}`}
+                        value={source.kind}
+                        onChange={(event) =>
+                          setAdditionalFunding((sources) =>
+                            sources.map((item) =>
+                              item.id === source.id
+                                ? {
+                                    ...item,
+                                    kind: event.target
+                                      .value as FundingInput["kind"],
+                                    accountId: "",
+                                    label: "",
+                                  }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        <option value="account">Another account</option>
+                        <option value="other">Other / benefit</option>
+                      </select>
+                    </label>
+                    {source.kind === "account" ? (
+                      <label>
+                        Account
+                        <select
+                          aria-label={`Funding account ${index + 1}`}
+                          value={source.accountId}
+                          onChange={(event) =>
+                            setAdditionalFunding((sources) =>
+                              sources.map((item) =>
+                                item.id === source.id
+                                  ? { ...item, accountId: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                        >
+                          <option value="">Choose account</option>
+                          {accounts.map((account) => (
+                            <option key={account.id} value={account.id}>
+                              {account.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <label>
+                        Source label
+                        <input
+                          aria-label={`Funding source label ${index + 1}`}
+                          value={source.label}
+                          maxLength={100}
+                          onChange={(event) =>
+                            setAdditionalFunding((sources) =>
+                              sources.map((item) =>
+                                item.id === source.id
+                                  ? { ...item, label: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                    )}
+                    <label>
+                      Source amount (AUD)
+                      <input
+                        aria-label={`Funding source amount ${index + 1}`}
+                        inputMode="decimal"
+                        value={source.amount}
+                        onChange={(event) =>
+                          setAdditionalFunding((sources) =>
+                            sources.map((item) =>
+                              item.id === source.id
+                                ? { ...item, amount: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      House portion from source (AUD)
+                      <input
+                        aria-label={`Funding source House amount ${index + 1}`}
+                        inputMode="decimal"
+                        value={source.houseAmount}
+                        onChange={(event) =>
+                          setAdditionalFunding((sources) =>
+                            sources.map((item) =>
+                              item.id === source.id
+                                ? { ...item, houseAmount: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      title={`Remove funding source ${index + 1}`}
+                      aria-label={`Remove funding source ${index + 1}`}
+                      onClick={() =>
+                        setAdditionalFunding((sources) =>
+                          sources.filter((item) => item.id !== source.id),
+                        )
+                      }
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </section>
               {original && (
                 <label>
                   Correction reason

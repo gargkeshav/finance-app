@@ -1,6 +1,11 @@
 export interface SpendingLine {
   bucket: "personal" | "house";
   amountCents: number;
+  fundingSources?: readonly {
+    kind: "account" | "other";
+    accountId: string | null;
+    amountCents: number;
+  }[];
 }
 
 export interface SpendingExpense {
@@ -91,7 +96,24 @@ export function calculateHouseClaims(
       continue;
     const amountCents = expense.allocations
       .filter((line) => line.bucket === "house")
-      .reduce((total, line) => total + BigInt(line.amountCents), 0n);
+      .reduce((total, line) => {
+        if (!line.fundingSources?.length)
+          return total + BigInt(line.amountCents);
+        return (
+          total +
+          line.fundingSources
+            .filter(
+              (source) =>
+                source.kind === "account" &&
+                source.accountId !== null &&
+                accountRoles.get(source.accountId) === "personal",
+            )
+            .reduce(
+              (sourceTotal, source) => sourceTotal + BigInt(source.amountCents),
+              0n,
+            )
+        );
+      }, 0n);
     const appliedCents = appliedByExpense.get(expense.id) ?? 0n;
     const outstandingCents = amountCents - appliedCents;
     if (outstandingCents <= 0n) continue;

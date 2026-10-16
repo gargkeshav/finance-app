@@ -8,7 +8,7 @@ import {
 
 export class SyntheticLedger implements Ledger {
   private snapshot: Snapshot = {
-    schemaVersion: 5,
+    schemaVersion: 6,
     epoch: crypto.randomUUID(),
     revision: 0,
     accounts: [],
@@ -205,14 +205,32 @@ export class SyntheticLedger implements Ledger {
           next.reversals.some((reversal) => reversal.expenseId === expense.id)
         )
           throw new Error("House claim is no longer active.");
-        const funding = next.accounts.find(
-          (candidate) => candidate.id === expense.accountId,
-        );
-        if (!funding || funding.role !== "personal")
-          throw new Error("House claim is not personally funded.");
         const claimCents = expense.allocations
           .filter((line) => line.bucket === "house")
-          .reduce((total, line) => total + BigInt(line.amountCents), 0n);
+          .reduce((total, line) => {
+            if (!line.fundingSources.length) {
+              const funding = next.accounts.find(
+                (candidate) => candidate.id === expense.accountId,
+              );
+              return funding?.role === "personal"
+                ? total + BigInt(line.amountCents)
+                : total;
+            }
+            return (
+              total +
+              line.fundingSources
+                .filter((source) => {
+                  if (source.kind !== "account" || !source.accountId)
+                    return false;
+                  return next.accounts.some(
+                    (candidate) =>
+                      candidate.id === source.accountId &&
+                      candidate.role === "personal",
+                  );
+                })
+                .reduce((sum, source) => sum + BigInt(source.amountCents), 0n)
+            );
+          }, 0n);
         const appliedCents = next.housePayments
           .flatMap((existing) => existing.applications)
           .filter((existing) => existing.expenseId === expense.id)
@@ -258,6 +276,15 @@ export class SyntheticLedger implements Ledger {
           : operation.expense;
       if (!next.accounts.some((account) => account.id === expense.accountId))
         throw new Error("Account not found.");
+      for (const source of expense.allocations.flatMap(
+        (line) => line.fundingSources,
+      )) {
+        if (
+          source.kind === "account" &&
+          !next.accounts.some((account) => account.id === source.accountId)
+        )
+          throw new Error("Funding source account not found.");
+      }
       if (next.expenses.some((existing) => existing.id === expense.id))
         throw new Error("Expense already exists.");
       const allocationIds = new Set(
