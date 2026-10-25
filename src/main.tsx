@@ -7,6 +7,10 @@ import "@fontsource/ibm-plex-mono/400.css";
 import { LocalApp } from "./ui/LocalApp";
 import "./ui/styles.css";
 
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <LocalApp />

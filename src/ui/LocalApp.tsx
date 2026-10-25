@@ -256,7 +256,7 @@ export function LocalApp() {
     Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); navigate("Settle"); }} onCreateRule={(description) => { setRuleDescription(description); navigate("Rules"); }} />,
     Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} activityFilter={activityFilter} openActivity={openActivity} onNavigate={navigate} />,
     Rules: <RulesView ledger={ledger} update={update} initialDescription={ruleDescription} onClearInitialDescription={() => setRuleDescription("")} />,
-    Settle: <SettleView ledger={ledger} update={update} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
+    Settle: <SettleView ledger={ledger} update={update} saveNow={saveNow} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
     Accounts: <AccountsView ledger={ledger} update={update} />,
     People: <PeopleView ledger={ledger} update={update} />,
     Balances: <BalancesView ledger={ledger} update={update} />,

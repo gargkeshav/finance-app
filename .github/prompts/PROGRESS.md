@@ -82,4 +82,10 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 17: Health findings, sidebar count, folder backups with 20-file retention, backup restore preview and unsaved-change guard, and schema-version migration gate implemented. `npm test` (10 files, 72 tests), `npm run typecheck`, and `git diff --check` pass.
 - Files changed: `src/domain/health.ts`, `src/ui/views/HealthView.tsx`, `src/adapters/file-store.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/DataView.tsx`, `src/ui/LocalApp.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: Folder picker and restore interactions were not manually exercised. Next: 18.
+- Batch 18: Settlement payments to Splitwise, friend balance comparison, changed/deleted inbox resolution, and settlement-linked post records implemented. `npm test` (10 files, 73 tests) and `npm run typecheck` pass.
+- Files changed: `src/adapters/splitwise.ts`, `src/adapters/file-ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/SettleView.tsx`, `src/ui/views/ReviewView.tsx`, `tests/splitwise.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: The $1 Splitwise response confirmed the expected shares; delete that check payment in Splitwise and exercise live posting/balance checking with the app's API key. Next: 19.
+- Batch 19: Standalone metadata, shell-only offline caching, production-only worker registration, narrow horizontal navigation, and the Android Chrome download/upload notice implemented. `npm run build` passes; production preview confirmed the worker cached only the shell and referenced assets, and the app rendered after an offline reload. Phase 2 complete.
+- Files changed: `index.html`, `public/manifest.webmanifest`, `public/icon.svg`, `public/sw.js`, `src/main.tsx`, `src/ui/styles.css`, `src/ui/views/DataView.tsx`, `.github/prompts/PROGRESS.md`.
+- Left: App installation and Android picker fallback were not manually tested on physical devices. Next: none.
 

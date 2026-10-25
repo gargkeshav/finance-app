@@ -1,4 +1,4 @@
-import type { Entry, Entity, Ledger } from "../domain/ledger";
+import type { Entry, Entity, Ledger, Settlement } from "../domain/ledger";
 import { parseAud } from "../domain/value";
 
 const baseUrl = "https://secure.splitwise.com/api/v3.0";
@@ -8,6 +8,7 @@ export interface SplitwiseUser {
   id: number;
   first_name: string;
   last_name: string;
+  balance?: Array<{ currency_code: string; amount: string }>;
 }
 
 export interface SplitwiseGroup {
@@ -29,6 +30,7 @@ export interface SplitwiseExpenseDraft {
   description: string;
   date: string;
   shares: SplitwiseExpenseShare[];
+  payment?: boolean;
 }
 
 export class SplitwiseNoResponseError extends Error {
@@ -203,6 +205,44 @@ export function buildExpense(
   };
 }
 
+export function buildPayment(
+  settlement: Settlement,
+  entity: Entity,
+  memberId: number,
+  youId: number,
+): SplitwiseExpenseDraft {
+  if (!entity.splitwise || entity.kind === "self" || entity.kind === "house") {
+    throw new Error("Choose a linked person or group.");
+  }
+  if (settlement.entityId !== entity.id || !Number.isSafeInteger(settlement.amountCents) || settlement.amountCents <= 0 || !settlement.date) {
+    throw new Error("The settlement details are invalid.");
+  }
+  const paymentMemberId = entity.splitwise.kind === "user" ? Number(entity.splitwise.id) : memberId;
+  if (!Number.isSafeInteger(paymentMemberId) || paymentMemberId <= 0 || paymentMemberId === youId) {
+    throw new Error("Choose a valid Splitwise member.");
+  }
+  if (!Number.isSafeInteger(youId) || youId <= 0) {
+    throw new Error("Splitwise returned an invalid user ID.");
+  }
+  const groupId = entity.splitwise.kind === "group" ? Number(entity.splitwise.id) : 0;
+  if (!Number.isSafeInteger(groupId) || (entity.splitwise.kind === "group" ? groupId <= 0 : groupId !== 0)) {
+    throw new Error("The linked Splitwise entity is invalid.");
+  }
+
+  const memberPaid = settlement.direction === "theyPaidYou";
+  return {
+    groupId,
+    costCents: settlement.amountCents,
+    description: settlement.note || "Payment",
+    date: settlement.date,
+    payment: true,
+    shares: [
+      { userId: paymentMemberId, name: entity.name, paidCents: memberPaid ? settlement.amountCents : 0, owedCents: memberPaid ? 0 : settlement.amountCents },
+      { userId: youId, name: "You", paidCents: memberPaid ? 0 : settlement.amountCents, owedCents: memberPaid ? settlement.amountCents : 0 },
+    ],
+  };
+}
+
 function formatCents(cents: number): string {
   return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
 }
@@ -232,6 +272,7 @@ export async function postExpense(draft: SplitwiseExpenseDraft): Promise<number>
     currency_code: "AUD",
     group_id: String(draft.groupId),
   });
+  if (draft.payment) body.set("payment", "true");
   draft.shares.forEach((share, index) => {
     body.set(`users__${index}__user_id`, String(share.userId));
     body.set(`users__${index}__paid_share`, formatCents(share.paidCents));
@@ -333,6 +374,7 @@ export function pullIntoInbox(
     const existingEntry = ledger.entries.find((entry) => entry.splitwiseExpenseId === expenseId);
     const postIndex = nextPosts.findIndex((post) => post.splitwiseExpenseId === expenseId);
     const existingPost = postIndex >= 0 ? nextPosts[postIndex] : undefined;
+    const linkedEntry = existingEntry ?? ledger.entries.find((entry) => entry.id === existingPost?.entryId);
     if (existingPost && !existingPost.remoteUpdatedAt) {
       nextPosts[postIndex] = { ...existingPost, remoteUpdatedAt: expense.updated_at };
       continue;
@@ -346,6 +388,12 @@ export function pullIntoInbox(
           costCents: existingInbox.costCents,
           yourPaidCents: existingInbox.yourPaidCents,
           yourOwedCents: existingInbox.yourOwedCents,
+        } : linkedEntry?.kind === "spend" ? {
+          date: linkedEntry.date,
+          description: linkedEntry.description,
+          costCents: linkedEntry.amountCents,
+          yourPaidCents: linkedEntry.payerEntityId === "self" ? linkedEntry.amountCents : 0,
+          yourOwedCents: linkedEntry.portions.find((portion) => portion.entityId === "self")?.amountCents ?? 0,
         } : undefined;
         const revised = {
           id: existingInbox?.id ?? crypto.randomUUID(),

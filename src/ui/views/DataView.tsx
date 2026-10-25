@@ -50,6 +50,7 @@ export function DataView({ mode, onSave, onChooseBackupFolder, onRestore }: Data
       </header>
       <section className="form-grid">
         <p>Active storage mode: {mode === "in-place" ? "open and save one local file" : "download and upload JSON"}.</p>
+        {mode === "download" && <p className="hint">Android Chrome uses download and upload because its file picker API is unavailable.</p>}
         <p>The ledger file is unencrypted. Keep it somewhere private and make regular backups.</p>
         <div>
           <button className="secondary" onClick={onChooseBackupFolder} type="button" disabled={!onChooseBackupFolder}>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildExpense, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
-import type { Entry, Entity, Ledger } from "../src/domain/ledger";
+import { buildExpense, buildPayment, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
+import type { Entry, Entity, Ledger, Settlement } from "../src/domain/ledger";
 
 const entry: Entry = {
   id: "entry-1",
@@ -77,5 +77,29 @@ describe("buildExpense", () => {
 
     expect(pulled.splitwiseInbox).toEqual([]);
     expect(pulled.splitwisePosts[0].remoteUpdatedAt).toBe(expense.updated_at);
+  });
+});
+
+describe("buildPayment", () => {
+  it("builds the confirmed shares for a they-paid-you settlement", () => {
+    const settlement: Settlement = {
+      id: "settlement-1",
+      date: "2026-10-25",
+      entityId: "friend-1",
+      direction: "theyPaidYou",
+      amountCents: 2500,
+      bankRowIds: [],
+      note: "Repayment",
+      splitwisePaymentId: null,
+      updatedAt: "2026-10-25T00:00:00.000Z",
+    };
+    const friend: Entity = { ...group, id: "friend-1", kind: "person", splitwise: { kind: "user", id: "8" } };
+    const draft = buildPayment(settlement, friend, 8, 7);
+
+    expect(draft.payment).toBe(true);
+    expect(draft.shares).toEqual([
+      { userId: 8, name: "Dinner group", paidCents: 2500, owedCents: 0 },
+      { userId: 7, name: "You", paidCents: 0, owedCents: 2500 },
+    ]);
   });
 });

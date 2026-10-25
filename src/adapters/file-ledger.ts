@@ -54,7 +54,8 @@ interface SplitwiseInbox {
 
 interface SplitwisePost {
   id: string;
-  entryId: string;
+  entryId: string | null;
+  settlementId?: string;
   entityId: string;
   state: "posting" | "posted" | "unknown";
   splitwiseExpenseId: string | null;
@@ -91,12 +92,17 @@ const splitwiseInboxSchema = z.object({
 });
 const splitwisePostSchema = z.object({
   id: idSchema,
-  entryId: idSchema,
+  entryId: idSchema.nullable(),
+  settlementId: idSchema.optional(),
   entityId: idSchema,
   state: z.enum(["posting", "posted", "unknown"]),
   splitwiseExpenseId: idSchema.nullable(),
   remoteUpdatedAt: updatedAtSchema.nullable().optional(),
   updatedAt: updatedAtSchema,
+}).superRefine((post, context) => {
+  if (Boolean(post.entryId) === Boolean(post.settlementId)) {
+    context.addIssue({ code: "custom", message: "A Splitwise post must link to exactly one entry or settlement.", path: ["entryId"] });
+  }
 });
 
 const entitySchema = z.object({

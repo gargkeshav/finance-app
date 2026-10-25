@@ -440,6 +440,8 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   );
 
   function matchingSplitwiseEntry(item: SplitwiseInboxItem) {
+    const linked = ledger.entries.find((entry) => entry.splitwiseExpenseId === item.splitwiseExpenseId);
+    if (linked?.kind === "spend") return linked;
     const payerEntityId = item.yourPaidCents === 0 ? item.entityId : SELF_ENTITY_ID;
     const target = Date.parse(`${item.date}T00:00:00Z`);
     return ledger.entries.find((entry) => {
@@ -487,6 +489,55 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
         }]
         : ledger.splitwisePosts,
     }, "Review Splitwise item");
+  }
+
+  function applySplitwiseChange(item: SplitwiseInboxItem, entry: Entry) {
+    if (item.costCents <= 0 || item.yourOwedCents > item.costCents) return;
+    const portions = [
+      ...(item.yourOwedCents > 0 ? [{ entityId: SELF_ENTITY_ID, amountCents: item.yourOwedCents }] : []),
+      ...(item.costCents - item.yourOwedCents > 0 ? [{ entityId: item.entityId, amountCents: item.costCents - item.yourOwedCents }] : []),
+    ];
+    const now = new Date().toISOString();
+    update({
+      ...ledger,
+      entries: ledger.entries.map((candidate) => candidate.id === entry.id
+        ? { ...candidate, amountCents: item.costCents, date: item.date, portions, updatedAt: now }
+        : candidate),
+      splitwiseInbox: (ledger.splitwiseInbox ?? []).map((candidate) => candidate.id === item.id
+        ? { ...candidate, status: "done" }
+        : candidate),
+    }, "Apply Splitwise change");
+  }
+
+  function keepDeletedSplitwiseOut(item: SplitwiseInboxItem, entry: Entry) {
+    update({
+      ...ledger,
+      entries: ledger.entries.map((candidate) => candidate.id === entry.id
+        ? { ...candidate, countsTowardDebt: false, tags: [...new Set([...(candidate.tags ?? []), "deleted-in-splitwise"])] }
+        : candidate),
+      splitwiseInbox: (ledger.splitwiseInbox ?? []).map((candidate) => candidate.id === item.id
+        ? { ...candidate, status: "done" }
+        : candidate),
+    }, "Keep deleted Splitwise item out of balances");
+  }
+
+  function deleteDeletedSplitwiseEntry(item: SplitwiseInboxItem, entry: Entry) {
+    if (!window.confirm(`Delete “${entry.description || "this entry"}”? This cannot be undone.`)) return;
+    if (ledger.entries.some((candidate) => candidate.kind === "refund" && candidate.refundOf === entry.id)) {
+      window.alert("Delete its refunds first.");
+      return;
+    }
+    const now = new Date().toISOString();
+    update({
+      ...ledger,
+      entries: ledger.entries.filter((candidate) => candidate.id !== entry.id),
+      bankRows: (ledger.bankRows ?? []).map((row) => row.entryId === entry.id
+        ? { ...row, entryId: null, updatedAt: now }
+        : row),
+      splitwiseInbox: (ledger.splitwiseInbox ?? []).map((candidate) => candidate.id === item.id
+        ? { ...candidate, status: "done" }
+        : candidate),
+    }, "Delete Splitwise entry");
   }
 
   function dismissSplitwise(item: SplitwiseInboxItem) {
@@ -560,9 +611,23 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
                       <td>{item.description || "Splitwise expense"}</td>
                       <td>{entity?.name ?? "Unknown"}</td>
                       <td className="amount">{formatMoney(item.costCents)}</td>
-                      <td>{item.status === "changed" || item.status === "deleted" ? splitwiseChangeText(item) : item.status}</td>
                       <td>
-                        {item.status === "changed" || item.status === "deleted" ? (
+                        {item.status === "changed" && item.previous ? (
+                          <div>
+                            <div><strong>Previous:</strong> {item.previous.date} · {item.previous.description} · {formatMoney(item.previous.costCents)} · your owed share {formatMoney(item.previous.yourOwedCents)}</div>
+                            <div><strong>Splitwise:</strong> {item.date} · {item.description} · {formatMoney(item.costCents)} · your owed share {formatMoney(item.yourOwedCents)}</div>
+                          </div>
+                        ) : item.status === "deleted" ? splitwiseChangeText(item) : item.status}
+                      </td>
+                      <td>
+                        {item.status === "changed" && match ? (
+                          <button className="primary" onClick={() => applySplitwiseChange(item, match)} type="button">Apply to entry</button>
+                        ) : item.status === "deleted" && match ? (
+                          <>
+                            <button className="secondary" onClick={() => keepDeletedSplitwiseOut(item, match)} type="button">Keep out of balances</button>{" "}
+                            <button className="secondary" onClick={() => deleteDeletedSplitwiseEntry(item, match)} type="button">Delete entry</button>
+                          </>
+                        ) : item.status === "changed" || item.status === "deleted" ? (
                           <button className="secondary" onClick={() => completeSplitwise(item)} type="button">Done</button>
                         ) : manuallyEntered ? (
                           <>

@@ -1,3 +1,12 @@
+@media (max-width: 600px) {
+  .app-shell { display: flex; flex-direction: column; }
+  .sidebar { display: flex; align-items: center; gap: 1rem; width: 100%; overflow-x: auto; }
+  .sidebar-brand { flex: 0 0 auto; }
+  .sidebar nav { display: flex; align-items: center; width: max-content; }
+  .nav-group { flex: 0 0 auto; }
+  .nav-item { flex: 0 0 auto; }
+  .workspace { min-width: 0; width: 100%; }
+}
 :root {
   font-family: "DM Sans", sans-serif;
   color: #252c29;
