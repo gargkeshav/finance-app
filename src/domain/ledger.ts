@@ -30,6 +30,21 @@ export interface Portion {
   amountCents: number;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  archived: boolean;
+  updatedAt: string;
+}
+
+export interface CategoryMemory {
+  id: string;
+  key: string;
+  categoryId: string;
+  entityId: string | null;
+  updatedAt: string;
+}
+
 export interface Entry {
   id: string;
   kind: EntryKind;
@@ -41,6 +56,10 @@ export interface Entry {
   portions: Portion[];
   refundOf?: string | null;
   bankRowIds?: string[];
+  categoryId?: string | null;
+  tags?: string[];
+  note?: string;
+  extraReimbursable?: boolean;
   countsTowardDebt: boolean;
   updatedAt: string;
 }
@@ -116,6 +135,8 @@ export interface Ledger {
   imports?: LedgerImport[];
   bankRows?: BankRow[];
   checkpoints?: BalanceCheckpoint[];
+  categories?: Category[];
+  categoryMemory?: CategoryMemory[];
 }
 
 export interface Debt {
@@ -160,6 +181,35 @@ export interface CheckpointDifference {
   differenceCents: number;
 }
 
+export function categoryMemoryKey(accountId: string, description: string): string {
+  const normalizedDescription = description.toLowerCase().replace(/[0-9]/g, "").replace(/\s+/g, " ").trim();
+  return `${accountId}:${normalizedDescription}`;
+}
+
+export function linkedBankAmountCents(entry: Pick<Entry, "bankRowIds">, bankRows: readonly BankRow[]): number | null {
+  if (!entry.bankRowIds?.length) return null;
+  const linkedRows = bankRows.filter((row) => entry.bankRowIds?.includes(row.id));
+  if (!linkedRows.length) return null;
+  return Math.abs(sumCents(linkedRows.map((row) => row.amountCents)));
+}
+
+export function categoryMemoryAfterSpend(ledger: Ledger, entry: Entry, updatedAt: string): CategoryMemory[] {
+  const memories = ledger.categoryMemory ?? [];
+  if (entry.kind !== "spend" || !entry.bankRowIds?.length || !entry.categoryId) return memories;
+
+  const key = categoryMemoryKey(entry.accountId ?? "", entry.description);
+  const existing = memories.find((memory) => memory.key === key);
+  const wholeEntity = entry.portions.length === 1 && entry.portions[0].amountCents === entry.amountCents;
+  const memory: CategoryMemory = {
+    id: existing?.id ?? crypto.randomUUID(),
+    key,
+    categoryId: entry.categoryId,
+    entityId: wholeEntity ? entry.portions[0].entityId : null,
+    updatedAt,
+  };
+  return [...memories.filter((candidate) => candidate.key !== key), memory];
+}
+
 export function validateSpend(entry: Entry): boolean {
   if (entry.kind !== "spend" || !Number.isSafeInteger(entry.amountCents) || entry.amountCents <= 0) {
     return false;
@@ -182,16 +232,41 @@ export function validateSpend(entry: Entry): boolean {
   return portionTotal === BigInt(entry.amountCents);
 }
 
-export function debtsOf(entry: Entry): Debt[] {
+export function debtsOf(entry: Entry, bankRows: readonly BankRow[] = []): Debt[] {
   if ((entry.kind !== "spend" && entry.kind !== "refund") || !entry.countsTowardDebt) return [];
 
-  return entry.portions
+  const debts = entry.portions
     .filter((portion) => portion.entityId !== entry.payerEntityId)
     .map((portion) => ({
       debtorId: portion.entityId,
       creditorId: entry.payerEntityId,
       amountCents: entry.kind === "refund" ? -portion.amountCents : portion.amountCents,
     }));
+
+  const bankAmountCents = entry.kind === "spend" && !entry.extraReimbursable
+    ? linkedBankAmountCents(entry, bankRows)
+    : null;
+  if (bankAmountCents === null || bankAmountCents >= entry.amountCents || !debts.length) return debts;
+
+  const amount = BigInt(entry.amountCents);
+  const bankAmount = BigInt(bankAmountCents);
+  const totalDebt = debts.reduce((total, debt) => total + BigInt(debt.amountCents), 0n);
+  const scaled = debts.map((debt, index) => ({
+    ...debt,
+    amount: BigInt(debt.amountCents) * bankAmount / amount,
+    index,
+  }));
+  const targetTotal = totalDebt * bankAmount / amount;
+  const remaining = targetTotal - scaled.reduce((total, debt) => total + debt.amount, 0n);
+  const largestDebt = scaled.reduce((largest, debt) =>
+    BigInt(debt.amountCents) > BigInt(largest.amountCents) ? debt : largest,
+  );
+  largestDebt.amount += remaining;
+
+  return scaled.map(({ amount: debtAmount, index: _index, ...debt }) => ({
+    ...debt,
+    amountCents: centsSchema.parse(Number(debtAmount)),
+  }));
 }
 
 export function report(
@@ -241,7 +316,7 @@ export function balances(ledger: Ledger): BalanceReport {
   }
 
   for (const entry of ledger.entries) {
-    for (const debt of debtsOf(entry)) {
+    for (const debt of debtsOf(entry, ledger.bankRows ?? [])) {
       if (debt.debtorId === selfEntityId && debt.creditorId !== selfEntityId) {
         byEntityBig.set(
           debt.creditorId,
@@ -356,7 +431,7 @@ export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
   }
 
   for (const entry of ledger.entries) {
-    for (const debt of debtsOf(entry)) {
+    for (const debt of debtsOf(entry, ledger.bankRows ?? [])) {
       if (debt.amountCents === 0) continue;
       const item = {
         id: entry.id,

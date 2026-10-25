@@ -109,14 +109,15 @@ export function ImportView({ ledger, update }: ImportViewProps) {
     if (duplicateCount > 0 && duplicateChoice === null) return;
     const now = new Date().toISOString();
     const chosenRows = rowsToAdd;
+    const allParsedRows = parsed.rows;
     const importRecord: LedgerImport = {
       id: crypto.randomUUID(),
       accountId,
       mappingId: selectedMapping.id,
       fileName,
       contentHash,
-      dateFrom: chosenRows.length ? chosenRows.reduce((earliest, row) => row.date < earliest ? row.date : earliest, chosenRows[0].date) : null,
-      dateTo: chosenRows.length ? chosenRows.reduce((latest, row) => row.date > latest ? row.date : latest, chosenRows[0].date) : null,
+      dateFrom: allParsedRows.length ? allParsedRows.reduce((earliest, row) => row.date < earliest ? row.date : earliest, allParsedRows[0].date) : null,
+      dateTo: allParsedRows.length ? allParsedRows.reduce((latest, row) => row.date > latest ? row.date : latest, allParsedRows[0].date) : null,
       countsTowardDebt: !olderHistory,
       importedAt: now,
       updatedAt: now,
@@ -158,11 +159,15 @@ export function ImportView({ ledger, update }: ImportViewProps) {
     setOlderHistory(false);
   }
 
+  const presetOptions = BANK_PRESETS.map((preset) => ({
+    id: preset.id,
+    name: preset.name,
+    suggested: suggestedNames.includes(preset.name),
+  })).sort((first, second) => Number(second.suggested) - Number(first.suggested));
   const mappingOptions = [
-    ...mappings.map((mapping) => ({ id: mapping.id, name: mapping.name })),
-    ...BANK_PRESETS.filter((preset) =>
-      suggestedNames.includes(preset.name) && !mappings.some((item) => item.id === preset.id),
-    ).map((mapping) => ({ id: mapping.id, name: mapping.name })),
+    ...presetOptions,
+    ...mappings.filter((mapping) => !BANK_PRESETS.some((preset) => preset.id === mapping.id))
+      .map((mapping) => ({ id: mapping.id, name: mapping.name, suggested: false })),
   ];
 
   return (
@@ -191,7 +196,7 @@ export function ImportView({ ledger, update }: ImportViewProps) {
               Mapping
               <select value={mappingId} onChange={(event) => chooseMapping(event.target.value)}>
                 <option value="">Choose a mapping</option>
-                {mappingOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+                {mappingOptions.map((option) => <option key={option.id} value={option.id}>{option.name}{option.suggested ? " (Suggested)" : ""}</option>)}
               </select>
             </label>
             <button className="secondary" onClick={() => setShowMappingEditor(true)} type="button">New mapping</button>

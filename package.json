@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "sh -c 'pids=$(lsof -tiTCP:5173 -sTCP:LISTEN); if [ -n \"$pids\" ]; then kill $pids; while lsof -tiTCP:5173 -sTCP:LISTEN >/dev/null; do sleep 0.1; done; fi; exec vite --host 127.0.0.1 --port 5173 --strictPort'",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

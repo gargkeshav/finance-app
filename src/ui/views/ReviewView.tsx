@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type BankRow, type Entry, type Ledger } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, type BankRow, type Category, type Entry, type Ledger } from "../../domain/ledger";
 import { cardCycle, confirmTransfer, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatAud } from "../../domain/value";
 import { SpendForm } from "./SpendForm";
@@ -27,6 +27,11 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
   const pendingRows = bankRows
     .filter((row) => !row.entryId && !row.settlementId && !row.skipped)
     .sort((first, second) => second.date.localeCompare(first.date) || second.line - first.line);
+  const memoryFor = (row: BankRow) => ledger.categoryMemory?.find((memory) => memory.key === categoryMemoryKey(row.accountId, row.description));
+  const suggestedSpends = pendingRows.filter((row) => {
+    const memory = memoryFor(row);
+    return row.amountCents < 0 && Boolean(memory?.entityId && memory.categoryId && ledger.entities.some((entity) => entity.id === memory.entityId));
+  });
   const spendingRow = pendingRows.find((row) => row.id === spendingRowId);
   const refundRow = pendingRows.find((row) => row.id === refundRowId);
   const suggestions = suggestTransfers(ledger);
@@ -85,6 +90,42 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     return imports.find((item) => item.id === row.importId);
   }
 
+  function acceptSuggestedSpends() {
+    if (!suggestedSpends.length || !window.confirm(`Accept ${suggestedSpends.length} suggested spends?`)) return;
+    const now = new Date().toISOString();
+    const entries = suggestedSpends.map((row): Entry => {
+      const memory = memoryFor(row)!;
+      const amountCents = Math.abs(row.amountCents);
+      const account = ledger.accounts.find((item) => item.id === row.accountId);
+      return {
+        id: crypto.randomUUID(),
+        kind: "spend",
+        date: row.date,
+        description: row.description,
+        amountCents,
+        payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
+        accountId: row.accountId,
+        portions: [{ entityId: memory.entityId!, amountCents }],
+        bankRowIds: [row.id],
+        categoryId: memory.categoryId,
+        tags: [],
+        note: "",
+        extraReimbursable: false,
+        countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
+        updatedAt: now,
+      };
+    });
+    const entryByRowId = new Map(entries.flatMap((entry) => (entry.bankRowIds ?? []).map((id) => [id, entry] as const)));
+    update({
+      ...ledger,
+      entries: [...ledger.entries, ...entries],
+      bankRows: bankRows.map((row) => {
+        const entry = entryByRowId.get(row.id);
+        return entry ? { ...row, entryId: entry.id, updatedAt: now } : row;
+      }),
+    });
+  }
+
   function saveSpend(row: BankRow, draft: Entry) {
     const now = new Date().toISOString();
     const entry: Entry = {
@@ -97,6 +138,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     update({
       ...ledger,
       entries: [...ledger.entries, entry],
+      categoryMemory: categoryMemoryAfterSpend(ledger, entry, now),
       bankRows: bankRows.map((item) => item.id === row.id
         ? { ...item, entryId: entry.id, updatedAt: now }
         : item),
@@ -294,6 +336,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     <>
       <header className="page-heading">
         <h1 ref={headingRef} tabIndex={-1}>Review</h1>
+        {suggestedSpends.length > 0 && <button className="primary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
       </header>
       {spendingRow && (
         <section className="form-grid" aria-label="Review spend">
@@ -305,13 +348,16 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
               description: spendingRow.description,
               amountCents: Math.abs(spendingRow.amountCents),
               accountId: spendingRow.accountId,
+              bankRowIds: [spendingRow.id],
+              categoryId: memoryFor(spendingRow)?.categoryId ?? null,
               payerEntityId: ledger.accounts.find((item) => item.id === spendingRow.accountId)?.payerEntityId ?? SELF_ENTITY_ID,
               portions: [{
-                entityId: ledger.accounts.find((item) => item.id === spendingRow.accountId)?.payerEntityId ?? SELF_ENTITY_ID,
+                entityId: memoryFor(spendingRow)?.entityId ?? ledger.accounts.find((item) => item.id === spendingRow.accountId)?.payerEntityId ?? SELF_ENTITY_ID,
                 amountCents: Math.abs(spendingRow.amountCents),
               }],
             }}
             ledger={ledger}
+            onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
             onCancel={() => setSpendingRowId(null)}
             onSave={(entry) => saveSpend(spendingRow, entry)}
           />
@@ -341,10 +387,12 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                   description: refundRow.description,
                   amountCents: Math.abs(refundRow.amountCents),
                   accountId: refundRow.accountId,
+                  bankRowIds: [refundRow.id],
                   payerEntityId,
                   portions: scaledPortions(original, Math.abs(refundRow.amountCents)),
                 }}
                 ledger={ledger}
+                onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
                 onCancel={() => setRefundRowId(null)}
                 onSave={(entry) => saveRefund(refundRow, entry)}
               />

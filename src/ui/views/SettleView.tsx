@@ -78,6 +78,7 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
   const [amount, setAmount] = useState(bankRow ? centsText(Math.abs(bankRow.amountCents)) : "");
   const [note, setNote] = useState(bankRow?.description ?? "");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const entity = entities.find((item) => item.id === entityId);
   const items = entity ? openItems(ledger, entity.id) : { theyOweYou: [], youOweThem: [] };
   const amountCents = (() => {
@@ -167,7 +168,23 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
         : ledger.bankRows,
     });
     setError("");
+    setSuccess("Settlement recorded.");
+    setDate(today());
+    setDirection("theyPaidYou");
+    setAmount("");
+    setNote("");
     onSaved();
+  }
+
+  function deleteSettlement(settlement: (typeof settlements)[number]) {
+    if (!window.confirm("Delete this settlement? This cannot be undone.")) return;
+    update({
+      ...ledger,
+      settlements: (ledger.settlements ?? []).filter((item) => item.id !== settlement.id),
+      bankRows: (ledger.bankRows ?? []).map((row) => row.settlementId === settlement.id
+        ? { ...row, settlementId: null, updatedAt: new Date().toISOString() }
+        : row),
+    });
   }
 
   return (
@@ -187,6 +204,7 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
 
       <form className="form-grid" id="settlement-form" onSubmit={save}>
         {error && <p className="banner error" role="alert">{error}</p>}
+        {success && <p className="banner success" role="status">{success}</p>}
         <label>
           Entity
           <select value={entityId} onChange={(event) => setEntityId(event.target.value)} required>
@@ -257,7 +275,7 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
       <h2>Past settlements</h2>
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Note</th><th>Bank activity</th></tr></thead>
+          <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Note</th><th>Bank activity</th><th /></tr></thead>
           <tbody>
             {settlements.map((settlement) => (
               <tr key={settlement.id}>
@@ -266,6 +284,7 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
                 <td className="amount">{formatAud(settlement.amountCents)}</td>
                 <td>{settlement.note}</td>
                 <td>{bankActivity(settlement)}</td>
+                <td><button className="secondary" onClick={() => deleteSettlement(settlement)} type="button">Delete</button></td>
               </tr>
             ))}
           </tbody>

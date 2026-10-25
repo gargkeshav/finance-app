@@ -58,6 +58,45 @@ describe("ledger spending rules", () => {
     expect(report(ledger.entries, "2026-10-01", "2026-10-31").personalCents).toBe(4_000);
   });
 
+  it("scales House debt to the bank amount unless the extra is reimbursable", () => {
+    const entry: Entry = {
+      id: "amended-house-spend",
+      kind: "spend",
+      date: "2026-10-25",
+      description: "House purchase",
+      amountCents: 1_518,
+      payerEntityId: "self",
+      accountId: "card",
+      portions: [{ entityId: "house", amountCents: 1_518 }],
+      bankRowIds: ["bank-row"],
+      note: "Includes an additional reimbursable item",
+      extraReimbursable: false,
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const ledger = makeLedger(entry);
+    ledger.bankRows = [{
+      id: "bank-row",
+      accountId: "card",
+      importId: "import",
+      line: 1,
+      date: entry.date,
+      description: entry.description,
+      amountCents: -518,
+      balanceCents: null,
+      raw: [],
+      entryId: entry.id,
+      settlementId: null,
+      skipped: false,
+      dismissedTransferIds: [],
+      updatedAt: "now",
+    }];
+
+    expect(balances(ledger).byEntity.house).toBe(518);
+    expect(report(ledger.entries, "2026-10-01", "2026-10-31").personalCents).toBe(759);
+    expect(balances({ ...ledger, entries: [{ ...entry, extraReimbursable: true }] }).byEntity.house).toBe(1_518);
+  });
+
   it("applies House payments to the oldest debt first", () => {
     const firstSpend: Entry = {
       id: "spend-baseline-followup",

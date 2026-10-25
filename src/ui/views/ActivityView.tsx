@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { formatAud, parseAud } from "../../domain/value";
-import type { Entry, Ledger } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, type Category, type Entry, type Ledger } from "../../domain/ledger";
 import {
   buildExpense,
   getCurrentUser,
@@ -151,24 +151,31 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
   }
 
   function saveEntry(entry: Entry) {
-    const exists = ledger.entries.some((item) => item.id === entry.id);
+    const existing = ledger.entries.find((item) => item.id === entry.id);
+    const savedEntry = existing
+      ? { ...entry, bankRowIds: entry.bankRowIds ?? existing.bankRowIds, countsTowardDebt: existing.countsTowardDebt }
+      : entry;
     update({
       ...ledger,
-      entries: exists
-        ? ledger.entries.map((item) => item.id === entry.id
-          ? {
-              ...entry,
-              bankRowIds: entry.bankRowIds ?? item.bankRowIds,
-              countsTowardDebt: item.countsTowardDebt,
-            }
-          : item)
-        : [...ledger.entries, entry],
+      entries: existing
+        ? ledger.entries.map((item) => item.id === entry.id ? savedEntry : item)
+        : [...ledger.entries, savedEntry],
+      categoryMemory: categoryMemoryAfterSpend(ledger, savedEntry, new Date().toISOString()),
     });
     setEditing(null);
     setShowForm(false);
   }
 
+  function addCategory(category: Category) {
+    update({ ...ledger, categories: [...(ledger.categories ?? []), category] });
+  }
+
   function deleteEntry(entry: Entry) {
+    const refundCount = ledger.entries.filter((item) => item.kind === "refund" && item.refundOf === entry.id).length;
+    if (entry.kind === "spend" && refundCount > 0) {
+      window.alert(`Delete its ${refundCount} refunds first.`);
+      return;
+    }
     if (!window.confirm(`Delete “${entry.description || "this entry"}”? This cannot be undone.`)) return;
     const now = new Date().toISOString();
     update({
@@ -206,6 +213,7 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
           ledger={ledger}
           initialValues={editing ?? undefined}
           onSave={saveEntry}
+          onAddCategory={addCategory}
           onCancel={() => { setEditing(null); setShowForm(false); }}
         />
       )}
@@ -232,7 +240,7 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
                   <td><input aria-label={`Select ${entry.description || entry.kind}`} type="checkbox" checked={selectedEntryIds.includes(entry.id)} onChange={(event) => setSelectedEntryIds((current) => event.target.checked ? [...current, entry.id] : current.filter((id) => id !== entry.id))} /></td>
                   <td className="date-cell">{entry.date}</td>
                   <td>
-                    <div>{entry.description || (entry.kind === "spend" ? "Spend" : entry.kind)}</div>
+                    <div>{entry.description || (entry.kind === "spend" ? "Spend" : entry.kind)}{entry.kind === "refund" && <> <strong>Refund</strong></>}</div>
                     {bankRows.map((row) => (
                       <div key={row.id}>
                         {row.date} · {row.description} · <span className="amount">{formatAud(row.amountCents)}</span>

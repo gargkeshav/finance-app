@@ -34,4 +34,19 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 11: Person and group spends can be posted to Splitwise with persisted posting states, unknown-post recovery, and editable group shares. The requested group-split test was added.
 - Files changed: `src/adapters/splitwise.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/ActivityView.tsx`, `tests/splitwise.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: Live friend post/delete was not exercised because no API key was provided. Planned batches are complete.
+- Batch 06: Categories, remembered spend suggestions, tags, amended amounts, and category reporting implemented. Tests and typecheck pass.
+- Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/SpendForm.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/BalancesView.tsx`, `src/ui/views/ActivityView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 07.
+- Batch 01: built; checked in review.
+- Batch 02: built; checked in review.
+- Batch 03: built; checked in review.
+- Batch 04: built; checked in review.
+- Batch 05: built; checked in review.
+- Batch 06: built.
+- Batch 07: built; checked in review.
+- Batch 08: built; checked in review.
+- Batch 09: built; checked in review.
+- Batch 10: built; checked in review.
+- Batch 11: built; checked in review.
+- Batch 11b: Stability fixes implemented. `npm test` (9 files, 51 tests) and `npm run typecheck` pass. Manual dev check confirmed distinct new spends and settlement save/reset/success/delete. Refund-delete blocking and invalid-ledger recovery were not manually exercised through the normal UI. Next: 11c.
 

@@ -12,10 +12,16 @@ interface MappingEditorProps {
   onCancel: () => void;
 }
 
-function mappingIndex(column: CsvColumn | undefined, firstRow: string[]): number {
-  if (!column) return -1;
-  if ("index" in column) return column.index;
-  return firstRow.findIndex((value) => value === column.header);
+function mappingIndex(column: CsvColumn | undefined, firstRow: string[]): number | null {
+  if (!column) return null;
+  if ("index" in column) {
+    return Number.isInteger(column.index) && column.index >= 0 && column.index < firstRow.length
+      ? column.index
+      : null;
+  }
+  const header = column.header.trim().toLowerCase();
+  const index = firstRow.findIndex((value) => value.trim().toLowerCase() === header);
+  return index >= 0 ? index : null;
 }
 
 export function MappingEditor({ text, initialMapping, onSave, onCancel }: MappingEditorProps) {
@@ -30,7 +36,7 @@ export function MappingEditor({ text, initialMapping, onSave, onCancel }: Mappin
     initialMapping?.dateFormat ?? "D/M/YYYY",
   );
   const [dateIndex, setDateIndex] = useState(
-    initialMapping?.dateColumn ? String(mappingIndex(initialMapping.dateColumn, firstRow)) : "",
+    initialMapping?.dateColumn ? String(mappingIndex(initialMapping.dateColumn, firstRow) ?? "") : "",
   );
   const [amountMode, setAmountMode] = useState<"signed" | "debit-credit">(
     initialMapping && "signed" in initialMapping.amount ? "signed" :
@@ -38,30 +44,33 @@ export function MappingEditor({ text, initialMapping, onSave, onCancel }: Mappin
   );
   const [signedIndex, setSignedIndex] = useState(() => {
     if (initialMapping && "signed" in initialMapping.amount) {
-      return String(mappingIndex(initialMapping.amount.signed, firstRow));
+      return String(mappingIndex(initialMapping.amount.signed, firstRow) ?? "");
     }
     return String(Math.min(1, Math.max(firstRow.length - 1, 0)));
   });
   const [debitIndex, setDebitIndex] = useState(() =>
     initialMapping && !("signed" in initialMapping.amount)
-      ? String(mappingIndex(initialMapping.amount.debit, firstRow))
+      ? String(mappingIndex(initialMapping.amount.debit, firstRow) ?? "")
       : "",
   );
   const [creditIndex, setCreditIndex] = useState(() =>
     initialMapping && !("signed" in initialMapping.amount)
-      ? String(mappingIndex(initialMapping.amount.credit, firstRow))
+      ? String(mappingIndex(initialMapping.amount.credit, firstRow) ?? "")
       : "",
   );
   const [negate, setNegate] = useState(
     initialMapping && "signed" in initialMapping.amount ? initialMapping.amount.negate : false,
   );
   const [descriptionIndexes, setDescriptionIndexes] = useState(() =>
-    initialMapping?.descriptionColumns.map((column) => String(mappingIndex(column, firstRow))) ??
+    initialMapping?.descriptionColumns
+      .map((column) => mappingIndex(column, firstRow))
+      .filter((index): index is number => index !== null)
+      .map(String) ??
       (firstRow.length > 2 ? ["2"] : []),
   );
   const [balanceIndex, setBalanceIndex] = useState(() =>
     initialMapping?.balanceColumn
-      ? String(mappingIndex(initialMapping.balanceColumn, firstRow))
+      ? String(mappingIndex(initialMapping.balanceColumn, firstRow) ?? "")
       : "",
   );
 
@@ -69,25 +78,32 @@ export function MappingEditor({ text, initialMapping, onSave, onCancel }: Mappin
     index,
     label: hasHeader && value.trim() ? value : `Column ${index + 1}`,
   }));
-  const columnAt = (value: string): CsvColumn => {
+  const columnAt = (value: string): CsvColumn | null => {
+    if (!value) return null;
     const index = Number(value);
+    if (!Number.isInteger(index) || index < 0 || index >= firstRow.length) return null;
     const header = firstRow[index];
-    return hasHeader && header?.trim() ? { header } : { index };
+    return hasHeader && header?.trim() ? { header: header.trim() } : { index };
   };
 
   function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const signedColumn = amountMode === "signed" ? columnAt(signedIndex) : null;
+    const debitColumn = amountMode === "debit-credit" ? columnAt(debitIndex) : null;
+    const creditColumn = amountMode === "debit-credit" ? columnAt(creditIndex) : null;
+    if ((amountMode === "signed" && !signedColumn) || (amountMode === "debit-credit" && (!debitColumn || !creditColumn))) return;
     const amount: CsvMapping["amount"] = amountMode === "signed"
-      ? { signed: columnAt(signedIndex), negate }
-      : { debit: columnAt(debitIndex), credit: columnAt(creditIndex) };
+      ? { signed: signedColumn!, negate }
+      : { debit: debitColumn!, credit: creditColumn! };
+    const dateColumn = columnAt(dateIndex);
     onSave({
       id: crypto.randomUUID(),
       name: name.trim(),
       dateFormat,
-      ...(dateIndex ? { dateColumn: columnAt(dateIndex) } : {}),
+      ...(dateColumn ? { dateColumn } : {}),
       hasHeader,
       amount,
-      descriptionColumns: descriptionIndexes.map(columnAt),
+      descriptionColumns: descriptionIndexes.map(columnAt).filter((column): column is CsvColumn => column !== null),
       balanceColumn: balanceIndex ? columnAt(balanceIndex) : null,
       updatedAt: new Date().toISOString(),
     });
@@ -178,7 +194,7 @@ export function MappingEditor({ text, initialMapping, onSave, onCancel }: Mappin
         </select>
       </label>
       <div className="dialog-actions">
-        <button className="primary" disabled={!firstRow.length || !name.trim()} type="submit">Save mapping</button>
+        <button className="primary" disabled={!firstRow.length || !name.trim() || (amountMode === "signed" ? !columnAt(signedIndex) : !columnAt(debitIndex) || !columnAt(creditIndex))} type="submit">Save mapping</button>
         <button className="secondary" onClick={onCancel} type="button">Cancel</button>
       </div>
     </form>

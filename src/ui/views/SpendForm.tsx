@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { debtsOf, SELF_ENTITY_ID, validateSpend, type Entry, type Ledger, type Portion } from "../../domain/ledger";
+import { categoryMemoryKey, debtsOf, linkedBankAmountCents, SELF_ENTITY_ID, validateSpend, type Category, type Entry, type Ledger, type Portion } from "../../domain/ledger";
 import { formatAud, isBankDate, parseAud } from "../../domain/value";
 
 interface SpendFormProps {
   ledger: Ledger;
   initialValues?: Partial<Entry>;
   onSave: (entry: Entry) => void;
+  onAddCategory?: (category: Category) => void;
   onCancel?: () => void;
 }
 
@@ -23,12 +24,21 @@ function centsText(cents: number): string {
   return formatAud(cents).slice(4);
 }
 
-export function SpendForm({ ledger, initialValues, onSave, onCancel }: SpendFormProps) {
+export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCancel }: SpendFormProps) {
   const [date, setDate] = useState(initialValues?.date ?? todayLocal());
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [amount, setAmount] = useState(initialValues?.amountCents === undefined ? "" : centsText(initialValues.amountCents));
   const [accountId, setAccountId] = useState(initialValues?.accountId ?? "");
   const [payerEntityId, setPayerEntityId] = useState(initialValues?.payerEntityId ?? SELF_ENTITY_ID);
+  const rememberedCategoryId = initialValues?.accountId
+    ? ledger.categoryMemory?.find((memory) => memory.key === categoryMemoryKey(initialValues.accountId!, initialValues.description ?? ""))?.categoryId
+    : undefined;
+  const suggestedCategoryId = rememberedCategoryId;
+  const [categoryId, setCategoryId] = useState(initialValues?.categoryId === undefined ? rememberedCategoryId ?? "" : initialValues.categoryId ?? "");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [tagsText, setTagsText] = useState(initialValues?.tags?.join(", ") ?? "");
+  const [note, setNote] = useState(initialValues?.note ?? "");
+  const [extraReimbursable, setExtraReimbursable] = useState(initialValues?.extraReimbursable ?? false);
   const [portions, setPortions] = useState<PortionDraft[]>(
     initialValues?.portions?.map((portion) => ({ entityId: portion.entityId, amount: centsText(portion.amountCents) })) ?? [],
   );
@@ -60,11 +70,18 @@ export function SpendForm({ ledger, initialValues, onSave, onCancel }: SpendForm
     accountId: accountId || null,
     portions: portionValues,
     refundOf: initialValues?.refundOf,
+    bankRowIds: initialValues?.bankRowIds,
+    categoryId: categoryId || null,
+    tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean),
+    note,
+    extraReimbursable,
     countsTowardDebt: true,
     updatedAt: initialValues?.updatedAt ?? "draft",
   };
-  const valid = amountCents !== null && isBankDate(date) && validateSpend({ ...draft, kind: "spend" });
-  const debts = valid ? debtsOf(draft) : [];
+  const linkedBankAmount = draft.kind === "spend" ? linkedBankAmountCents(draft, ledger.bankRows ?? []) : null;
+  const amountAmended = amountCents !== null && linkedBankAmount !== null && amountCents !== linkedBankAmount;
+  const valid = amountCents !== null && isBankDate(date) && validateSpend({ ...draft, kind: "spend" }) && (!amountAmended || note.trim().length > 0);
+  const debts = valid ? debtsOf(draft, ledger.bankRows ?? []) : [];
   const firstDebt = debts[0];
   const payerName = ledger.entities.find((entity) => entity.id === effectivePayerId)?.name ?? "Payer";
   const effect = firstDebt
@@ -80,10 +97,33 @@ export function SpendForm({ ledger, initialValues, onSave, onCancel }: SpendForm
   function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!valid) {
-      setError(`Enter a valid date, positive amount, and portions that sum to the ${draft.kind === "refund" ? "refund" : "spend"} amount.`);
+      setError(amountAmended && !note.trim()
+        ? "Add a note explaining the amended amount."
+        : `Enter a valid date, positive amount, and portions that sum to the ${draft.kind === "refund" ? "refund" : "spend"} amount.`);
       return;
     }
-    onSave({ ...draft, amountCents: amountCents!, portions: portionValues });
+    onSave({
+      ...draft,
+      id: initialValues?.id ?? crypto.randomUUID(),
+      amountCents: amountCents!,
+      portions: portionValues,
+      updatedAt: initialValues?.updatedAt ?? new Date().toISOString(),
+    });
+  }
+
+  function addCategory() {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    const existing = ledger.categories?.find((category) => category.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      setCategoryId(existing.id);
+      setNewCategoryName("");
+      return;
+    }
+    const category: Category = { id: crypto.randomUUID(), name, archived: false, updatedAt: new Date().toISOString() };
+    onAddCategory?.(category);
+    setCategoryId(category.id);
+    setNewCategoryName("");
   }
 
   return (
@@ -100,6 +140,40 @@ export function SpendForm({ ledger, initialValues, onSave, onCancel }: SpendForm
         Amount (AUD)
         <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required />
       </label>
+      <label>
+        Category
+        <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+          <option value="">Uncategorized</option>
+          {(ledger.categories ?? []).filter((category) => !category.archived || category.id === categoryId).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+        </select>
+      </label>
+      {categoryId && categoryId === suggestedCategoryId && <p>Suggested from a past spend</p>}
+      {onAddCategory && (
+        <div className="dialog-actions">
+          <label>
+            Add category
+            <input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} />
+          </label>
+          <button className="secondary" disabled={!newCategoryName.trim()} onClick={addCategory} type="button">Add category</button>
+        </div>
+      )}
+      <label>
+        Tags (comma-separated)
+        <input value={tagsText} onChange={(event) => setTagsText(event.target.value)} />
+      </label>
+      <label>
+        Note
+        <input value={note} onChange={(event) => setNote(event.target.value)} required={amountAmended} />
+      </label>
+      {amountAmended && linkedBankAmount !== null && (
+        <>
+          <p>Entry amount: <span className="amount">{amountCents === null ? "" : formatAud(amountCents)}</span>; bank amount: <span className="amount">{formatAud(linkedBankAmount)}</span></p>
+          <label className="checkbox-label">
+            <input type="checkbox" checked={extraReimbursable} onChange={(event) => setExtraReimbursable(event.target.checked)} />
+            Extra is reimbursable
+          </label>
+        </>
+      )}
       <label>
         Account
         <select

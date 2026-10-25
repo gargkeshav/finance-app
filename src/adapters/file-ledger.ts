@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Ledger, validateSpend } from "../domain/ledger";
+import { type Category, type CategoryMemory, type Ledger, validateSpend } from "../domain/ledger";
 import { bankDateSchema, centsSchema } from "../domain/value";
 import { csvMappingSchema, type CsvMapping } from "./csv-mapping";
 
@@ -130,6 +130,10 @@ const entrySchema = z
     portions: z.array(portionSchema),
     refundOf: idSchema.nullable().optional(),
     bankRowIds: z.array(idSchema).default([]),
+    categoryId: idSchema.nullable().default(null),
+    tags: z.array(z.string()).default([]),
+    note: z.string().default(""),
+    extraReimbursable: z.boolean().default(false),
     countsTowardDebt: z.boolean(),
     updatedAt: updatedAtSchema,
     splitwiseExpenseId: idSchema.nullable().optional(),
@@ -205,6 +209,21 @@ const checkpointSchema = z.object({
   updatedAt: updatedAtSchema,
 });
 
+const categorySchema = z.object({
+  id: idSchema,
+  name: z.string().min(1, "must not be empty"),
+  archived: z.boolean(),
+  updatedAt: updatedAtSchema,
+});
+
+const categoryMemorySchema = z.object({
+  id: idSchema,
+  key: z.string(),
+  categoryId: idSchema,
+  entityId: idSchema.nullable(),
+  updatedAt: updatedAtSchema,
+});
+
 type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   accounts: (Ledger["accounts"][number] & { mappingId?: string })[];
   entries: (Ledger["entries"][number] & { bankRowIds: string[] })[];
@@ -213,6 +232,8 @@ type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   bankRows: z.infer<typeof bankRowSchema>[];
   settlements: z.infer<typeof settlementSchema>[];
   checkpoints: z.infer<typeof checkpointSchema>[];
+  categories: Category[];
+  categoryMemory: CategoryMemory[];
 };
 
 const ledgerSchema = z.object({
@@ -229,12 +250,20 @@ const ledgerSchema = z.object({
   splitwiseSync: z.array(splitwiseSyncSchema).default([]),
   splitwiseInbox: z.array(splitwiseInboxSchema).default([]),
   splitwisePosts: z.array(splitwisePostSchema).default([]),
+  categories: z.array(categorySchema).default([]),
+  categoryMemory: z.array(categoryMemorySchema).default([]),
 }).superRefine((ledger, context) => {
   for (const entry of ledger.entries) {
-    if (entry.kind !== "refund" || !entry.refundOf) continue;
-    const original = ledger.entries.find((candidate) => candidate.id === entry.refundOf);
-    if (original?.kind !== "spend") {
-      context.addIssue({ code: "custom", message: "A refund must reference an existing spend.", path: ["entries"] });
+    if (entry.kind === "refund" && entry.refundOf) {
+      const original = ledger.entries.find((candidate) => candidate.id === entry.refundOf);
+      if (original?.kind !== "spend") {
+        context.addIssue({ code: "custom", message: "A refund must reference an existing spend.", path: ["entries"] });
+      }
+    }
+    if (entry.kind !== "spend" || !entry.bankRowIds.length) continue;
+    const linkedRows = ledger.bankRows.filter((row) => entry.bankRowIds.includes(row.id));
+    if (linkedRows.length && Math.abs(linkedRows.reduce((total, row) => total + row.amountCents, 0)) !== entry.amountCents && !entry.note.trim()) {
+      context.addIssue({ code: "custom", message: "A note is required when a spend amount differs from its bank rows.", path: ["entries"] });
     }
   }
 });
@@ -255,6 +284,8 @@ export function emptyLedger(): PersistedLedger {
     imports: [],
     bankRows: [],
     checkpoints: [],
+    categories: [],
+    categoryMemory: [],
   };
 }
 
@@ -278,6 +309,13 @@ export function parseLedger(text: string): PersistedLedger {
     throw formatValidationError("The ledger file is invalid", result.error.issues);
   }
   return result.data;
+}
+
+export function ledgerProblem(ledger: Ledger): string | null {
+  const result = ledgerSchema.safeParse(ledger);
+  return result.success
+    ? null
+    : formatValidationError("The ledger cannot be saved", result.error.issues).message;
 }
 
 export function stringifyLedger(ledger: Ledger): string {

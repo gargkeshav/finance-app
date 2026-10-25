@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FileStore, isPickerCancellation } from "../adapters/file-store";
-import { emptyLedger, stringifyLedger } from "../adapters/file-ledger";
+import { emptyLedger, ledgerProblem, stringifyLedger } from "../adapters/file-ledger";
 import type { Account, BankRow, Baseline, Entry, Entity, Ledger, Settlement } from "../domain/ledger";
 import { ActivityView } from "./views/ActivityView";
 import { AccountsView } from "./views/AccountsView";
@@ -42,8 +42,15 @@ export function LocalApp() {
   const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
   const [fileStore] = useState(() => new FileStore());
   const uploadInput = useRef<HTMLInputElement>(null);
-  const currentContent = stringifyLedger(ledger);
-  const hasUnsavedChanges = currentContent !== savedContent;
+  let currentContent = "";
+  let serializationError = "";
+  try {
+    currentContent = stringifyLedger(ledger);
+  } catch (reason) {
+    serializationError = reason instanceof Error ? reason.message : "The ledger cannot be saved.";
+  }
+  const hasUnsavedChanges = Boolean(serializationError) || currentContent !== savedContent;
+  const visibleError = serializationError || error;
   const reviewCount = (ledger.bankRows ?? []).filter(
     (row) => !row.entryId && !row.settlementId && !row.skipped,
   ).length;
@@ -59,6 +66,13 @@ export function LocalApp() {
   }, [hasUnsavedChanges]);
 
   function update(next: Ledger) {
+    const problem = ledgerProblem(next);
+    if (problem) {
+      setError(problem);
+      setMessage("");
+      return;
+    }
+    setError("");
     setLedger((previous) => {
       const updatedAt = new Date().toISOString();
       return {
@@ -133,7 +147,7 @@ export function LocalApp() {
     Activity: <ActivityView ledger={ledger} update={update} />,
     Import: <ImportView ledger={ledger} update={update} />,
     Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); setView("Settle"); }} />,
-    Settle: <SettleView key={settlementRow?.id ?? "manual"} ledger={ledger} update={update} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
+    Settle: <SettleView ledger={ledger} update={update} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
     Accounts: <AccountsView ledger={ledger} update={update} />,
     People: <PeopleView ledger={ledger} update={update} />,
     Balances: <BalancesView ledger={ledger} update={update} />,
@@ -177,7 +191,7 @@ export function LocalApp() {
           />
         </header>
         {message && <p className="banner success" role="status">{message}</p>}
-        {error && <p className="banner error" role="alert">{error}</p>}
+        {visibleError && <p className="banner error" role="alert">{visibleError}</p>}
         {views[view]}
       </main>
     </div>

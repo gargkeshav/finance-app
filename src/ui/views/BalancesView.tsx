@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { balances, report, type Baseline, type Ledger } from "../../domain/ledger";
-import { formatAud, parseAud } from "../../domain/value";
+import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type Ledger } from "../../domain/ledger";
+import { formatAud, parseAud, sumCents } from "../../domain/value";
 
 interface BalancesViewProps {
   ledger: Ledger;
@@ -32,6 +32,34 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
   const overall = balances(ledger);
   const selfId = ledger.entities.find((entity) => entity.kind === "self")?.id;
   const entities = ledger.entities.filter((entity) => entity.id !== selfId);
+  const categoryTotals = new Map<string, { id: string; name: string; personal: number[]; house: number[] }>();
+  for (const entry of monthly.entries) {
+    const categoryId = entry.categoryId ?? "";
+    const category = ledger.categories?.find((item) => item.id === categoryId);
+    const current = categoryTotals.get(categoryId) ?? {
+      id: categoryId,
+      name: category?.name ?? "Uncategorized",
+      personal: [],
+      house: [],
+    };
+    const direction = entry.kind === "refund" ? -1 : 1;
+    for (const portion of entry.portions) {
+      const signedAmount = direction * portion.amountCents;
+      if (portion.entityId === SELF_ENTITY_ID) current.personal.push(signedAmount);
+      if (portion.entityId === HOUSE_ENTITY_ID) {
+        current.personal.push(Math.sign(signedAmount) * Math.ceil(Math.abs(signedAmount) / 2));
+        current.house.push(signedAmount);
+      }
+    }
+    categoryTotals.set(categoryId, current);
+  }
+  const categoryRows = [...categoryTotals.values()]
+    .map((category) => ({
+      ...category,
+      personalCents: sumCents(category.personal),
+      houseCents: sumCents(category.house),
+    }))
+    .sort((first, second) => first.name.localeCompare(second.name));
 
   function baselineFor(entityId: string): Baseline | undefined {
     return ledger.baselines.find((baseline) => baseline.entityId === entityId);
@@ -82,6 +110,28 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
         <div><span className="metric-label">Personal spend</span><strong className="amount">{formatAud(monthly.personalCents)}</strong></div>
         <div><span className="metric-label">House spend</span><strong className="amount">{formatAud(monthly.houseCents)}</strong></div>
       </section>
+
+      <h2>By category</h2>
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>Category</th><th>Personal</th><th>House</th></tr></thead>
+          <tbody>
+            {categoryRows.map((category) => (
+              <tr key={category.id}>
+                <td>{category.name}</td>
+                <td className="amount">{formatAud(category.personalCents)}</td>
+                <td className="amount">{formatAud(category.houseCents)}</td>
+              </tr>
+            ))}
+            <tr>
+              <th scope="row">Total</th>
+              <td className="amount">{formatAud(monthly.personalCents)}</td>
+              <td className="amount">{formatAud(monthly.houseCents)}</td>
+            </tr>
+          </tbody>
+        </table>
+        {categoryRows.length === 0 && <p className="empty-state compact">No spending for this month.</p>}
+      </div>
 
       <h2>Balances</h2>
       {error && <p className="banner error" role="alert">{error}</p>}
