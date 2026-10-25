@@ -10,4 +10,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 03: In-place JSON open/save with download/upload fallback, unsaved-change tracking, and close warning implemented. Typecheck and existing tests pass.
 - Files changed: `src/adapters/file-store.ts`, `src/env.d.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/DataView.tsx`, `.github/prompts/PROGRESS.md`.
 - Left: Chrome picker round-trip was not manually exercised in this session. Next: 04.
+- Batch 04: CSV mappings, ING/HSBC/ANZ presets, row parsing, duplicate-aware matching, and optional ledger import storage implemented.
+- Files changed: `src/adapters/csv-mapping.ts`, `src/adapters/file-ledger.ts`, `tests/csv-mapping.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 05.
 
