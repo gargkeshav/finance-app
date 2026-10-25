@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, type BankRow, type Category, type Entry, type Ledger } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, splitPreset, type BankRow, type Category, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
 import { cardCycle, confirmTransfer, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatMoney } from "../../domain/value";
 import { SpendForm } from "./SpendForm";
@@ -7,7 +7,7 @@ import { createSplitwiseSpend, type SplitwiseInboxItem } from "../../adapters/sp
 
 interface ReviewViewProps {
   ledger: Ledger;
-  update: (next: Ledger) => void;
+  update: (next: Ledger, undoLabel?: string) => void;
   onSettle: (row: BankRow) => void;
 }
 
@@ -18,13 +18,21 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
   const [transferPartnerId, setTransferPartnerId] = useState("");
   const [confirmingTransfer, setConfirmingTransfer] = useState<{ outgoingId: string; incomingId: string } | null>(null);
   const [transferMessage, setTransferMessage] = useState("");
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [bulkPresetKind, setBulkPresetKind] = useState<SplitPreset["kind"]>("payer");
+  const [bulkEntityId, setBulkEntityId] = useState(SELF_ENTITY_ID);
+  const [bulkEntityIds, setBulkEntityIds] = useState<string[]>([SELF_ENTITY_ID]);
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const actionRefs = useRef(new Map<string, HTMLButtonElement>());
+  const shortcutRefs = useRef(new Map<string, HTMLButtonElement>());
   const headingRef = useRef<HTMLHeadingElement>(null);
   const bankRows = ledger.bankRows ?? [];
   const imports = ledger.imports ?? [];
   const pendingRows = bankRows
     .filter((row) => !row.entryId && !row.settlementId && !row.skipped)
     .sort((first, second) => second.date.localeCompare(first.date) || second.line - first.line);
+  const selectedRows = pendingRows.filter((row) => selectedRowIds.has(row.id));
   const memoryFor = (row: BankRow) => ledger.categoryMemory?.find((memory) => memory.key === categoryMemoryKey(row.accountId, row.description));
   const suggestedSpends = pendingRows.filter((row) => {
     const memory = memoryFor(row);
@@ -88,6 +96,124 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     return imports.find((item) => item.id === row.importId);
   }
 
+  function shortcutRef(rowId: string, key: string) {
+    return (button: HTMLButtonElement | null) => {
+      const refKey = `${rowId}:${key}`;
+      if (button) shortcutRefs.current.set(refKey, button);
+      else shortcutRefs.current.delete(refKey);
+    };
+  }
+
+  function handleReviewKeyDown(event: KeyboardEvent) {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable='true']")) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+    const rowId = target instanceof HTMLElement
+      ? target.closest("[data-review-row]")?.getAttribute("data-review-row") ?? activeRowId
+      : activeRowId;
+    const rowIndex = pendingRows.findIndex((row) => row.id === rowId);
+    if (event.key === "ArrowDown" || event.key.toLowerCase() === "j" || event.key === "ArrowUp" || event.key.toLowerCase() === "k") {
+      if (!pendingRows.length) return;
+      event.preventDefault();
+      const direction = event.key === "ArrowUp" || event.key.toLowerCase() === "k" ? -1 : 1;
+      const nextIndex = rowIndex < 0
+        ? (direction > 0 ? 0 : pendingRows.length - 1)
+        : Math.min(pendingRows.length - 1, Math.max(0, rowIndex + direction));
+      const nextRow = pendingRows[nextIndex];
+      setActiveRowId(nextRow.id);
+      (shortcutRefs.current.get(`${nextRow.id}:row`) ?? actionRefs.current.get(nextRow.id))?.focus();
+      return;
+    }
+    if (!rowId) return;
+    const key = event.key.toLowerCase();
+    if (!["s", "i", "x", "t", "e", "r"].includes(key)) return;
+    const button = shortcutRefs.current.get(`${rowId}:${key}`);
+    if (button) {
+      event.preventDefault();
+      button.click();
+    }
+  }
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleReviewKeyDown);
+    return () => window.removeEventListener("keydown", handleReviewKeyDown);
+  }, [pendingRows, activeRowId]);
+
+  function changeSelection(rowId: string, checked: boolean) {
+    setSelectedRowIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(rowId);
+      else next.delete(rowId);
+      return next;
+    });
+  }
+
+  function selectedBulkPreset(): SplitPreset | null {
+    if (bulkPresetKind === "payer") return { kind: "payer" };
+    if (bulkPresetKind === "halfHouse") return { kind: "halfHouse" };
+    if (bulkPresetKind === "allHouse") return { kind: "allHouse" };
+    if (bulkPresetKind === "entity") return bulkEntityId ? { kind: "entity", entityId: bulkEntityId } : null;
+    return bulkEntityIds.length ? { kind: "equal", entityIds: bulkEntityIds } : null;
+  }
+
+  function skipSelected() {
+    if (!selectedRows.length || !window.confirm(`Skip ${selectedRows.length} selected bank rows?`)) return;
+    const selectedIds = new Set(selectedRows.map((row) => row.id));
+    const now = new Date().toISOString();
+    update({
+      ...ledger,
+      bankRows: bankRows.map((row) => selectedIds.has(row.id) ? { ...row, skipped: true, updatedAt: now } : row),
+    }, `Skip ${selectedRows.length} selected`);
+    setSelectedRowIds(new Set());
+  }
+
+  function spendSelected() {
+    const preset = selectedBulkPreset();
+    if (!preset || !selectedRows.length || selectedRows.some((row) => row.amountCents >= 0)) return;
+    if (!window.confirm(`Create spends for ${selectedRows.length} selected bank rows?`)) return;
+    const now = new Date().toISOString();
+    const entries = selectedRows.map((row): Entry => {
+      const account = ledger.accounts.find((item) => item.id === row.accountId);
+      const payerEntityId = account?.payerEntityId ?? SELF_ENTITY_ID;
+      return {
+        id: crypto.randomUUID(),
+        kind: "spend",
+        date: row.date,
+        description: row.description,
+        amountCents: Math.abs(row.amountCents),
+        payerEntityId,
+        accountId: row.accountId,
+        portions: splitPreset(Math.abs(row.amountCents), payerEntityId, preset),
+        bankRowIds: [row.id],
+        categoryId: bulkCategoryId || null,
+        tags: [],
+        note: "",
+        extraReimbursable: false,
+        countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
+        updatedAt: now,
+      };
+    });
+    const entryByRowId = new Map(entries.map((entry) => [entry.bankRowIds![0], entry]));
+    let next: Ledger = {
+      ...ledger,
+      entries: [...ledger.entries, ...entries],
+      bankRows: bankRows.map((row) => {
+        const entry = entryByRowId.get(row.id);
+        return entry ? { ...row, entryId: entry.id, updatedAt: now } : row;
+      }),
+      lastSplitByAccount: {
+        ...ledger.lastSplitByAccount,
+        ...Object.fromEntries([...new Set(selectedRows.map((row) => row.accountId))]
+          .filter((accountId) => Boolean(accountId))
+          .map((accountId) => [accountId, preset])),
+      },
+    };
+    for (const entry of entries) next = { ...next, categoryMemory: categoryMemoryAfterSpend(next, entry, now) };
+    update(next, `Spend ${selectedRows.length} selected`);
+    setSelectedRowIds(new Set());
+  }
+
   function acceptSuggestedSpends() {
     if (!suggestedSpends.length || !window.confirm(`Accept ${suggestedSpends.length} suggested spends?`)) return;
     const now = new Date().toISOString();
@@ -121,10 +247,10 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         const entry = entryByRowId.get(row.id);
         return entry ? { ...row, entryId: entry.id, updatedAt: now } : row;
       }),
-    });
+    }, "Accept suggested spends");
   }
 
-  function saveSpend(row: BankRow, draft: Entry) {
+  function saveSpend(row: BankRow, draft: Entry, preset?: SplitPreset) {
     const now = new Date().toISOString();
     const entry: Entry = {
       ...draft,
@@ -137,10 +263,13 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       ...ledger,
       entries: [...ledger.entries, entry],
       categoryMemory: categoryMemoryAfterSpend(ledger, entry, now),
+      lastSplitByAccount: row.accountId && preset
+        ? { ...ledger.lastSplitByAccount, [row.accountId]: preset }
+        : ledger.lastSplitByAccount,
       bankRows: bankRows.map((item) => item.id === row.id
         ? { ...item, entryId: entry.id, updatedAt: now }
         : item),
-    });
+    }, "Save spend");
     setOpenDetail(null);
     focusFollowingRow(row);
   }
@@ -162,7 +291,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       bankRows: bankRows.map((item) => item.id === row.id
         ? { ...item, entryId: entry.id, updatedAt: now }
         : item),
-    });
+    }, "Save refund");
     setOpenDetail(null);
     setRefundOfId("");
     focusFollowingRow(row);
@@ -190,7 +319,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       bankRows: bankRows.map((item) => item.id === row.id
         ? { ...item, entryId: entry.id, updatedAt: now }
         : item),
-    });
+    }, "Classify income");
     focusFollowingRow(row);
   }
 
@@ -201,7 +330,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       bankRows: bankRows.map((item) => item.id === row.id
         ? { ...item, skipped: true, updatedAt: now }
         : item),
-    });
+    }, "Skip bank row");
     setOpenDetail(null);
     focusFollowingRow(row);
   }
@@ -213,7 +342,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       setConfirmingTransfer(null);
       return;
     }
-    update(next);
+    update(next, "Confirm transfer");
     setConfirmingTransfer(null);
     setOpenDetail(null);
     setTransferMessage("");
@@ -245,7 +374,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       bankRows: bankRows.map((item) => item.id === row.id
         ? { ...item, dismissedTransferIds: [...new Set([...item.dismissedTransferIds, other.id])], updatedAt: now }
         : item),
-    });
+    }, "Dismiss transfer suggestion");
   }
 
   const splitwiseItems = (ledger.splitwiseInbox ?? []).filter((item) =>
@@ -299,7 +428,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
           updatedAt: now,
         }]
         : ledger.splitwisePosts,
-    });
+    }, "Review Splitwise item");
   }
 
   function dismissSplitwise(item: SplitwiseInboxItem) {
@@ -308,11 +437,11 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       splitwiseInbox: (ledger.splitwiseInbox ?? []).map((candidate) => candidate.id === item.id
         ? { ...candidate, status: "dismissed" }
         : candidate),
-    });
+    }, "Dismiss Splitwise item");
   }
 
   function createFromSplitwise(item: SplitwiseInboxItem) {
-    update(createSplitwiseSpend(ledger, item));
+    update(createSplitwiseSpend(ledger, item), "Create Splitwise spend");
   }
 
   function pendingPair(first: BankRow, second: BankRow) {
@@ -347,6 +476,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         {suggestedSpends.length > 0 && <button className="primary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
       </header>
       {transferMessage && <p className="banner error" role="status">{transferMessage}</p>}
+      <p className="hint">Up/Down or j/k move; s spend, i income, x skip, t transfer, e settlement, r refund.</p>
       {splitwiseItems.length > 0 && (
         <section aria-label="From Splitwise">
           <h2>From Splitwise</h2>
@@ -389,9 +519,43 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
           </div>
         </section>
       )}
+      <div className="filters" aria-label="Bulk review">
+        <span>{selectedRows.length} selected</span>
+        <label>
+          Spend preset
+          <select value={bulkPresetKind} onChange={(event) => setBulkPresetKind(event.target.value as SplitPreset["kind"])}>
+            <option value="payer">Payer</option>
+            <option value="halfHouse">Half House</option>
+            <option value="allHouse">All House</option>
+            <option value="entity">Entity</option>
+            <option value="equal">Equal split</option>
+          </select>
+        </label>
+        {bulkPresetKind === "entity" && <label>
+          Entity
+          <select value={bulkEntityId} onChange={(event) => setBulkEntityId(event.target.value)}>
+            {ledger.entities.filter((entity) => !entity.archived || entity.id === bulkEntityId).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+          </select>
+        </label>}
+        {bulkPresetKind === "equal" && <label>
+          Equal split entities
+          <select multiple size={Math.min(4, Math.max(2, ledger.entities.filter((entity) => !entity.archived).length))} value={bulkEntityIds} onChange={(event) => setBulkEntityIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>
+            {ledger.entities.filter((entity) => !entity.archived || bulkEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+          </select>
+        </label>}
+        <label>
+          Category
+          <select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}>
+            <option value="">Uncategorized</option>
+            {(ledger.categories ?? []).filter((category) => !category.archived || category.id === bulkCategoryId).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+        </label>
+        <button className="secondary" disabled={!selectedRows.length} onClick={skipSelected} type="button">Skip selected</button>
+        <button className="primary" disabled={!selectedRows.length || selectedRows.some((row) => row.amountCents >= 0) || !selectedBulkPreset()} onClick={spendSelected} type="button">Spend selected</button>
+      </div>
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th /></tr></thead>
+          <thead><tr><th><input aria-label="Select all review rows" checked={pendingRows.length > 0 && selectedRows.length === pendingRows.length} onChange={(event) => setSelectedRowIds(event.target.checked ? new Set(pendingRows.map((row) => row.id)) : new Set())} type="checkbox" /></th><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th /></tr></thead>
           <tbody>
             {pendingRows.map((row) => {
               const account = ledger.accounts.find((item) => item.id === row.accountId);
@@ -405,7 +569,8 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                 : [];
               return (
                 <Fragment key={row.id}>
-                  <tr key={row.id}>
+                  <tr key={row.id} data-review-row={row.id} onFocusCapture={() => setActiveRowId(row.id)}>
+                    <td><input aria-label={`Select ${row.description || "bank transaction"}`} checked={selectedRowIds.has(row.id)} onChange={(event) => changeSelection(row.id, event.target.checked)} type="checkbox" /></td>
                     <td className="date-cell">{row.date}</td>
                     <td>{row.description || "Bank transaction"}</td>
                     <td>{account?.name ?? "Unknown"}</td>
@@ -414,35 +579,42 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                       {row.amountCents < 0 ? <button ref={(button) => {
                         if (button) actionRefs.current.set(row.id, button);
                         else actionRefs.current.delete(row.id);
+                        shortcutRef(row.id, "s")(button);
+                        shortcutRef(row.id, "row")(button);
                       }} className="primary" onClick={() => setOpenDetail({ rowId: row.id, kind: "spend" })} type="button">Spend</button> : row.amountCents > 0 ? <button ref={(button) => {
                         if (button) actionRefs.current.set(row.id, button);
                         else actionRefs.current.delete(row.id);
+                        shortcutRef(row.id, "i")(button);
+                        shortcutRef(row.id, "row")(button);
                       }} className="primary" onClick={() => classifyIncome(row)} type="button">Income</button> : null}{" "}
-                      <button ref={row.amountCents === 0 ? (button) => {
-                        if (button) actionRefs.current.set(row.id, button);
-                        else actionRefs.current.delete(row.id);
-                      } : undefined} className="secondary" onClick={() => skipRow(row)} type="button">Skip</button>{" "}
+                      <button ref={(button) => {
+                        shortcutRef(row.id, "x")(button);
+                        if (row.amountCents === 0) {
+                          if (button) actionRefs.current.set(row.id, button);
+                          else actionRefs.current.delete(row.id);
+                        }
+                      }} className="secondary" onClick={() => skipRow(row)} type="button">Skip</button>{" "}
                       <details className="more-menu">
                         <summary className="secondary">More</summary>
                         <div>
-                          <button className="secondary" onClick={(event) => {
+                          <button ref={shortcutRef(row.id, "t")} className="secondary" onClick={(event) => {
                             closeMoreMenu(event);
                             setTransferPartnerId("");
                             setOpenDetail({ rowId: row.id, kind: suggestion && otherRow ? "suggestion" : "transfer" });
                           }} type="button">Transfer</button>
-                          {row.amountCents > 0 && <button className="secondary" onClick={(event) => {
+                          {row.amountCents > 0 && <button ref={shortcutRef(row.id, "r")} className="secondary" onClick={(event) => {
                             closeMoreMenu(event);
                             setRefundOfId(refundCandidates(row)[0]?.id ?? "");
                             setOpenDetail({ rowId: row.id, kind: "refund" });
                           }} type="button">Refund</button>}
-                          <button className="secondary" onClick={(event) => { closeMoreMenu(event); onSettle(row); }} type="button">Settlement</button>
+                          <button ref={shortcutRef(row.id, "e")} className="secondary" onClick={(event) => { closeMoreMenu(event); onSettle(row); }} type="button">Settlement</button>
                         </div>
                       </details>
                     </td>
                   </tr>
                   {(detailIsOpen || paymentCycle) && (
                     <tr className="row-detail" key={`${row.id}-detail`}>
-                      <td colSpan={5}>
+                      <td colSpan={6}>
                         {detailIsOpen && openDetail.kind === "spend" && spendingRow?.id === row.id && (
                           <section className="form-grid" aria-label="Review spend">
                             <h2>Review spend</h2>
@@ -457,7 +629,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                               portions: [{ entityId: memoryFor(row)?.entityId ?? account?.payerEntityId ?? SELF_ENTITY_ID, amountCents: Math.abs(row.amountCents) }],
                             }} ledger={ledger}
                               onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
-                              onCancel={() => setOpenDetail(null)} onSave={(entry) => saveSpend(row, entry)} />
+                              onCancel={() => setOpenDetail(null)} onSave={(entry, preset) => saveSpend(row, entry, preset)} />
                           </section>
                         )}
                         {detailIsOpen && openDetail.kind === "refund" && refundRow?.id === row.id && (() => {

@@ -64,4 +64,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 13: Activity filtering, sorting, filtered totals, selection, and confirmed bulk category/tag edits implemented. `npm test` (10 files, 68 tests) and `npm run typecheck` pass.
 - Files changed: `src/domain/query.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ActivityView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 14.
+- Batch 14: Split presets and account memories, review keyboard shortcuts, confirmed bulk skip/spend, and one-step 10-second undo implemented. `npm test` (10 files, 69 tests) and `npm run typecheck` pass.
+- Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SpendForm.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 15.
 

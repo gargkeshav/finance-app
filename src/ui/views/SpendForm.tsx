@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { categoryMemoryKey, debtsOf, linkedBankAmountCents, SELF_ENTITY_ID, validateSpend, type Category, type Entry, type Ledger, type Portion } from "../../domain/ledger";
+import { categoryMemoryKey, debtsOf, linkedBankAmountCents, SELF_ENTITY_ID, splitPreset, validateSpend, type Category, type Entry, type Ledger, type Portion, type SplitPreset } from "../../domain/ledger";
 import { formatAud, formatMoney, isBankDate, parseAud } from "../../domain/value";
 
 interface SpendFormProps {
   ledger: Ledger;
   initialValues?: Partial<Entry>;
-  onSave: (entry: Entry) => void;
+  onSave: (entry: Entry, preset?: SplitPreset) => void;
   onAddCategory?: (category: Category) => void;
   onCancel?: () => void;
 }
@@ -42,6 +42,9 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
   const [portions, setPortions] = useState<PortionDraft[]>(
     initialValues?.portions?.map((portion) => ({ entityId: portion.entityId, amount: centsText(portion.amountCents) })) ?? [],
   );
+  const [presetEntityId, setPresetEntityId] = useState(initialValues?.portions?.[0]?.entityId ?? initialValues?.payerEntityId ?? SELF_ENTITY_ID);
+  const [equalEntityIds, setEqualEntityIds] = useState(initialValues?.portions?.map((portion) => portion.entityId) ?? []);
+  const [activePreset, setActivePreset] = useState<SplitPreset | undefined>();
   const [error, setError] = useState("");
 
   const selectedAccount = ledger.accounts.find((account) => account.id === accountId);
@@ -95,7 +98,31 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
       : { kind: "incomplete" as const };
 
   function setPortion(index: number, key: keyof PortionDraft, value: string) {
+    setActivePreset(undefined);
     setPortions((current) => current.map((portion, row) => row === index ? { ...portion, [key]: value } : portion));
+  }
+
+  function applyPreset(preset: SplitPreset) {
+    if (amountCents === null || amountCents <= 0) return;
+    try {
+      setPortions(splitPreset(amountCents, effectivePayerId, preset).map((portion) => ({
+        entityId: portion.entityId,
+        amount: centsText(portion.amountCents),
+      })));
+      setActivePreset(preset);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The split preset could not be applied.");
+    }
+  }
+
+  function handleFormKeyDown(event: React.KeyboardEvent<HTMLFormElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel?.();
+    } else if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
+      event.preventDefault();
+      event.currentTarget.requestSubmit();
+    }
   }
 
   function save(event: React.FormEvent<HTMLFormElement>) {
@@ -112,7 +139,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
       amountCents: amountCents!,
       portions: portionValues,
       updatedAt: initialValues?.updatedAt ?? new Date().toISOString(),
-    });
+    }, activePreset);
   }
 
   function addCategory() {
@@ -131,7 +158,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
   }
 
   return (
-    <form className="form-grid" onSubmit={save}>
+    <form className="form-grid" onKeyDown={handleFormKeyDown} onSubmit={save}>
       <label>
         Date
         <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
@@ -206,6 +233,28 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
 
       <fieldset>
         <legend>Split</legend>
+        <div className="dialog-actions" aria-label="Split presets">
+          <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "payer" })} type="button">Payer</button>
+          <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "halfHouse" })} type="button">Half House</button>
+          <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "allHouse" })} type="button">All House</button>
+          {ledger.entities.some((entity) => !entity.archived) && <>
+            <label>
+              Entity
+              <select value={presetEntityId} onChange={(event) => setPresetEntityId(event.target.value)}>
+                {ledger.entities.filter((entity) => !entity.archived || entity.id === presetEntityId).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+              </select>
+            </label>
+            <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "entity", entityId: presetEntityId })} type="button">All to entity</button>
+          </>}
+          <label>
+            Equal split entities
+            <select multiple size={Math.min(4, Math.max(2, ledger.entities.filter((entity) => !entity.archived).length))} value={equalEntityIds} onChange={(event) => setEqualEntityIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>
+              {ledger.entities.filter((entity) => !entity.archived || equalEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+            </select>
+          </label>
+          <button className="secondary" disabled={amountCents === null || amountCents <= 0 || equalEntityIds.length === 0} onClick={() => applyPreset({ kind: "equal", entityIds: equalEntityIds })} type="button">Equal split</button>
+          {accountId && ledger.lastSplitByAccount?.[accountId] && <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset(ledger.lastSplitByAccount![accountId])} type="button">Last split on this account</button>}
+        </div>
         {portions.map((portion, index) => (
           <div className="form-grid" key={`${index}-${portion.entityId}`}>
             <label>
@@ -218,7 +267,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
               Amount
               <input inputMode="decimal" value={portion.amount} onChange={(event) => setPortion(index, "amount", event.target.value)} placeholder="0.00" />
             </label>
-            <button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} className="icon-button" onClick={() => setPortions((current) => current.filter((_, row) => row !== index))} type="button">×</button>
+            <button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} className="icon-button" onClick={() => { setActivePreset(undefined); setPortions((current) => current.filter((_, row) => row !== index)); }} type="button">×</button>
           </div>
         ))}
         {remainingCents !== null && <p className={remainingCents === 0 ? "amount positive" : "banner warning"}>Left to split: {formatMoney(remainingCents)}</p>}
@@ -226,10 +275,13 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
           <button className="secondary" onClick={() => {
             const used = new Set(portions.map((portion) => portion.entityId));
             const next = ledger.entities.find((entity) => !entity.archived && entity.kind !== "self" && entity.kind !== "house" && !used.has(entity.id));
-            if (next) setPortions((current) => [...current, { entityId: next.id, amount: "" }]);
+            if (next) {
+              setActivePreset(undefined);
+              setPortions((current) => [...current, { entityId: next.id, amount: "" }]);
+            }
           }} type="button">Add person</button>
           <button className="secondary" onClick={() => {
-            if (amountCents !== null && amountCents > 0) setPortions([{ entityId: effectivePayerId, amount: centsText(amountCents) }]);
+            if (amountCents !== null && amountCents > 0) applyPreset({ kind: "payer" });
             }} type="button">All to {effectivePayerId === "self" ? "You" : payerName}</button>
         </div>
       </fieldset>

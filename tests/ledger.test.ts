@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { balances, openItems, report, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
+import { balances, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
 import { filterEntries } from "../src/domain/query";
 import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
@@ -18,6 +18,14 @@ function makeLedger(entry: Entry): Ledger {
 }
 
 describe("ledger spending rules", () => {
+  it("splits $10.00 evenly over three entities with the leftover cent first", () => {
+    expect(splitPreset(1_000, "self", { kind: "equal", entityIds: ["self", "house", "alex"] })).toEqual([
+      { entityId: "self", amountCents: 334 },
+      { entityId: "house", amountCents: 333 },
+      { entityId: "alex", amountCents: 333 },
+    ]);
+  });
+
   it("filters entries by an entity and date range", () => {
     const entry: Entry = {
       id: "entity-filter",

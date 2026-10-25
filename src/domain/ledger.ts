@@ -30,6 +30,13 @@ export interface Portion {
   amountCents: number;
 }
 
+export type SplitPreset =
+  | { kind: "payer" }
+  | { kind: "halfHouse" }
+  | { kind: "allHouse" }
+  | { kind: "entity"; entityId: string }
+  | { kind: "equal"; entityIds: string[] };
+
 export interface Category {
   id: string;
   name: string;
@@ -137,6 +144,7 @@ export interface Ledger {
   checkpoints?: BalanceCheckpoint[];
   categories?: Category[];
   categoryMemory?: CategoryMemory[];
+  lastSplitByAccount?: Record<string, SplitPreset>;
 }
 
 export interface Debt {
@@ -179,6 +187,33 @@ export interface CheckpointDifference {
   later: BalanceCheckpoint;
   bankRowsCents: number;
   differenceCents: number;
+}
+
+export function splitPreset(amountCents: number, payerEntityId: string, preset: SplitPreset): Portion[] {
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+    throw new RangeError("Split amount must be a positive whole number of cents.");
+  }
+
+  if (preset.kind === "payer") return [{ entityId: payerEntityId, amountCents }];
+  if (preset.kind === "halfHouse") {
+    const selfCents = Math.ceil(amountCents / 2);
+    const houseCents = amountCents - selfCents;
+    return [
+      { entityId: SELF_ENTITY_ID, amountCents: selfCents },
+      ...(houseCents > 0 ? [{ entityId: HOUSE_ENTITY_ID, amountCents: houseCents }] : []),
+    ];
+  }
+  if (preset.kind === "allHouse") return [{ entityId: HOUSE_ENTITY_ID, amountCents }];
+  if (preset.kind === "entity") return [{ entityId: preset.entityId, amountCents }];
+
+  if (!preset.entityIds.length || new Set(preset.entityIds).size !== preset.entityIds.length) {
+    throw new RangeError("Equal split requires distinct entities.");
+  }
+  const baseCents = Math.floor(amountCents / preset.entityIds.length);
+  const leftoverCents = amountCents % preset.entityIds.length;
+  return preset.entityIds
+    .map((entityId, index) => ({ entityId, amountCents: baseCents + (index < leftoverCents ? 1 : 0) }))
+    .filter((portion) => portion.amountCents > 0);
 }
 
 export function categoryMemoryKey(accountId: string, description: string): string {

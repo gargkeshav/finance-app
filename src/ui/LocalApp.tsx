@@ -39,11 +39,13 @@ export function LocalApp() {
   const [fileName, setFileName] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [undoState, setUndoState] = useState<{ ledger: Ledger; label: string } | null>(null);
   const [view, setView] = useState<ViewName>("Activity");
   const [activityFilter, setActivityFilter] = useState<EntryFilter>({});
   const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
   const [fileStore] = useState(() => new FileStore());
   const uploadInput = useRef<HTMLInputElement>(null);
+  const undoTimeout = useRef<number | null>(null);
   let currentContent = "";
   let serializationError = "";
   try {
@@ -73,6 +75,10 @@ export function LocalApp() {
     return () => window.clearTimeout(timeout);
   }, [message]);
 
+  useEffect(() => () => {
+    if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
+  }, []);
+
   useEffect(() => {
     function saveOnShortcut(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
@@ -84,12 +90,24 @@ export function LocalApp() {
     return () => window.removeEventListener("keydown", saveOnShortcut);
   }, [fileStore, ledger]);
 
-  function update(next: Ledger) {
+  function update(next: Ledger, undoLabel?: string) {
     const problem = ledgerProblem(next);
     if (problem) {
       setError(problem);
       setMessage("");
       return;
+    }
+    if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
+    const actionLabel = undoLabel ?? (settlementRow ? "Record settlement" : undefined);
+    if (actionLabel) {
+      setUndoState({ ledger, label: actionLabel });
+      undoTimeout.current = window.setTimeout(() => {
+        setUndoState(null);
+        undoTimeout.current = null;
+      }, 10_000);
+    } else {
+      setUndoState(null);
+      undoTimeout.current = null;
     }
     setError("");
     setLedger((previous) => {
@@ -103,6 +121,16 @@ export function LocalApp() {
         settlements: updateRecords<Settlement>(previous.settlements ?? [], next.settlements ?? [], updatedAt),
       };
     });
+  }
+
+  function undoLastAction() {
+    if (!undoState) return;
+    if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
+    undoTimeout.current = null;
+    setLedger(undoState.ledger);
+    setUndoState(null);
+    setError("");
+    setMessage("");
   }
 
   function navigate(nextView: ViewName) {
@@ -121,6 +149,9 @@ export function LocalApp() {
   }
 
   function acceptOpenedLedger(result: { ledger: Ledger; fileName: string }) {
+    if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
+    undoTimeout.current = null;
+    setUndoState(null);
     const content = stringifyLedger(result.ledger);
     const waitingRows = (result.ledger.bankRows ?? []).filter(
       (row) => !row.entryId && !row.settlementId && !row.skipped,
@@ -235,6 +266,7 @@ export function LocalApp() {
           />
         </header>
         {message && <p className="banner success" role="status">{message}</p>}
+        {undoState && <p className="banner" role="status">{undoState.label}. <button className="secondary" onClick={undoLastAction} type="button">Undo</button></p>}
         {visibleError && <p className="banner error" role="alert">{visibleError}</p>}
         {views[view]}
       </main>

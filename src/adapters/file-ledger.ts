@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Category, type CategoryMemory, type Ledger, validateSpend } from "../domain/ledger";
+import { type Category, type CategoryMemory, type Ledger, type SplitPreset, validateSpend } from "../domain/ledger";
 import { bankDateSchema, centsSchema } from "../domain/value";
 import { csvMappingSchema, type CsvMapping } from "./csv-mapping";
 
@@ -227,6 +227,14 @@ const categoryMemorySchema = z.object({
   updatedAt: updatedAtSchema,
 });
 
+const splitPresetSchema: z.ZodType<SplitPreset> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("payer") }),
+  z.object({ kind: z.literal("halfHouse") }),
+  z.object({ kind: z.literal("allHouse") }),
+  z.object({ kind: z.literal("entity"), entityId: idSchema }),
+  z.object({ kind: z.literal("equal"), entityIds: z.array(idSchema).min(1) }),
+]);
+
 type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   accounts: (Ledger["accounts"][number] & { mappingId?: string })[];
   entries: (Ledger["entries"][number] & { bankRowIds: string[] })[];
@@ -255,6 +263,7 @@ const ledgerSchema = z.object({
   splitwisePosts: z.array(splitwisePostSchema).default([]),
   categories: z.array(categorySchema).default([]),
   categoryMemory: z.array(categoryMemorySchema).default([]),
+  lastSplitByAccount: z.record(z.string(), splitPresetSchema).optional(),
 }).superRefine((ledger, context) => {
   for (const entry of ledger.entries) {
     if (entry.kind === "refund" && entry.refundOf) {
