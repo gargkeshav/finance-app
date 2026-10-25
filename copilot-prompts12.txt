@@ -1,5 +1,3 @@
-
-
 #### .github/prompts/12-money-check.prompt.md
 
 ---mode: agentdescription: Batch 12. Check every agreed money case against the built rules, and fix rule bugs only. About 40K tokens.---

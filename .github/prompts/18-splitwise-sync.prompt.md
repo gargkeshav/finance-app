@@ -1,0 +1,16 @@
+
+---mode: agentdescription: Batch 18. Post settlements to Splitwise, apply Splitwise edits to entries, and check balances against Splitwise. About 45K tokens.---
+Build batch 18 only.
+Read: `.github/prompts/PHASE2.md`, `src/adapters/splitwise.ts`, `src/adapters/file-ledger.ts`, `src/domain/ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/SettleView.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/ActivityView.tsx`, `tests/splitwise.test.ts`.
+This batch reads eight files. If context runs long after step 2, hand off as `copilot-instructions.md` says.
+## API
+All in this prompt. Do not fetch the docs.
+- A payment is `POST /create_expense` with `payment=true`. The person who paid has `paid_share` equal to the cost. The person who received it has `owed_share` equal to the cost.- `get_friends` returns `friends[].balance: [{ currency_code, amount }]`. A positive AUD amount means they owe you. If the field is missing, hide the balance check.
+## Build
+0. `file-ledger.ts`: a Splitwise post's `entryId` becomes nullable, and it gets an optional `settlementId`. Exactly one of the two is set. Existing code that reads `entryId` must handle null.1. `splitwise.ts`: `buildPayment(settlement, entity, memberId, youId)` is pure.   - Person: the member is the friend.   - Group: the user picks the member.   - Direction comes from the settlement.2. `SettleView.tsx`.   - After saving a settlement with a linked entity, offer "Also record in Splitwise". That opens the same confirm panel as an expense: editable date, description, and amount, then who paid and who is owed. A group asks which member before the panel opens. Nothing is sent until the user confirms. Cancel posts nothing.   - Use the batch 11 and 11c post states and the same save-before-call, with `settlementId` on the post instead of `entryId`. `SettleView` gets the same `saveNow` prop that `ActivityView` has.   - Never offer it for a settlement that came from Splitwise, meaning one with `splitwisePaymentId`.3. `ReviewView.tsx`, Splitwise inbox items.   - `changed`: show the item's `previous` values and the new date, description, cost, and your owed share side by side. "Apply to entry" updates the linked entry's amount, date, and self portion, and keeps the rest on the entity.   - `deleted`: "Keep out of balances" sets `countsTowardDebt: false` and adds the tag `deleted-in-splitwise`. "Delete entry" deletes it after a confirm.4. `SettleView.tsx`, balance check for a linked person. `getFriends` returns an optional `balance` on each friend (extend the type): the Splitwise balance against the local balance, and the difference. Explain that a difference means an unmatched entry or settlement. Never change anything automatically.
+## Tests
+One test in `tests/splitwise.test.ts`: a $25 "they paid you" settlement gives a payment where the friend's paid share is 25.00 and owed share 0.00, and your paid share is 0.00 and owed share 25.00.
+Before wiring the button, ask the user to record a $1 payment in the Splitwise app and fetch it with `get_expenses`. If its shares differ from this rule, stop and ask.
+## Done when
+`npm test` and `npm run typecheck` pass. With your key, record one small payment and delete it in Splitwise. Update `PROGRESS.md`. Next is 19.
+

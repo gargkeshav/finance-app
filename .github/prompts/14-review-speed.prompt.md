@@ -1,0 +1,11 @@
+
+---mode: agentdescription: Batch 14. Split presets, keyboard review, bulk review, and one-step undo. About 40K tokens.---
+Build batch 14 only.
+Read: `.github/prompts/PHASE2.md`, `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SpendForm.tsx`, `tests/ledger.test.ts`.
+## Build
+1. `ledger.ts`: `splitPreset(amountCents, payerEntityId, preset)`.   - `payer` puts the whole amount on the payer.   - `halfHouse` splits it between self and House, odd cent to self.   - `allHouse` puts it all on House.   - `entity` takes an `entityId` and puts it all on that entity.   - `equal` takes `entityIds` and splits evenly, leftover cents to the first, one cent each.2. `SpendForm.tsx`: preset buttons above the portion rows. Also offer "Last split on this account", stored as `lastSplitByAccount` in `file-ledger.ts` with the preset and entity ids, not amounts.3. `ReviewView.tsx`, keyboard.   - Up and Down, or `j` and `k`, move between rows.   - Then `s` spend, `i` income, `x` skip, `t` transfer, `e` settlement, `r` refund. Each key triggers the row's existing button: Transfer opens the manual picker, Settlement calls `onSettle(row)`, and Refund exists only for money in. A key with no button on that row does nothing.   - In the form, Enter saves and Escape cancels.   - Shortcuts are off while typing in an input. Show a one-line legend.4. `ReviewView.tsx`, bulk.   - Row checkboxes. "Skip selected".   - "Spend selected" with one preset and an optional category, applied to each row's own amount, with the payer from each row's account. Each entry gets its own `crypto.randomUUID()` and writes category memory the same way a single save does.   - Show the count and confirm.5. `LocalApp.tsx`, undo.   - Before any review or bulk action, keep the previous ledger in memory. Do it inside the existing `update`, through an optional `undoLabel` argument, so views do not keep their own copy.   - Show "Undo" in a `banner` for 10 seconds. One level only, not saved.
+## Tests
+One test: `equal` with $10.00 over three entities gives $3.34, $3.33, $3.33.
+## Done when
+`npm test` and `npm run typecheck` pass. Update `PROGRESS.md`. Next is 15.
+
