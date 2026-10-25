@@ -65,6 +65,23 @@ export function LocalApp() {
     return () => window.removeEventListener("beforeunload", warnBeforeUnload);
   }, [hasUnsavedChanges]);
 
+  useEffect(() => {
+    if (!message) return;
+    const timeout = window.setTimeout(() => setMessage(""), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
+
+  useEffect(() => {
+    function saveOnShortcut(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveLedger(false);
+      }
+    }
+    window.addEventListener("keydown", saveOnShortcut);
+    return () => window.removeEventListener("keydown", saveOnShortcut);
+  }, [fileStore, ledger]);
+
   function update(next: Ledger) {
     const problem = ledgerProblem(next);
     if (problem) {
@@ -86,15 +103,25 @@ export function LocalApp() {
     });
   }
 
+  function navigate(nextView: ViewName) {
+    setMessage("");
+    setError("");
+    setView(nextView);
+  }
+
   function canReplaceLedger(): boolean {
     return !hasUnsavedChanges || window.confirm("Discard unsaved changes and open another ledger?");
   }
 
   function acceptOpenedLedger(result: { ledger: Ledger; fileName: string }) {
     const content = stringifyLedger(result.ledger);
+    const waitingRows = (result.ledger.bankRows ?? []).filter(
+      (row) => !row.entryId && !row.settlementId && !row.skipped,
+    ).length;
     setLedger(result.ledger);
     setSavedContent(content);
     setFileName(result.fileName);
+    setView(waitingRows > 0 ? "Review" : "Activity");
     setMessage("Ledger opened.");
     setError("");
   }
@@ -154,9 +181,9 @@ export function LocalApp() {
   }
 
   const views = {
-    Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} />,
     Import: <ImportView ledger={ledger} update={update} />,
-    Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); setView("Settle"); }} />,
+    Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); navigate("Settle"); }} />,
+    Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} onNavigate={navigate} />,
     Settle: <SettleView ledger={ledger} update={update} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
     Accounts: <AccountsView ledger={ledger} update={update} />,
     People: <PeopleView ledger={ledger} update={update} />,
@@ -169,28 +196,28 @@ export function LocalApp() {
       <aside className="sidebar" aria-label="Main navigation">
         <div className="sidebar-brand">Finance</div>
         <nav>
-          {(["Activity", "Import", "Review", "Settle", "Accounts", "People", "Balances", "Data"] as const).map(
-            (name) => (
-              <button
-                className={`nav-item${view === name ? " active" : ""}`}
-                key={name}
-                onClick={() => setView(name)}
-                type="button"
-              >
-                {name}
-                {name === "Review" && reviewCount > 0 && <span className="nav-count">{reviewCount}</span>}
-              </button>
-            ),
-          )}
+          <div className="nav-group">Daily</div>
+          {(["Review", "Activity", "Settle", "Balances", "Import"] as const).map((name) => (
+            <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
+              {name}
+              {name === "Review" && reviewCount > 0 && <span className="nav-count">{reviewCount}</span>}
+            </button>
+          ))}
+          <div className="nav-group">Setup</div>
+          {(["Accounts", "People", "Data"] as const).map((name) => (
+            <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
+              {name}
+            </button>
+          ))}
         </nav>
       </aside>
       <main className="workspace">
         <header className="topbar">
           <span>{fileName || "No file open"}</span>
-          {hasUnsavedChanges && <span role="status">Unsaved changes</span>}
+          {hasUnsavedChanges && <span className="status-chip" role="status">Unsaved</span>}
           <button className="secondary" onClick={openLedger} type="button">Open</button>
-          <button className="secondary" onClick={() => void saveLedger(false)} type="button">Save</button>
-          <button className="primary" onClick={() => void saveLedger(true)} type="button">Save as</button>
+          <button className="secondary" onClick={() => void saveLedger(true)} type="button">Save as</button>
+          <button className="primary" onClick={() => void saveLedger(false)} type="button">Save</button>
           <input
             ref={uploadInput}
             accept="application/json,.json,.finance.json"

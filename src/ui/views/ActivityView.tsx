@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { formatAud, parseAud } from "../../domain/value";
+import { formatMoney, parseAud } from "../../domain/value";
 import { categoryMemoryAfterSpend, type Category, type Entry, type Ledger } from "../../domain/ledger";
 import {
   buildExpense,
@@ -18,6 +18,7 @@ interface ActivityViewProps {
   ledger: Ledger;
   update: (next: Ledger) => void;
   saveNow: (next: Ledger) => Promise<void>;
+  onNavigate?: (view: "Accounts" | "People" | "Import" | "Review") => void;
 }
 
 interface StagedPost {
@@ -44,7 +45,7 @@ function inputCents(value: string): number | null {
   }
 }
 
-export function ActivityView({ ledger, update, saveNow }: ActivityViewProps) {
+export function ActivityView({ ledger, update, saveNow, onNavigate }: ActivityViewProps) {
   const [editing, setEditing] = useState<Entry | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState<"all" | "excluded">("all");
@@ -57,6 +58,9 @@ export function ActivityView({ ledger, update, saveNow }: ActivityViewProps) {
   const posts = ledger.splitwisePosts ?? [];
   const entries = [...ledger.entries].sort((first, second) => second.date.localeCompare(first.date) || second.updatedAt.localeCompare(first.updatedAt));
   const visibleEntries = entries.filter((entry) => filter === "all" || !entry.countsTowardDebt);
+  const waitingRows = (ledger.bankRows ?? []).filter(
+    (row) => !row.entryId && !row.settlementId && !row.skipped,
+  ).length;
 
   function pairKey(entryId: string, entityId: string) {
     return `${entryId}:${entityId}`;
@@ -306,12 +310,30 @@ export function ActivityView({ ledger, update, saveNow }: ActivityViewProps) {
             <option value="excluded">Not counted toward balances</option>
           </select>
         </label>
-        <button className="secondary" disabled={!selectedEntryIds.length} onClick={() => updateSelectedEntries(true)} type="button">Include selected</button>
-        <button className="secondary" disabled={!selectedEntryIds.length} onClick={() => updateSelectedEntries(false)} type="button">Exclude selected</button>
+        <button className="secondary" disabled={!selectedEntryIds.length} onClick={() => updateSelectedEntries(true)} type="button">Count in balances</button>
+        <button className="secondary" disabled={!selectedEntryIds.length} onClick={() => updateSelectedEntries(false)} type="button">Keep out of balances</button>
       </div>
+      {ledger.accounts.length === 0 ? (
+        <section className="card">
+          <ol className="steps">
+            <li className={ledger.accounts.length > 0 ? "done" : ""}>
+              Add your bank accounts <button className="text-button" onClick={() => onNavigate?.("Accounts")} type="button">Open Accounts</button>
+            </li>
+            <li className={ledger.entities.some((entity) => entity.kind === "person" || entity.kind === "group") ? "done" : ""}>
+              Add people and groups you share costs with <button className="text-button" onClick={() => onNavigate?.("People")} type="button">Open People</button>
+            </li>
+            <li className={(ledger.bankRows ?? []).length > 0 ? "done" : ""}>
+              Import a CSV from your bank <button className="text-button" onClick={() => onNavigate?.("Import")} type="button">Open Import</button>
+            </li>
+            <li className={(ledger.bankRows ?? []).length > 0 && waitingRows === 0 ? "done" : ""}>
+              Review the imported rows <button className="text-button" onClick={() => onNavigate?.("Review")} type="button">Open Review</button>
+            </li>
+          </ol>
+        </section>
+      ) : (
       <div className="table-scroll">
         <table>
-          <thead><tr><th><span className="sr-only">Select</span></th><th>Date</th><th>Description</th><th>Payer</th><th>Amount</th><th>Balances</th><th /></tr></thead>
+          <thead><tr><th><span className="sr-only">Select</span></th><th>Date</th><th>Description</th><th>Paid by</th><th>Amount</th><th>Counts</th><th /></tr></thead>
           <tbody>
             {visibleEntries.map((entry) => {
               const payer = ledger.entities.find((entity) => entity.id === entry.payerEntityId);
@@ -322,11 +344,15 @@ export function ActivityView({ ledger, update, saveNow }: ActivityViewProps) {
                   <td className="date-cell">{entry.date}</td>
                   <td>
                     <div>{entry.description || (entry.kind === "spend" ? "Spend" : entry.kind)}{entry.kind === "refund" && <> <strong>Refund</strong></>}</div>
-                    {bankRows.map((row) => (
-                      <div key={row.id}>
-                        {row.date} · {row.description} · <span className="amount">{formatAud(row.amountCents)}</span>
-                      </div>
-                    ))}
+                    {entry.kind === "spend" && entry.portions.map((portion) => {
+                      if (portion.entityId === entry.payerEntityId || portion.entityId === "self") return null;
+                      const entity = ledger.entities.find((candidate) => candidate.id === portion.entityId);
+                      if (!entity) return null;
+                      return <span className={`allocation-tag${entity.kind === "house" ? " house" : ""}`} key={entity.id}>{entity.name}</span>;
+                    })}
+                    {bankRows.length > 0 && (
+                      <div className="muted">{bankRows.map((row) => `${row.date} · ${row.description} · ${formatMoney(row.amountCents)}`).join(" · ")}</div>
+                    )}
                     {entry.kind === "spend" && entry.payerEntityId === "self" && entry.portions.map((portion) => {
                       const entity = ledger.entities.find((candidate) => candidate.id === portion.entityId);
                       if (!entity?.splitwise || entity.kind === "self" || entity.kind === "house" || entry.splitwiseExpenseId) return null;
@@ -452,8 +478,8 @@ export function ActivityView({ ledger, update, saveNow }: ActivityViewProps) {
                     })}
                   </td>
                   <td>{payer?.name ?? "Unknown"}</td>
-                  <td className="amount">{formatAud(entry.amountCents)}</td>
-                  <td>{entry.countsTowardDebt ? "Included" : "Excluded"}</td>
+                  <td className="amount">{formatMoney(entry.amountCents)}</td>
+                  <td>{entry.countsTowardDebt ? "Yes" : <span className="muted">No</span>}</td>
                   <td>
                     {entry.kind === "spend" && <button className="secondary" onClick={() => { setEditing(entry); setShowForm(false); }} type="button">Edit</button>}{" "}
                     <button className="secondary" onClick={() => deleteEntry(entry)} type="button">Delete</button>
@@ -465,6 +491,7 @@ export function ActivityView({ ledger, update, saveNow }: ActivityViewProps) {
         </table>
         {visibleEntries.length === 0 && <p className="empty-state compact">{filter === "excluded" ? "No excluded activity." : "No activity yet."}</p>}
       </div>
+      )}
     </>
   );
 }

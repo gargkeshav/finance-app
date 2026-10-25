@@ -24,6 +24,14 @@ export function formatAud(cents: number): string {
   return `AUD ${new Decimal(cents).dividedBy(100).toFixed(2)}`;
 }
 
+export function formatMoney(cents: number): string {
+  centsSchema.parse(cents);
+  const absolute = BigInt(cents < 0 ? -cents : cents);
+  const sign = cents < 0 ? "−" : "";
+  const dollars = String(absolute / 100n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${sign}$${dollars}.${String(absolute % 100n).padStart(2, "0")}`;
+}
+
 export function sumCents(amounts: readonly number[]): number {
   const total = amounts.reduce(
     (sum, amount) => sum + BigInt(centsSchema.parse(amount)),

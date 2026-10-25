@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { categoryMemoryKey, debtsOf, linkedBankAmountCents, SELF_ENTITY_ID, validateSpend, type Category, type Entry, type Ledger, type Portion } from "../../domain/ledger";
-import { formatAud, isBankDate, parseAud } from "../../domain/value";
+import { formatAud, formatMoney, isBankDate, parseAud } from "../../domain/value";
 
 interface SpendFormProps {
   ledger: Ledger;
@@ -83,12 +83,16 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
   const valid = amountCents !== null && isBankDate(date) && validateSpend({ ...draft, kind: "spend" }) && (!amountAmended || note.trim().length > 0);
   const debts = valid ? debtsOf(draft, ledger.bankRows ?? []) : [];
   const firstDebt = debts[0];
-  const payerName = ledger.entities.find((entity) => entity.id === effectivePayerId)?.name ?? "Payer";
-  const effect = firstDebt
-    ? `${ledger.entities.find((entity) => entity.id === (firstDebt.amountCents < 0 ? firstDebt.creditorId : firstDebt.debtorId))?.name ?? "Entity"} will owe ${ledger.entities.find((entity) => entity.id === (firstDebt.amountCents < 0 ? firstDebt.debtorId : firstDebt.creditorId))?.name ?? "entity"} ${formatAud(Math.abs(firstDebt.amountCents))}${debts.length > 1 ? ` and ${debts.length - 1} other debt${debts.length === 2 ? "" : "s"}` : ""}.`
+  const payerName = ledger.entities.find((entity) => entity.id === effectivePayerId)?.name ?? "Unknown";
+  const debtorId = firstDebt ? (firstDebt.amountCents < 0 ? firstDebt.creditorId : firstDebt.debtorId) : "";
+  const creditorId = firstDebt ? (firstDebt.amountCents < 0 ? firstDebt.debtorId : firstDebt.creditorId) : "";
+  const debtor = ledger.entities.find((entity) => entity.id === debtorId);
+  const creditor = ledger.entities.find((entity) => entity.id === creditorId);
+  const effect = firstDebt && debtor && creditor
+    ? { kind: "debt" as const, debtor, creditor, amount: formatMoney(Math.abs(firstDebt.amountCents)), more: debts.length - 1 }
     : valid
-      ? "No debts are created by this spend."
-      : `${payerName} is the payer; allocations must equal the ${draft.kind === "refund" ? "refund" : "spend"} amount.`;
+      ? { kind: "none" as const }
+      : { kind: "incomplete" as const };
 
   function setPortion(index: number, key: keyof PortionDraft, value: string) {
     setPortions((current) => current.map((portion, row) => row === index ? { ...portion, [key]: value } : portion));
@@ -99,7 +103,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
     if (!valid) {
       setError(amountAmended && !note.trim()
         ? "Add a note explaining the amended amount."
-        : `Enter a valid date, positive amount, and portions that sum to the ${draft.kind === "refund" ? "refund" : "spend"} amount.`);
+        : `Enter a valid date, positive amount, and split that sums to the ${draft.kind === "refund" ? "refund" : "spend"} amount.`);
       return;
     }
     onSave({
@@ -168,6 +172,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
       {amountAmended && linkedBankAmount !== null && (
         <>
           <p>Entry amount: <span className="amount">{amountCents === null ? "" : formatAud(amountCents)}</span>; bank amount: <span className="amount">{formatAud(linkedBankAmount)}</span></p>
+                    <p>Entry amount: <span className="amount">{amountCents === null ? "" : formatMoney(amountCents)}</span>; bank amount: <span className="amount">{formatMoney(linkedBankAmount)}</span></p>
           <label className="checkbox-label">
             <input type="checkbox" checked={extraReimbursable} onChange={(event) => setExtraReimbursable(event.target.checked)} />
             Extra is reimbursable
@@ -192,7 +197,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
       </label>
       {!selectedAccount && (
         <label>
-          Payer entity
+          Paid by
           <select value={payerEntityId} onChange={(event) => setPayerEntityId(event.target.value)}>
             {ledger.entities.filter((entity) => !entity.archived).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
           </select>
@@ -200,35 +205,41 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
       )}
 
       <fieldset>
-        <legend>Portions</legend>
+        <legend>Split</legend>
         {portions.map((portion, index) => (
           <div className="form-grid" key={`${index}-${portion.entityId}`}>
             <label>
-              Entity
+              For
               <select value={portion.entityId} onChange={(event) => setPortion(index, "entityId", event.target.value)}>
                 {ledger.entities.filter((entity) => !entity.archived || entity.id === portion.entityId).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
               </select>
             </label>
             <label>
-              Portion (AUD)
+              Amount
               <input inputMode="decimal" value={portion.amount} onChange={(event) => setPortion(index, "amount", event.target.value)} placeholder="0.00" />
             </label>
-            <button className="secondary" onClick={() => setPortions((current) => current.filter((_, row) => row !== index))} type="button">Remove portion</button>
+            <button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} className="icon-button" onClick={() => setPortions((current) => current.filter((_, row) => row !== index))} type="button">×</button>
           </div>
         ))}
-        {remainingCents !== null && <p>Remaining: <span className="amount">{formatAud(remainingCents)}</span></p>}
+        {remainingCents !== null && <p className={remainingCents === 0 ? "amount positive" : "banner warning"}>Left to split: {formatMoney(remainingCents)}</p>}
         <div className="dialog-actions">
           <button className="secondary" onClick={() => {
             const used = new Set(portions.map((portion) => portion.entityId));
-            const next = ledger.entities.find((entity) => !entity.archived && !used.has(entity.id));
+            const next = ledger.entities.find((entity) => !entity.archived && entity.kind !== "self" && entity.kind !== "house" && !used.has(entity.id));
             if (next) setPortions((current) => [...current, { entityId: next.id, amount: "" }]);
-          }} type="button">Add portion</button>
+          }} type="button">Add person</button>
           <button className="secondary" onClick={() => {
             if (amountCents !== null && amountCents > 0) setPortions([{ entityId: effectivePayerId, amount: centsText(amountCents) }]);
-          }} type="button">All to payer</button>
+            }} type="button">All to {effectivePayerId === "self" ? "You" : payerName}</button>
         </div>
       </fieldset>
-      <p aria-live="polite">{effect}</p>
+      <p aria-live="polite">
+        {effect.kind === "debt" ? <>
+          {effect.debtor.id === "self" ? "You owe " : <><span className={`allocation-tag${effect.debtor.kind === "house" ? " house" : ""}`}>{effect.debtor.name}</span> owes </>}
+          {effect.creditor.id === "self" ? "you" : <span className={`allocation-tag${effect.creditor.kind === "house" ? " house" : ""}`}>{effect.creditor.name}</span>} {effect.amount}
+          {effect.more > 0 && ` and ${effect.more} other debt${effect.more === 1 ? "" : "s"}`}
+        </> : effect.kind === "none" ? "No debts are created by this spend." : `${effectivePayerId === "self" ? "You paid" : `Paid by ${payerName}`}. Split the full amount.`}
+      </p>
       {error && <p className="banner error" role="alert">{error}</p>}
       <div className="dialog-actions">
         <button className="primary" disabled={!valid} type="submit">{draft.kind === "refund" ? "Save refund" : "Save spend"}</button>

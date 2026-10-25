@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type Ledger } from "../../domain/ledger";
-import { formatAud, parseAud, sumCents } from "../../domain/value";
+import { formatAud, formatMoney, parseAud, sumCents } from "../../domain/value";
 
 interface BalancesViewProps {
   ledger: Ledger;
@@ -27,6 +27,7 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [errorEntityId, setErrorEntityId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [showBaselines, setShowBaselines] = useState(false);
   const [from, to] = monthBounds(month);
   const monthly = report(ledger.entries, from, to);
   const overall = balances(ledger);
@@ -107,8 +108,8 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
         </label>
       </div>
       <section className="summary-strip" aria-label="Monthly spending">
-        <div><span className="metric-label">Personal spend</span><strong className="amount">{formatAud(monthly.personalCents)}</strong></div>
-        <div><span className="metric-label">House spend</span><strong className="amount">{formatAud(monthly.houseCents)}</strong></div>
+        <div><span className="metric-label">Personal spend</span><strong className="amount">{formatMoney(monthly.personalCents)}</strong></div>
+        <div><span className="metric-label">House spend</span><strong className="amount">{formatMoney(monthly.houseCents)}</strong></div>
       </section>
 
       <h2>By category</h2>
@@ -119,25 +120,28 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
             {categoryRows.map((category) => (
               <tr key={category.id}>
                 <td>{category.name}</td>
-                <td className="amount">{formatAud(category.personalCents)}</td>
-                <td className="amount">{formatAud(category.houseCents)}</td>
+                <td className="amount">{formatMoney(category.personalCents)}</td>
+                <td className="amount">{formatMoney(category.houseCents)}</td>
               </tr>
             ))}
             <tr>
               <th scope="row">Total</th>
-              <td className="amount">{formatAud(monthly.personalCents)}</td>
-              <td className="amount">{formatAud(monthly.houseCents)}</td>
+              <td className="amount">{formatMoney(monthly.personalCents)}</td>
+              <td className="amount">{formatMoney(monthly.houseCents)}</td>
             </tr>
           </tbody>
         </table>
         {categoryRows.length === 0 && <p className="empty-state compact">No spending for this month.</p>}
       </div>
 
-      <h2>Balances</h2>
+      <section className="section-heading">
+        <h2>Balances</h2>
+        <button className="secondary" onClick={() => setShowBaselines((visible) => !visible)} type="button">{showBaselines ? "Hide opening balances" : "Edit opening balances"}</button>
+      </section>
       {error && <p className="banner error" role="alert">{error}</p>}
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Entity</th><th>Balance</th><th>Opening balance</th></tr></thead>
+          <thead><tr><th>Entity</th><th>Balance</th>{showBaselines && <th>Opening balance</th>}</tr></thead>
           <tbody>
             {entities.map((entity) => {
               const amount = overall.byEntity[entity.id] ?? 0;
@@ -145,8 +149,8 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
               return (
                 <tr key={entity.id}>
                   <td>{entity.name}</td>
-                  <td>{amount > 0 ? `Owes you ${formatAud(amount)}` : amount < 0 ? `You owe ${entity.name} ${formatAud(Math.abs(amount))}` : "Settled"}</td>
-                  <td>
+                  <td className={amount > 0 ? "amount positive" : amount < 0 ? "amount negative" : "muted"}>{amount > 0 ? `${entity.name} owes you ${formatMoney(amount)}` : amount < 0 ? `You owe ${entity.name} ${formatMoney(Math.abs(amount))}` : "Settled"}</td>
+                  {showBaselines && <td>
                     <label>
                       <span className="sr-only">Opening balance for {entity.name}</span>
                       <input
@@ -157,7 +161,7 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
                         aria-invalid={errorEntityId === entity.id}
                       />
                     </label>
-                  </td>
+                  </td>}
                 </tr>
               );
             })}
@@ -165,6 +169,7 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
         </table>
       </div>
 
+      {overall.betweenEntities.length > 0 && <>
       <h2>Between others</h2>
       <div className="table-scroll">
         <table>
@@ -174,13 +179,13 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
               <tr key={`${debt.debtorId}-${debt.creditorId}`}>
                 <td>{ledger.entities.find((entity) => entity.id === debt.debtorId)?.name ?? "Unknown"}</td>
                 <td>{ledger.entities.find((entity) => entity.id === debt.creditorId)?.name ?? "Unknown"}</td>
-                <td className="amount">{formatAud(debt.amountCents)}</td>
+                <td className="amount">{formatMoney(debt.amountCents)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {overall.betweenEntities.length === 0 && <p className="empty-state compact">No balances between others.</p>}
       </div>
+      </>}
     </>
   );
 }

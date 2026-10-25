@@ -52,4 +52,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 11c: Splitwise posting now saves its pending state before sending, supports editable confirmed drafts, recovers ambiguous/stuck posts, prevents repeat Splitwise-born posts and payments, seeds remote update timestamps, and clears API keys on failed connection/disconnect. Domain settlement ordering, transfer-only card-cycle boundaries, and accounting-negative CSV amounts are fixed. `npm test` (9 files, 53 tests) and `npm run typecheck` pass.
 - Files changed: `src/adapters/splitwise.ts`, `src/adapters/file-ledger.ts`, `src/adapters/csv-mapping.ts`, `src/domain/ledger.ts`, `src/domain/transfers.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/SettleView.tsx`, `src/ui/views/PeopleView.tsx`, `tests/splitwise.test.ts`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: Live connect/post/pull was not exercised because no Splitwise API key was provided; CORS status is unknown. Next: 11d.
+- Batch 11d: Friendlier shell navigation, money formatting, plain wording, first-run steps, and balance/account display updates implemented. `npm test` (9 files, 53 tests) and `npm run typecheck` pass; empty-ledger first-run steps verified in the browser.
+- Files changed: `src/domain/value.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/SpendForm.tsx`, `src/ui/views/BalancesView.tsx`, `src/ui/views/AccountsView.tsx`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 11e.
 

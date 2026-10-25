@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { accountCoverage, checkpointDifferences, HOUSE_ENTITY_ID, type Account, type BalanceCheckpoint, type Ledger } from "../../domain/ledger";
-import { formatAud, isBankDate, parseAud } from "../../domain/value";
+import { formatMoney, isBankDate, parseAud } from "../../domain/value";
 
 interface AccountsViewProps {
   ledger: Ledger;
@@ -117,7 +117,7 @@ export function AccountsView({ ledger, update }: AccountsViewProps) {
               </select>
             </label>
             <label>
-              Payer entity
+              Paid by
               <select value={payerEntityId} onChange={(event) => setPayerEntityId(event.target.value)}>
                 {ledger.entities
                   .filter((entity) => !entity.archived)
@@ -137,7 +137,7 @@ export function AccountsView({ ledger, update }: AccountsViewProps) {
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Payer</th><th>Coverage</th><th>Balance checkpoints</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Paid by</th><th>Coverage</th><th>Balance checkpoints</th><th /></tr></thead>
           <tbody>
             {ledger.accounts.map((account) => {
               const payer = ledger.entities.find((entity) => entity.id === account.payerEntityId);
@@ -147,16 +147,16 @@ export function AccountsView({ ledger, update }: AccountsViewProps) {
                 <tr key={account.id}>
                   <td>{account.name}</td>
                   <td>{account.type === "asset" ? "Asset" : "Credit"}</td>
-                  <td>{account.payerEntityId === HOUSE_ENTITY_ID ? "House money" : payer?.name ?? "Unknown"}</td>
+                  <td><span className={`allocation-tag${account.payerEntityId === HOUSE_ENTITY_ID ? " house" : ""}`}>{account.payerEntityId === HOUSE_ENTITY_ID ? "House" : payer?.name ?? "Unknown"}</span></td>
                   <td>
                     {coverage.ranges.length ? coverage.ranges.map((range) => <div key={`${range.from}-${range.to}`}>{range.from} to {range.to}</div>) : "No imported coverage"}
                     {coverage.gaps.map((gap) => <div key={`${gap.from}-${gap.to}`}>Gap: {gap.from} to {gap.to}</div>)}
                   </td>
                   <td>
                     {(ledger.checkpoints ?? []).filter((item) => item.accountId === account.id).sort((first, second) => first.date.localeCompare(second.date)).map((checkpoint) => (
-                      <div key={checkpoint.id}>{checkpoint.date}: <span className="amount">{formatAud(checkpoint.balanceCents)}</span>{checkpoint.note ? ` · ${checkpoint.note}` : ""}</div>
+                      <div key={checkpoint.id}>{checkpoint.date}: <span className="amount">{formatMoney(checkpoint.balanceCents)}</span>{checkpoint.note ? ` · ${checkpoint.note}` : ""}</div>
                     ))}
-                    {differences.map((item) => <div key={`${item.earlier.id}-${item.later.id}`}>{item.earlier.date} to {item.later.date}: difference <span className="amount">{formatAud(item.differenceCents)}</span></div>)}
+                    {differences.map((item) => <div key={`${item.earlier.id}-${item.later.id}`}>{item.earlier.date} to {item.later.date}: difference <span className={item.differenceCents === 0 ? "amount" : "amount negative"}>{formatMoney(item.differenceCents)}</span></div>)}
                   </td>
                   <td>
                     <button className="secondary" onClick={() => editAccount(account)} type="button">Rename</button>{" "}
