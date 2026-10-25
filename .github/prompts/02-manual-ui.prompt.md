@@ -1,0 +1,11 @@
+---mode: agentdescription: Batch 02. Page shell and manual views on top of batch 01. About 55K tokens.---
+Build batch 02 only.
+Read: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/domain/value.ts`, `src/main.tsx`.Create: `src/ui/LocalApp.tsx`, `src/ui/views/AccountsView.tsx`, `PeopleView.tsx`, `ActivityView.tsx`, `SpendForm.tsx`, `BalancesView.tsx`, `DataView.tsx`. Change: `src/main.tsx`.
+## Build
+1. `LocalApp.tsx` holds the ledger in React state, shows the sidebar nav, and renders one view. It passes `ledger` and an `update(next)` function to every view. `update` sets `updatedAt` on changed records.2. `AccountsView`: list accounts. Add or rename an account: name, asset or credit, payer entity. A House-paid account says "House money".3. `PeopleView`: list people and groups. Add one by name and kind. Rename or archive it. Self and House cannot be removed.4. `SpendForm` is used by Activity and by later batches. It takes optional initial values and an `onSave`.   - Fields: date, description, amount, and account.   - With no account, pick the payer entity. That covers a friend paying.   - Portion rows: entity and amount. Show the remaining amount. Add a button "All to payer".   - Above Save, one sentence of effect, such as "House will owe you $100.00" or "You will owe House $40.00". Save is blocked until `validateSpend` passes.5. `ActivityView`: entries newest first, with date, description, payer, and amount. Click to edit in `SpendForm`. Delete only after confirming.6. `BalancesView`:   - Month picker, defaulting to this month, then a `summary-strip` with Personal spend and House spend.   - A table: each entity, "owes you $X" or "you owe $X", and an opening balance field.   - A second table, "Between others", for debts that do not involve you.7. `DataView`: download the JSON. Upload replaces the ledger after `parseLedger` and a confirm. Say the file is unencrypted.8. `main.tsx` renders `LocalApp` only. Keep the font and `styles.css` imports. Remove the Tauri, synthetic, and smoke branches.
+## Tests
+None.
+## Done when
+`npm run typecheck` passes. `npm run dev` shows the five views, and the two batch 01 cases work through the form. Update `PROGRESS.md`. Next is 03.
+
+

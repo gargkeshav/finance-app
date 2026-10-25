@@ -1,0 +1,11 @@
+---mode: agentdescription: Batch 06. Categories, remembered suggestions, free-text tags, and amended amounts. About 45K tokens.---
+Build batch 06 only.
+Read: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/SpendForm.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/BalancesView.tsx`, `tests/ledger.test.ts`.
+## Build
+1. `file-ledger.ts`, all optional.   - `categories`: `id`, `name`, `archived`, `updatedAt`.   - An entry gets `categoryId` (null), `tags` ([]), `note` (""), and `extraReimbursable` (false).   - `categoryMemory`: `id`, `key`, `categoryId`, `entityId` (or null), `updatedAt`. The key is the account id plus the description in lowercase, with spaces collapsed and digits removed.2. Memory is written only when a spend from a bank row is saved with a category. `entityId` is set only when the whole amount went to one entity. Otherwise it is null.3. Amended amount, in `ledger.ts`:   - A spend with `bankRowIds` may have `amountCents` different from the sum of its bank rows (absolute). A `note` is then required.   - When the amount is higher and `extraReimbursable` is false, scale each debt by bank cents ÷ entry amount, round down, and add any leftover cents to the largest debt.   - The report always uses the entry amount.4. `SpendForm`:   - A category select with add-new. If memory has the key, preselect the category and say "Suggested from a past spend".   - Tags as comma-separated text.   - If the amount differs from the bank amount, show both, require the note, and show the "Extra is reimbursable" checkbox.5. `ReviewView`:   - "Accept N suggested" confirms only the rows whose memory has an `entityId`, as spends of the whole amount to that entity, with that category. Show N first.   - Rows whose memory has no `entityId` only get the category preselected.6. `BalancesView`: for the chosen month, a table by category with Personal and House columns, using the report rule, plus a total row.
+## Tests
+One test in `tests/ledger.test.ts`: a $15.18 House spend on your card, whose bank row is $5.18, leaves House owing $5.18. With the extra marked reimbursable, House owes $15.18.
+## Done when
+`npm test` and `npm run typecheck` pass. Update `PROGRESS.md`. Next is 07.
+
+
