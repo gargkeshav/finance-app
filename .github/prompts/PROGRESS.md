@@ -61,4 +61,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 12: All 14 agreed money cases added as table-driven tests; existing rules passed without changes. `npm test` (10 files, 67 tests) and `npm run typecheck` pass.
 - Files changed: `tests/money-cases.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 13.
+- Batch 13: Activity filtering, sorting, filtered totals, selection, and confirmed bulk category/tag edits implemented. `npm test` (10 files, 68 tests) and `npm run typecheck` pass.
+- Files changed: `src/domain/query.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ActivityView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 14.
 

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { formatMoney, parseAud } from "../../domain/value";
-import { categoryMemoryAfterSpend, type Category, type Entry, type Ledger } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, type Category, type Entry, type EntryKind, type Ledger } from "../../domain/ledger";
+import { filterEntries, filteredTotals, type EntryFilter } from "../../domain/query";
 import {
   buildExpense,
   getCurrentUser,
@@ -18,6 +19,8 @@ interface ActivityViewProps {
   ledger: Ledger;
   update: (next: Ledger) => void;
   saveNow: (next: Ledger) => Promise<void>;
+  activityFilter: EntryFilter;
+  openActivity: (filter: EntryFilter) => void;
   onNavigate?: (view: "Accounts" | "People" | "Import" | "Review") => void;
 }
 
@@ -45,19 +48,38 @@ function inputCents(value: string): number | null {
   }
 }
 
-export function ActivityView({ ledger, update, saveNow, onNavigate }: ActivityViewProps) {
+export function ActivityView({ ledger, update, saveNow, activityFilter, openActivity, onNavigate }: ActivityViewProps) {
   const [editing, setEditing] = useState<Entry | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [filter, setFilter] = useState<"all" | "excluded">("all");
+  const [sortBy, setSortBy] = useState<"date" | "amount">("date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkTag, setBulkTag] = useState("");
+  const [removeTag, setRemoveTag] = useState("");
   const [staged, setStaged] = useState<StagedPost | null>(null);
   const [notices, setNotices] = useState<Record<string, string>>({});
   const [pendingKeys, setPendingKeys] = useState<string[]>([]);
   const currentLedger = useRef(ledger);
   currentLedger.current = ledger;
   const posts = ledger.splitwisePosts ?? [];
-  const entries = [...ledger.entries].sort((first, second) => second.date.localeCompare(first.date) || second.updatedAt.localeCompare(first.updatedAt));
-  const visibleEntries = entries.filter((entry) => filter === "all" || !entry.countsTowardDebt);
+  const filteredEntries = filterEntries(ledger, activityFilter);
+  const visibleEntries = [...filteredEntries].sort((first, second) => {
+    const order = sortBy === "date"
+      ? first.date.localeCompare(second.date) || first.updatedAt.localeCompare(second.updatedAt)
+      : first.amountCents - second.amountCents || first.date.localeCompare(second.date);
+    return sortDirection === "asc" ? order : -order;
+  });
+  const totals = filteredTotals(filteredEntries);
+  const visibleIds = visibleEntries.map((entry) => entry.id);
+  const selectedVisibleIds = selectedEntryIds.filter((id) => visibleIds.includes(id));
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedEntryIds.includes(id));
+  const availableTags = [...new Set(selectedVisibleIds.flatMap((id) =>
+    ledger.entries.find((entry) => entry.id === id)?.tags ?? [],
+  ))].sort((first, second) => first.localeCompare(second));
+  const activeFilterCount = Object.values(activityFilter).filter((value) =>
+    typeof value === "boolean" || Boolean(value),
+  ).length;
   const waitingRows = (ledger.bankRows ?? []).filter(
     (row) => !row.entryId && !row.settlementId && !row.skipped,
   ).length;
@@ -274,8 +296,8 @@ export function ActivityView({ ledger, update, saveNow, onNavigate }: ActivityVi
   }
 
   function updateSelectedEntries(countsTowardDebt: boolean) {
-    if (!selectedEntryIds.length) return;
-    const selected = new Set(selectedEntryIds);
+    if (!selectedVisibleIds.length) return;
+    const selected = new Set(selectedVisibleIds);
     const now = new Date().toISOString();
     update({
       ...ledger,
@@ -283,7 +305,33 @@ export function ActivityView({ ledger, update, saveNow, onNavigate }: ActivityVi
         ? { ...entry, countsTowardDebt, updatedAt: now }
         : entry),
     });
-    setSelectedEntryIds([]);
+    setSelectedEntryIds((current) => current.filter((id) => !selected.has(id)));
+  }
+
+  function applyBulkEdit(kind: "category" | "addTag" | "removeTag") {
+    if (!selectedVisibleIds.length) return;
+    const label = kind === "category" ? "category" : kind === "addTag" ? "tag" : "tag removal";
+    if (!window.confirm(`Apply this ${label} change to ${selectedVisibleIds.length} entries?`)) return;
+    const selected = new Set(selectedVisibleIds);
+    const now = new Date().toISOString();
+    update({
+      ...ledger,
+      entries: ledger.entries.map((entry) => {
+        if (!selected.has(entry.id)) return entry;
+        if (kind === "category") {
+          return { ...entry, categoryId: bulkCategoryId === "__none__" ? null : bulkCategoryId, updatedAt: now };
+        }
+        const tags = entry.tags ?? [];
+        const nextTags = kind === "addTag"
+          ? tags.some((tag) => tag.toLocaleLowerCase() === bulkTag.trim().toLocaleLowerCase())
+            ? tags
+            : [...tags, bulkTag.trim()]
+          : tags.filter((tag) => tag !== removeTag);
+        return { ...entry, tags: nextTags, updatedAt: now };
+      }),
+    });
+    setSelectedEntryIds((current) => current.filter((id) => !selected.has(id)));
+    if (kind === "addTag") setBulkTag("");
   }
 
   return (
@@ -303,15 +351,39 @@ export function ActivityView({ ledger, update, saveNow, onNavigate }: ActivityVi
         />
       )}
       <div className="filters">
-        <label>
-          Filter
-          <select value={filter} onChange={(event) => setFilter(event.target.value as "all" | "excluded")}>
-            <option value="all">All activity</option>
-            <option value="excluded">Not counted toward balances</option>
-          </select>
-        </label>
-        <button className="secondary" disabled={!selectedEntryIds.length} onClick={() => updateSelectedEntries(true)} type="button">Count in balances</button>
-        <button className="secondary" disabled={!selectedEntryIds.length} onClick={() => updateSelectedEntries(false)} type="button">Keep out of balances</button>
+        <label>Search<input value={activityFilter.text ?? ""} onChange={(event) => openActivity({ ...activityFilter, text: event.target.value })} /></label>
+        <label>From<input type="date" value={activityFilter.from ?? ""} onChange={(event) => openActivity({ ...activityFilter, from: event.target.value })} /></label>
+        <label>To<input type="date" value={activityFilter.to ?? ""} onChange={(event) => openActivity({ ...activityFilter, to: event.target.value })} /></label>
+        <label>Account<select value={activityFilter.accountId ?? ""} onChange={(event) => openActivity({ ...activityFilter, accountId: event.target.value })}><option value="">All accounts</option>{ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+        <label>Category<select value={activityFilter.categoryId ?? ""} onChange={(event) => openActivity({ ...activityFilter, categoryId: event.target.value })}><option value="">All categories</option>{(ledger.categories ?? []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+        <label>Entity<select value={activityFilter.entityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, entityId: event.target.value })}><option value="">Any entity</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
+        <label>Paid by<select value={activityFilter.payerEntityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, payerEntityId: event.target.value })}><option value="">Anyone</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
+        <label>Kind<select value={activityFilter.kind ?? ""} onChange={(event) => openActivity({ ...activityFilter, kind: event.target.value ? event.target.value as EntryKind : undefined })}><option value="">All kinds</option>{(["spend", "refund", "transfer", "income"] as const).map((kind) => <option key={kind} value={kind}>{kind}</option>)}</select></label>
+        <label>Tag<input value={activityFilter.tag ?? ""} onChange={(event) => openActivity({ ...activityFilter, tag: event.target.value })} /></label>
+        <label>Counts<select value={activityFilter.counted === undefined ? "" : String(activityFilter.counted)} onChange={(event) => openActivity({ ...activityFilter, counted: event.target.value === "" ? undefined : event.target.value === "true" })}><option value="">Any</option><option value="true">Included</option><option value="false">Excluded</option></select></label>
+        <label>Source<select value={activityFilter.source ?? ""} onChange={(event) => openActivity({ ...activityFilter, source: event.target.value ? event.target.value as EntryFilter["source"] : undefined })}><option value="">All sources</option><option value="bank">Bank</option><option value="manual">Manual</option><option value="splitwise">Splitwise</option></select></label>
+        <button className="secondary" onClick={() => openActivity({})} type="button">Clear ({activeFilterCount})</button>
+      </div>
+      <section className="summary-strip" aria-label="Filtered totals">
+        <div><span className="metric-label">Entries</span><strong>{totals.count}</strong></div>
+        <div><span className="metric-label">Total</span><strong className="amount">{formatMoney(totals.totalCents)}</strong></div>
+        <div><span className="metric-label">Personal</span><strong className="amount">{formatMoney(totals.personalCents)}</strong></div>
+        <div><span className="metric-label">House</span><strong className="amount">{formatMoney(totals.houseCents)}</strong></div>
+      </section>
+      <div className="filters">
+        <label>Sort by<select value={sortBy} onChange={(event) => setSortBy(event.target.value as "date" | "amount")}><option value="date">Date</option><option value="amount">Amount</option></select></label>
+        <label>Order<select value={sortDirection} onChange={(event) => setSortDirection(event.target.value as "asc" | "desc")}><option value="desc">Newest / highest</option><option value="asc">Oldest / lowest</option></select></label>
+        <label className="checkbox-label"><input checked={allVisibleSelected} onChange={(event) => setSelectedEntryIds((current) => event.target.checked
+          ? [...new Set([...current, ...visibleIds])]
+          : current.filter((id) => !visibleIds.includes(id)))} type="checkbox" />Select filtered ({visibleIds.length})</label>
+        <button className="secondary" disabled={!selectedVisibleIds.length} onClick={() => updateSelectedEntries(true)} type="button">Include selected</button>
+        <button className="secondary" disabled={!selectedVisibleIds.length} onClick={() => updateSelectedEntries(false)} type="button">Exclude selected</button>
+        <label>Set category<select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}><option value="">Choose category</option><option value="__none__">Uncategorised</option>{(ledger.categories ?? []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+        <button className="secondary" disabled={!selectedVisibleIds.length || !bulkCategoryId} onClick={() => applyBulkEdit("category")} type="button">Apply to {selectedVisibleIds.length}</button>
+        <label>Add tag<input value={bulkTag} onChange={(event) => setBulkTag(event.target.value)} /></label>
+        <button className="secondary" disabled={!selectedVisibleIds.length || !bulkTag.trim()} onClick={() => applyBulkEdit("addTag")} type="button">Add to {selectedVisibleIds.length}</button>
+        <label>Remove tag<select value={removeTag} onChange={(event) => setRemoveTag(event.target.value)}><option value="">Choose tag</option>{availableTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}</select></label>
+        <button className="secondary" disabled={!selectedVisibleIds.length || !removeTag} onClick={() => applyBulkEdit("removeTag")} type="button">Remove from {selectedVisibleIds.length}</button>
       </div>
       {ledger.accounts.length === 0 ? (
         <section className="card">
@@ -489,7 +561,7 @@ export function ActivityView({ ledger, update, saveNow, onNavigate }: ActivityVi
             })}
           </tbody>
         </table>
-        {visibleEntries.length === 0 && <p className="empty-state compact">{filter === "excluded" ? "No excluded activity." : "No activity yet."}</p>}
+        {visibleEntries.length === 0 && <p className="empty-state compact">{ledger.entries.length ? "No activity matches these filters." : "No activity yet."}</p>}
       </div>
       )}
     </>

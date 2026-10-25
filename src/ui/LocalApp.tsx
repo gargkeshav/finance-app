@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileStore, isPickerCancellation } from "../adapters/file-store";
 import { emptyLedger, ledgerProblem, stringifyLedger } from "../adapters/file-ledger";
 import type { Account, BankRow, Baseline, Entry, Entity, Ledger, Settlement } from "../domain/ledger";
+import type { EntryFilter } from "../domain/query";
 import { ActivityView } from "./views/ActivityView";
 import { AccountsView } from "./views/AccountsView";
 import { BalancesView } from "./views/BalancesView";
@@ -39,6 +40,7 @@ export function LocalApp() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [view, setView] = useState<ViewName>("Activity");
+  const [activityFilter, setActivityFilter] = useState<EntryFilter>({});
   const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
   const [fileStore] = useState(() => new FileStore());
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -107,6 +109,11 @@ export function LocalApp() {
     setMessage("");
     setError("");
     setView(nextView);
+  }
+
+  function openActivity(filter: EntryFilter = {}) {
+    setActivityFilter(filter);
+    navigate("Activity");
   }
 
   function canReplaceLedger(): boolean {
@@ -183,7 +190,7 @@ export function LocalApp() {
   const views = {
     Import: <ImportView ledger={ledger} update={update} />,
     Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); navigate("Settle"); }} />,
-    Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} onNavigate={navigate} />,
+    Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} activityFilter={activityFilter} openActivity={openActivity} onNavigate={navigate} />,
     Settle: <SettleView ledger={ledger} update={update} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
     Accounts: <AccountsView ledger={ledger} update={update} />,
     People: <PeopleView ledger={ledger} update={update} />,

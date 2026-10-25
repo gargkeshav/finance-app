@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { balances, openItems, report, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
+import { filterEntries } from "../src/domain/query";
 import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
 
 function makeLedger(entry: Entry): Ledger {
@@ -17,6 +18,33 @@ function makeLedger(entry: Entry): Ledger {
 }
 
 describe("ledger spending rules", () => {
+  it("filters entries by an entity and date range", () => {
+    const entry: Entry = {
+      id: "entity-filter",
+      kind: "spend",
+      date: "2026-10-20",
+      description: "Shared costs",
+      amountCents: 5_000,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [{ entityId: "person-1", amountCents: 5_000 }],
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const ledger = makeLedger(entry);
+    ledger.entities.push({ id: "person-1", kind: "person", name: "Alex", archived: false, updatedAt: "now" });
+    ledger.entries.push(
+      { ...entry, id: "payer-match", date: "2026-10-18", payerEntityId: "person-1", portions: [{ entityId: "self", amountCents: 5_000 }] },
+      { ...entry, id: "before-range", date: "2026-10-09" },
+      { ...entry, id: "after-range", date: "2026-11-01" },
+      { ...entry, id: "other-entity", date: "2026-10-20", portions: [{ entityId: "house", amountCents: 5_000 }] },
+    );
+
+    expect(filterEntries(ledger, { entityId: "person-1", from: "2026-10-10", to: "2026-10-31" })
+      .map((candidate) => candidate.id))
+      .toEqual(["entity-filter", "payer-match"]);
+  });
+
   it("tracks House owing you on your card and splits the personal report", () => {
     const entry: Entry = {
       id: "spend-1",
