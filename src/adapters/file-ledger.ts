@@ -20,6 +20,7 @@ declare module "../domain/ledger" {
     splitwiseInbox?: SplitwiseInbox[];
     splitwisePosts?: SplitwisePost[];
   }
+
 }
 
 interface SplitwiseSync {
@@ -56,6 +57,7 @@ interface SplitwisePost {
   entityId: string;
   state: "posting" | "posted" | "unknown";
   splitwiseExpenseId: string | null;
+  remoteUpdatedAt?: string | null;
   updatedAt: string;
 }
 
@@ -92,6 +94,7 @@ const splitwisePostSchema = z.object({
   entityId: idSchema,
   state: z.enum(["posting", "posted", "unknown"]),
   splitwiseExpenseId: idSchema.nullable(),
+  remoteUpdatedAt: updatedAtSchema.nullable().optional(),
   updatedAt: updatedAtSchema,
 });
 

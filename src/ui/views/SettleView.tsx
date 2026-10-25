@@ -96,6 +96,9 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
   const splitwisePayments = (ledger.splitwiseInbox ?? []).filter((item) =>
     item.entityId === entityId && item.isPayment && ["new", "changed", "deleted"].includes(item.status),
   );
+  const recordedSplitwisePaymentIds = new Set((ledger.settlements ?? [])
+    .map((settlement) => settlement.splitwisePaymentId)
+    .filter((id): id is string => Boolean(id)));
 
   function recordSplitwisePayment(item: SplitwiseInboxItem) {
     const now = new Date().toISOString();
@@ -265,7 +268,9 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
                 <td>{item.description || "Splitwise payment"}</td>
                 <td>{item.yourPaidCents === 0 ? "They paid you" : "You paid them"}</td>
                 <td className="amount">{formatAud(item.costCents)}</td>
-                <td><button className="primary" onClick={() => recordSplitwisePayment(item)} type="button">Record</button></td>
+                <td>{item.status === "new" && !recordedSplitwisePaymentIds.has(item.splitwiseExpenseId) && (
+                  <button className="primary" onClick={() => recordSplitwisePayment(item)} type="button">Record</button>
+                )}</td>
               </tr>
             ))}
           </tbody>

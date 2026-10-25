@@ -33,8 +33,15 @@ export interface SplitwiseExpenseDraft {
 
 export class SplitwiseNoResponseError extends Error {
   constructor() {
-    super("Splitwise did not return a response. Check Splitwise before retrying.");
+    super("The browser could not reach Splitwise. It may be offline, or Splitwise may block calls from a web page (CORS).");
     this.name = "SplitwiseNoResponseError";
+  }
+}
+
+export class SplitwiseRejectedError extends Error {
+  constructor() {
+    super("Splitwise rejected the expense. Check the shares and account access.");
+    this.name = "SplitwiseRejectedError";
   }
 }
 
@@ -96,7 +103,7 @@ async function request<T>(path: string, params?: URLSearchParams): Promise<T> {
   try {
     response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
   } catch {
-    throw new Error("Could not reach Splitwise. Check your connection and browser CORS access.");
+    throw new Error("The browser could not reach Splitwise. It may be offline, or Splitwise may block calls from a web page (CORS).");
   }
 
   let payload: SplitwisePayload<T>;
@@ -258,9 +265,10 @@ export async function postExpense(draft: SplitwiseExpenseDraft): Promise<number>
     : errors && typeof errors === "object"
       ? Object.keys(errors).length > 0
       : Boolean(errors);
+  if (hasErrors) throw new SplitwiseRejectedError();
   const expenseId = payload.expenses?.[0]?.id;
-  if (!response.ok || hasErrors || !Number.isSafeInteger(expenseId) || (expenseId ?? 0) <= 0) {
-    throw new Error("Splitwise rejected the expense. Check the shares and account access.");
+  if (!response.ok || !Number.isSafeInteger(expenseId) || (expenseId ?? 0) <= 0) {
+    throw new Error("Splitwise did not confirm the expense.");
   }
   return expenseId as number;
 }
@@ -314,6 +322,7 @@ export function pullIntoInbox(
   if (!entity.splitwise) throw new Error("Link this person or group to Splitwise first.");
   const inbox = ledger.splitwiseInbox ?? [];
   const nextInbox = [...inbox];
+  const nextPosts = [...(ledger.splitwisePosts ?? [])];
 
   for (const expense of expenses) {
     if (entity.splitwise.kind === "user" && expense.group_id !== null && expense.group_id !== 0) continue;
@@ -322,8 +331,13 @@ export function pullIntoInbox(
     const expenseId = String(expense.id);
     const existingInbox = nextInbox.find((item) => item.splitwiseExpenseId === expenseId);
     const existingEntry = ledger.entries.find((entry) => entry.splitwiseExpenseId === expenseId);
-    const existingPost = (ledger.splitwisePosts ?? []).find((post) => post.splitwiseExpenseId === expenseId);
-    const priorUpdatedAt = existingInbox?.updatedAt ?? existingPost?.updatedAt;
+    const postIndex = nextPosts.findIndex((post) => post.splitwiseExpenseId === expenseId);
+    const existingPost = postIndex >= 0 ? nextPosts[postIndex] : undefined;
+    if (existingPost && !existingPost.remoteUpdatedAt) {
+      nextPosts[postIndex] = { ...existingPost, remoteUpdatedAt: expense.updated_at };
+      continue;
+    }
+    const priorUpdatedAt = existingInbox?.updatedAt ?? existingPost?.remoteUpdatedAt;
     if (existingEntry || existingPost || existingInbox) {
       if (expense.deleted_at || priorUpdatedAt !== expense.updated_at) {
         const previous = existingInbox ? {
@@ -372,7 +386,7 @@ export function pullIntoInbox(
   const nextSyncs = sync
     ? syncs.map((item) => item === sync ? { ...item, lastPulledAt: pulledAt, updatedAt: pulledAt } : item)
     : [...syncs, { id: crypto.randomUUID(), entityId: entity.id, lastPulledAt: pulledAt, updatedAt: pulledAt }];
-  return { ...ledger, splitwiseInbox: nextInbox, splitwiseSync: nextSyncs };
+  return { ...ledger, splitwiseInbox: nextInbox, splitwisePosts: nextPosts, splitwiseSync: nextSyncs };
 }
 
 export function createSplitwiseSpend(ledger: Ledger, item: SplitwiseInboxItem): Ledger {

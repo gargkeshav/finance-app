@@ -76,8 +76,10 @@ export function cardCycle(ledger: Ledger, paymentRow: BankRow): CardCycle | null
   if (!account || account.type !== "credit") return null;
 
   const rows = (ledger.bankRows ?? []).filter((row) => row.accountId === paymentRow.accountId);
+  const entries = new Map(ledger.entries.map((entry) => [entry.id, entry]));
   const previousPaymentDate = rows
-    .filter((row) => row.id !== paymentRow.id && row.amountCents > 0 && row.date < paymentRow.date)
+    .filter((row) => row.id !== paymentRow.id && row.amountCents > 0 && row.date < paymentRow.date &&
+      entries.get(row.entryId ?? "")?.kind === "transfer")
     .reduce((latest, row) => row.date > latest ? row.date : latest, "");
   const sum = sumCents(rows
     .filter((row) => row.date > previousPaymentDate && row.date <= paymentRow.date && row.amountCents < 0)

@@ -8,26 +8,48 @@ import {
   hasKey,
   postExpense,
   SplitwiseNoResponseError,
+  SplitwiseRejectedError,
   type SplitwiseExpenseDraft,
+  type SplitwiseExpenseShare,
 } from "../../adapters/splitwise";
 import { SpendForm } from "./SpendForm";
 
 interface ActivityViewProps {
   ledger: Ledger;
   update: (next: Ledger) => void;
+  saveNow: (next: Ledger) => Promise<void>;
 }
 
-export function ActivityView({ ledger, update }: ActivityViewProps) {
+interface StagedPost {
+  entryId: string;
+  entityId: string;
+  youId: number;
+  draft: SplitwiseExpenseDraft;
+  groupMembers: SplitwiseExpenseShare[];
+  groupPortionCents: number;
+  costInput: string;
+  paidInputs: Record<string, string>;
+  owedInputs: Record<string, string>;
+}
+
+function centsText(cents: number): string {
+  return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
+}
+
+function inputCents(value: string): number | null {
+  try {
+    return parseAud(value);
+  } catch {
+    return null;
+  }
+}
+
+export function ActivityView({ ledger, update, saveNow }: ActivityViewProps) {
   const [editing, setEditing] = useState<Entry | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState<"all" | "excluded">("all");
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
-  const [staged, setStaged] = useState<{
-    entryId: string;
-    entityId: string;
-    draft: SplitwiseExpenseDraft;
-    owedInputs: Record<string, string>;
-  } | null>(null);
+  const [staged, setStaged] = useState<StagedPost | null>(null);
   const [notices, setNotices] = useState<Record<string, string>>({});
   const [pendingKeys, setPendingKeys] = useState<string[]>([]);
   const currentLedger = useRef(ledger);
@@ -73,10 +95,17 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
         ? (await getGroups()).find((group) => group.id === Number(entity.splitwise?.id))?.members ?? []
         : [];
       const draft = buildExpense(entry, portion, entity, members, you.id);
-      const owedInputs = Object.fromEntries(draft.shares
-        .filter((share) => share.userId !== you.id)
-        .map((share) => [String(share.userId), `${Math.floor(share.owedCents / 100)}.${String(share.owedCents % 100).padStart(2, "0")}`]));
-      setStaged({ entryId: entry.id, entityId: entity.id, draft, owedInputs });
+      setStaged({
+        entryId: entry.id,
+        entityId: entity.id,
+        youId: you.id,
+        draft,
+        groupMembers: draft.shares.filter((share) => share.userId !== you.id),
+        groupPortionCents: portion.amountCents,
+        costInput: centsText(draft.costCents),
+        paidInputs: Object.fromEntries(draft.shares.map((share) => [String(share.userId), centsText(share.paidCents)])),
+        owedInputs: Object.fromEntries(draft.shares.map((share) => [String(share.userId), centsText(share.owedCents)])),
+      });
     } catch (error) {
       setNotices((current) => ({
         ...current,
@@ -96,19 +125,29 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
       post.entryId === staged.entryId && post.entityId === staged.entityId
     )) return;
 
-    let draft: SplitwiseExpenseDraft;
-    try {
-      draft = {
-        ...staged.draft,
-        shares: staged.draft.shares.map((share) => ({
-          ...share,
-          owedCents: staged.owedInputs[String(share.userId)] === undefined
-            ? share.owedCents
-            : parseAud(staged.owedInputs[String(share.userId)]),
-        })),
-      };
-    } catch {
-      setNotices((current) => ({ ...current, [key]: "Enter valid member shares in AUD." }));
+    const costCents = inputCents(staged.costInput);
+    const shares = staged.draft.shares.map((share) => {
+      const paidCents = inputCents(staged.paidInputs[String(share.userId)] ?? "");
+      const owedCents = inputCents(staged.owedInputs[String(share.userId)] ?? "");
+      return paidCents === null || owedCents === null
+        ? null
+        : { ...share, paidCents, owedCents };
+    });
+    if (costCents === null || costCents <= 0 || shares.some((share) =>
+      share === null || share.paidCents < 0 || share.owedCents < 0
+    )) {
+      setNotices((current) => ({ ...current, [key]: "Shares must add up to the cost." }));
+      return;
+    }
+    const draft: SplitwiseExpenseDraft = {
+      ...staged.draft,
+      costCents,
+      shares: shares as SplitwiseExpenseShare[],
+    };
+    const paidTotal = draft.shares.reduce((total, share) => total + share.paidCents, 0);
+    const owedTotal = draft.shares.reduce((total, share) => total + share.owedCents, 0);
+    if (paidTotal !== costCents || owedTotal !== costCents || !draft.date) {
+      setNotices((current) => ({ ...current, [key]: "Shares must add up to the cost." }));
       return;
     }
 
@@ -118,19 +157,41 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
       entityId: staged.entityId,
       state: "posting" as const,
       splitwiseExpenseId: null,
+      remoteUpdatedAt: null,
       updatedAt: new Date().toISOString(),
     };
-    savePost(posting);
+    const current = currentLedger.current;
+    const postingLedger = {
+      ...current,
+      splitwisePosts: [...(current.splitwisePosts ?? []).filter((candidate) => candidate.id !== posting.id), posting],
+    };
+    update(postingLedger);
     setPendingKeys((current) => [...current, key]);
     setStaged(null);
     try {
+      await saveNow(postingLedger);
+    } catch (error) {
+      removePost(posting.id);
+      setNotices((current) => ({
+        ...current,
+        [key]: error instanceof Error ? error.message : "Could not save the pending Splitwise post.",
+      }));
+      setPendingKeys((current) => current.filter((candidate) => candidate !== key));
+      return;
+    }
+    try {
       const expenseId = await postExpense(draft);
-      savePost({ ...posting, state: "posted", splitwiseExpenseId: String(expenseId), updatedAt: new Date().toISOString() });
+      savePost({ ...posting, state: "posted", splitwiseExpenseId: String(expenseId), remoteUpdatedAt: null, updatedAt: new Date().toISOString() });
       setNotices((current) => ({ ...current, [key]: "" }));
     } catch (error) {
-      if (error instanceof SplitwiseNoResponseError) {
+      if (!(error instanceof SplitwiseRejectedError)) {
         savePost({ ...posting, state: "unknown", updatedAt: new Date().toISOString() });
-        setNotices((current) => ({ ...current, [key]: "Check Splitwise before retrying" }));
+        setNotices((current) => ({
+          ...current,
+          [key]: error instanceof SplitwiseNoResponseError
+            ? `Check Splitwise before retrying. ${error.message}`
+            : "Check Splitwise before retrying",
+        }));
       } else {
         removePost(posting.id);
         setNotices((current) => ({
@@ -148,6 +209,26 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
     if (!expenseId?.trim() || !/^\d+$/.test(expenseId.trim())) return;
     savePost({ ...post, state: "posted", splitwiseExpenseId: expenseId.trim(), updatedAt: new Date().toISOString() });
     setNotices((current) => ({ ...current, [key]: "" }));
+  }
+
+  function changeGroupMembers(next: StagedPost, selectedIds: Set<number>) {
+    const selected = next.groupMembers.filter((member) => selectedIds.has(member.userId));
+    if (!selected.length) return;
+    const selfShare = next.draft.shares.find((share) => share.userId === next.youId);
+    if (!selfShare) return;
+    let remainder = next.groupPortionCents % selected.length;
+    const memberShares = selected.map((member) => {
+      const owedCents = Math.floor(next.groupPortionCents / selected.length) + (remainder > 0 ? 1 : 0);
+      if (remainder > 0) remainder -= 1;
+      return { ...member, paidCents: 0, owedCents };
+    });
+    const shares = [selfShare, ...memberShares];
+    setStaged({
+      ...next,
+      draft: { ...next.draft, shares },
+      paidInputs: Object.fromEntries(shares.map((share) => [String(share.userId), next.paidInputs[String(share.userId)] ?? centsText(share.paidCents)])),
+      owedInputs: Object.fromEntries(shares.map((share) => [String(share.userId), centsText(share.owedCents)])),
+    });
   }
 
   function saveEntry(entry: Entry) {
@@ -248,15 +329,31 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
                     ))}
                     {entry.kind === "spend" && entry.payerEntityId === "self" && entry.portions.map((portion) => {
                       const entity = ledger.entities.find((candidate) => candidate.id === portion.entityId);
-                      if (!entity?.splitwise || entity.kind === "self" || entity.kind === "house") return null;
+                      if (!entity?.splitwise || entity.kind === "self" || entity.kind === "house" || entry.splitwiseExpenseId) return null;
                       const key = pairKey(entry.id, entity.id);
                       const post = posts.find((candidate) => candidate.entryId === entry.id && candidate.entityId === entity.id);
                       const isStaged = staged?.entryId === entry.id && staged.entityId === entity.id;
+                      const draftCostCents = isStaged && staged ? inputCents(staged.costInput) : null;
+                      const paidAmounts = isStaged && staged
+                        ? staged.draft.shares.map((share) => inputCents(staged.paidInputs[String(share.userId)] ?? ""))
+                        : [];
+                      const owedAmounts = isStaged && staged
+                        ? staged.draft.shares.map((share) => inputCents(staged.owedInputs[String(share.userId)] ?? ""))
+                        : [];
+                      const paidTotal = paidAmounts.reduce<number>((total, amount) => total + (amount ?? 0), 0);
+                      const owedTotal = owedAmounts.reduce<number>((total, amount) => total + (amount ?? 0), 0);
+                      const sharesValid = Boolean(isStaged && staged && draftCostCents !== null && draftCostCents > 0 &&
+                        paidAmounts.every((amount) => amount !== null && amount >= 0) &&
+                        owedAmounts.every((amount) => amount !== null && amount >= 0) &&
+                        draftCostCents === paidTotal && draftCostCents === owedTotal && staged.draft.date);
+                      const selectedMemberIds = new Set(staged?.groupMembers
+                        .filter((member) => staged.draft.shares.some((share) => share.userId === member.userId))
+                        .map((member) => member.userId) ?? []);
                       return (
                         <div key={entity.id}>
-                          {post?.state === "posting" && <span>Posting to Splitwise</span>}
+                          {post?.state === "posting" && pendingKeys.includes(key) && <span>Posting to Splitwise</span>}
                           {post?.state === "posted" && <span>Posted to Splitwise ({post.splitwiseExpenseId})</span>}
-                          {post?.state === "unknown" && (
+                          {(post?.state === "unknown" || post?.state === "posting" && !pendingKeys.includes(key)) && (
                             <div>
                               <span>Check Splitwise before retrying</span>{" "}
                               <button className="secondary" onClick={() => markPosted(post, key)} type="button">Mark posted</button>{" "}
@@ -272,27 +369,80 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
                             >Post to Splitwise</button>
                           )}
                           {isStaged && staged && (
-                            <div>
-                              <div>Cost {formatAud(staged.draft.costCents)}</div>
-                              {staged.draft.groupId !== 0 && staged.draft.shares.map((share) => (
-                                <label key={share.userId}>
-                                  {share.name} owes{" "}
-                                  {share.userId === staged.draft.shares[0].userId
-                                    ? formatAud(share.owedCents)
-                                    : <input
-                                        aria-label={`${share.name} owed share`}
-                                        min="0"
-                                        step="0.01"
-                                        type="number"
-                                        value={staged.owedInputs[String(share.userId)] ?? "0.00"}
-                                        onChange={(event) => setStaged((current) => current ? {
-                                          ...current,
-                                          owedInputs: { ...current.owedInputs, [String(share.userId)]: event.target.value },
-                                        } : current)}
-                                      />}
-                                </label>
-                              ))}
-                              <button className="primary" disabled={pendingKeys.includes(key)} onClick={() => void submitPost()} type="button">Post expense</button>{" "}
+                            <div className="form-grid">
+                              <label>
+                                Description
+                                <input value={staged.draft.description} onChange={(event) => setStaged((current) => current
+                                  ? { ...current, draft: { ...current.draft, description: event.target.value } }
+                                  : current)} />
+                              </label>
+                              <label>
+                                Date
+                                <input type="date" value={staged.draft.date} onChange={(event) => setStaged((current) => current
+                                  ? { ...current, draft: { ...current.draft, date: event.target.value } }
+                                  : current)} />
+                              </label>
+                              <label>
+                                Cost (AUD)
+                                <input min="0" step="0.01" type="number" value={staged.costInput} onChange={(event) => setStaged((current) => current
+                                  ? { ...current, costInput: event.target.value }
+                                  : current)} />
+                              </label>
+                              {staged.draft.groupId !== 0 && (
+                                <fieldset>
+                                  <legend>Group members</legend>
+                                  {staged.groupMembers.map((member) => (
+                                    <label className="checkbox-label" key={member.userId}>
+                                      <input
+                                        checked={selectedMemberIds.has(member.userId)}
+                                        disabled={selectedMemberIds.size === 1 && selectedMemberIds.has(member.userId)}
+                                        onChange={(event) => {
+                                          const nextIds = new Set(selectedMemberIds);
+                                          if (event.target.checked) nextIds.add(member.userId);
+                                          else nextIds.delete(member.userId);
+                                          changeGroupMembers(staged, nextIds);
+                                        }}
+                                        type="checkbox"
+                                      />
+                                      {member.name}
+                                    </label>
+                                  ))}
+                                </fieldset>
+                              )}
+                              <div className="table-scroll">
+                                <table>
+                                  <thead><tr><th>Share</th><th>Paid (AUD)</th><th>Owed (AUD)</th></tr></thead>
+                                  <tbody>
+                                    {staged.draft.shares.map((share) => (
+                                      <tr key={share.userId}>
+                                        <td>{share.name}</td>
+                                        <td>
+                                          <label>
+                                            <span className="sr-only">{share.name} paid share</span>
+                                            <input aria-label={`${share.name} paid share`} min="0" step="0.01" type="number" value={staged.paidInputs[String(share.userId)] ?? ""}
+                                              onChange={(event) => setStaged((current) => current ? {
+                                                ...current,
+                                                paidInputs: { ...current.paidInputs, [String(share.userId)]: event.target.value },
+                                              } : current)} />
+                                          </label>
+                                        </td>
+                                        <td>
+                                          <label>
+                                            <span className="sr-only">{share.name} owed share</span>
+                                            <input aria-label={`${share.name} owed share`} min="0" step="0.01" type="number" value={staged.owedInputs[String(share.userId)] ?? ""}
+                                              onChange={(event) => setStaged((current) => current ? {
+                                                ...current,
+                                                owedInputs: { ...current.owedInputs, [String(share.userId)]: event.target.value },
+                                              } : current)} />
+                                          </label>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              {!sharesValid && <p role="status">Shares must add up to the cost.</p>}
+                              <button className="primary" disabled={pendingKeys.includes(key) || !sharesValid} onClick={() => void submitPost()} type="button">Post expense</button>{" "}
                               <button className="secondary" onClick={() => setStaged(null)} type="button">Cancel</button>
                             </div>
                           )}

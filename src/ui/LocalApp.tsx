@@ -143,8 +143,18 @@ export function LocalApp() {
     }
   }
 
+  async function saveNow(nextLedger: Ledger): Promise<void> {
+    if (fileStore.mode === "download") return;
+    const content = stringifyLedger(nextLedger);
+    const savedFileName = await fileStore.save(nextLedger);
+    setSavedContent(content);
+    setFileName(savedFileName);
+    setError("");
+    setMessage("");
+  }
+
   const views = {
-    Activity: <ActivityView ledger={ledger} update={update} />,
+    Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} />,
     Import: <ImportView ledger={ledger} update={update} />,
     Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); setView("Settle"); }} />,
     Settle: <SettleView ledger={ledger} update={update} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,

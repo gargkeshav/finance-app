@@ -456,7 +456,9 @@ export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
   theyOweYou.sort(oldestFirst);
   youOweThem.sort(oldestFirst);
 
-  for (const settlement of ledger.settlements ?? []) {
+  const settlements = [...(ledger.settlements ?? [])]
+    .sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
+  for (const settlement of settlements) {
     const items = settlement.direction === "theyPaidYou" ? theyOweYou : youOweThem;
     if (settlement.entityId !== entityId) continue;
     let remaining = settlement.amountCents;

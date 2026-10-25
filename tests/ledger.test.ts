@@ -135,6 +135,62 @@ describe("ledger spending rules", () => {
     expect(balances(ledger).byEntity.house).toBe(1_000);
   });
 
+  it("applies out-of-order settlements against the oldest debt first", () => {
+    const firstSpend: Entry = {
+      id: "spend-first",
+      kind: "spend",
+      date: "2026-10-20",
+      description: "First spend",
+      amountCents: 3_000,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [{ entityId: "person-1", amountCents: 3_000 }],
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const ledger = makeLedger(firstSpend);
+    ledger.entities.push({ id: "person-1", kind: "person", name: "Alex", archived: false, updatedAt: "now" });
+    ledger.entries.push({
+      ...firstSpend,
+      id: "spend-second",
+      date: "2026-10-21",
+      description: "Second spend",
+    });
+    ledger.settlements = [
+      {
+        id: "settlement-later",
+        date: "2026-10-25",
+        entityId: "person-1",
+        direction: "theyPaidYou",
+        amountCents: 2_000,
+        bankRowIds: [],
+        note: "Later",
+        splitwisePaymentId: null,
+        updatedAt: "now",
+      },
+      {
+        id: "settlement-earlier",
+        date: "2026-10-22",
+        entityId: "person-1",
+        direction: "theyPaidYou",
+        amountCents: 1_000,
+        bankRowIds: [],
+        note: "Earlier",
+        splitwisePaymentId: null,
+        updatedAt: "now",
+      },
+    ];
+
+    expect(openItems(ledger, "person-1").theyOweYou).toEqual([{
+      id: "spend-second",
+      date: "2026-10-21",
+      description: "Second spend",
+      source: "entry",
+      amountCents: 3_000,
+      openAmountCents: 3_000,
+    }]);
+  });
+
   it("makes you owe House for a refund after House settled the original spend", () => {
     const spend: Entry = {
       id: "spend-refunded",

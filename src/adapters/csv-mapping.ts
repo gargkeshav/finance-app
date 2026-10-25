@@ -99,13 +99,15 @@ function headerKey(value: string): string {
 function parseAmount(value: string): number | null {
   const text = value.trim();
   if (!text) return null;
-  if (!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) {
+  const accountingNegative = /^\(((?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?)\)$/.exec(text);
+  const amountText = accountingNegative ? `-${accountingNegative[1]}` : text;
+  if (!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(amountText)) {
     throw new Error(
       "Invalid AUD amount; expected signed dollars and at most two decimal places.",
     );
   }
   return parseAud(
-    text
+    amountText
       .replaceAll(",", "")
       .replace(/^\+/, "")
       .replace(/^(-?)0+(?=\d)/, "$1"),

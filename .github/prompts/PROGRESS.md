@@ -49,4 +49,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 10: built; checked in review.
 - Batch 11: built; checked in review.
 - Batch 11b: Stability fixes implemented. `npm test` (9 files, 51 tests) and `npm run typecheck` pass. Manual dev check confirmed distinct new spends and settlement save/reset/success/delete. Refund-delete blocking and invalid-ledger recovery were not manually exercised through the normal UI. Next: 11c.
+- Batch 11c: Splitwise posting now saves its pending state before sending, supports editable confirmed drafts, recovers ambiguous/stuck posts, prevents repeat Splitwise-born posts and payments, seeds remote update timestamps, and clears API keys on failed connection/disconnect. Domain settlement ordering, transfer-only card-cycle boundaries, and accounting-negative CSV amounts are fixed. `npm test` (9 files, 53 tests) and `npm run typecheck` pass.
+- Files changed: `src/adapters/splitwise.ts`, `src/adapters/file-ledger.ts`, `src/adapters/csv-mapping.ts`, `src/domain/ledger.ts`, `src/domain/transfers.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/SettleView.tsx`, `src/ui/views/PeopleView.tsx`, `tests/splitwise.test.ts`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: Live connect/post/pull was not exercised because no Splitwise API key was provided; CORS status is unknown. Next: 11d.
 
