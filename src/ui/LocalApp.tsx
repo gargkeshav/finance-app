@@ -266,6 +266,8 @@ export function LocalApp() {
       onSave={() => void saveLedger(false)}
       onChooseBackupFolder={fileStore.backupSupported ? () => void chooseBackupFolder() : undefined}
       onRestore={restoreLedger}
+      ledger={ledger}
+      update={update}
     />,
     Health: <HealthView issues={healthIssues} onNavigate={navigate} />,
   };

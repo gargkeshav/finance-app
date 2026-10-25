@@ -2,12 +2,15 @@ import { useRef, useState } from "react";
 import { parseLedger } from "../../adapters/file-ledger";
 import type { Ledger } from "../../domain/ledger";
 import type { StorageMode } from "../../adapters/file-store";
+import { HistoryImportView } from "./HistoryImportView";
 
 interface DataViewProps {
   mode: StorageMode;
   onSave: () => void;
   onChooseBackupFolder?: () => void;
   onRestore?: (ledger: Ledger) => void;
+  ledger?: Ledger;
+  update?: (ledger: Ledger) => void;
 }
 
 interface RestorePreview {
@@ -15,7 +18,7 @@ interface RestorePreview {
   fileName: string;
 }
 
-export function DataView({ mode, onSave, onChooseBackupFolder, onRestore }: DataViewProps) {
+export function DataView({ mode, onSave, onChooseBackupFolder, onRestore, ledger, update }: DataViewProps) {
   const backupInput = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<RestorePreview | null>(null);
   const [error, setError] = useState("");
@@ -81,6 +84,7 @@ export function DataView({ mode, onSave, onChooseBackupFolder, onRestore }: Data
           </section>
         )}
       </section>
+      {import.meta.env.DEV && ledger && update && <HistoryImportView ledger={ledger} update={update} />}
     </>
   );
 }

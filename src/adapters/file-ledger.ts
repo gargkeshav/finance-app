@@ -144,6 +144,7 @@ const entrySchema = z
     tags: z.array(z.string()).default([]),
     note: z.string().default(""),
     extraReimbursable: z.boolean().default(false),
+    historyKey: z.string().optional(),
     countsTowardDebt: z.boolean(),
     updatedAt: updatedAtSchema,
     splitwiseExpenseId: idSchema.nullable().optional(),
@@ -159,7 +160,7 @@ const entrySchema = z
         path: ["portions"],
       });
     }
-    if (entry.kind === "refund" && !entry.refundOf) {
+    if (entry.kind === "refund" && entry.source !== "history" && !entry.refundOf) {
       context.addIssue({ code: "custom", message: "A refund must reference a spend.", path: ["refundOf"] });
     }
   });
@@ -300,7 +301,7 @@ const ledgerSchema = z.object({
   lastSplitByAccount: z.record(z.string(), splitPresetSchema).optional(),
 }).superRefine((ledger, context) => {
   for (const entry of ledger.entries) {
-    if (entry.kind === "refund" && entry.refundOf) {
+    if (entry.kind === "refund" && entry.source !== "history" && entry.refundOf) {
       const original = ledger.entries.find((candidate) => candidate.id === entry.refundOf);
       if (original?.kind !== "spend") {
         context.addIssue({ code: "custom", message: "A refund must reference an existing spend.", path: ["entries"] });

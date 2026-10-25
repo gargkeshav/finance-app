@@ -72,6 +72,7 @@ export interface Entry {
   tags?: string[];
   note?: string;
   extraReimbursable?: boolean;
+  historyKey?: string;
   countsTowardDebt: boolean;
   updatedAt: string;
 }

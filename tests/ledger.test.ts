@@ -6,6 +6,7 @@ import { monthly } from "../src/domain/reports";
 import { findIssues } from "../src/domain/health";
 import { canAutoConfirm, firstRule, type EntryRule } from "../src/domain/rules";
 import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
+import { applyHistoryImport, planHistoryImport } from "../src/domain/history-import";
 
 function makeLedger(entry: Entry): Ledger {
   return {
@@ -21,6 +22,48 @@ function makeLedger(entry: Entry): Ledger {
 }
 
 describe("ledger spending rules", () => {
+  it("imports history splits with settled debt and skips duplicate history keys", async () => {
+    const ledger = makeLedger({
+      id: "history-seed",
+      kind: "income",
+      date: "2026-10-20",
+      description: "Seed",
+      amountCents: 1,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.entries = [];
+    ledger.accounts = [{ id: "anz-credit", name: "ANZ Credit", type: "credit", payerEntityId: "self", updatedAt: "now" }];
+    const text = [
+      "Date,Description,Debit($AUD),Status,SubType,Group,Our share,Share",
+      "25/5/2026,Synthetic groceries,30.00,Settled,Groceries,,10.00,Personal",
+      "25/5/2026,Synthetic groceries,30.00,Settled,Groceries,,10.00,Personal",
+    ].join("\n");
+
+    const settledPlan = await planHistoryImport(text, ledger, "anz-credit");
+    const settled = applyHistoryImport(settledPlan, ledger);
+    expect(settled.entries[0]).toMatchObject({
+      kind: "spend",
+      amountCents: 3_000,
+      countsTowardDebt: false,
+      portions: [
+        { entityId: "house", amountCents: 1_000 },
+        { entityId: "self", amountCents: 2_000 },
+      ],
+    });
+    expect(settled.entries).toHaveLength(2);
+    expect(balances(settled).byEntity.house).toBe(0);
+    expect(applyHistoryImport(await planHistoryImport(text, settled, "anz-credit"), settled).entries).toHaveLength(2);
+
+    const openPlan = await planHistoryImport(text.replace(",Settled,", ",,"), ledger, "anz-credit");
+    const open = applyHistoryImport(openPlan, ledger);
+    expect(open.entries[0].countsTowardDebt).toBe(true);
+    expect(balances(open).byEntity.house).toBe(1_000);
+  });
+
   it("reports a review row and a checkpoint difference", () => {
     const ledger = makeLedger({
       id: "health-entry",
