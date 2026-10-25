@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entity, type EntityKind, type Ledger } from "../../domain/ledger";
+import { getCurrentUser, getExpenses, getFriends, getGroups, hasKey, pullIntoInbox, setKey, type SplitwiseGroup, type SplitwiseUser } from "../../adapters/splitwise";
 
 interface PeopleViewProps {
   ledger: Ledger;
@@ -11,6 +12,65 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
   const [kind, setKind] = useState<"person" | "group">("person");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [connectedName, setConnectedName] = useState("");
+  const [friends, setFriends] = useState<SplitwiseUser[]>([]);
+  const [groups, setGroups] = useState<SplitwiseGroup[]>([]);
+  const [links, setLinks] = useState<Record<string, string>>({});
+  const [sinceDate, setSinceDate] = useState("");
+  const [busyEntityId, setBusyEntityId] = useState<string | null>(null);
+
+  async function connectSplitwise(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const key = String(data.get("splitwise-key") ?? "");
+    setKey(key);
+    form.reset();
+    try {
+      const [user, friendList, groupList] = await Promise.all([getCurrentUser(), getFriends(), getGroups()]);
+      setConnectedName(`${user.first_name} ${user.last_name}`.trim());
+      setFriends(friendList);
+      setGroups(groupList);
+      setError("");
+    } catch (cause) {
+      setConnectedName("");
+      setError(cause instanceof Error ? cause.message : "Could not connect to Splitwise.");
+    }
+  }
+
+  function linkSplitwise(entity: Entity) {
+    const id = links[entity.id];
+    if (!id) return;
+    const now = new Date().toISOString();
+    update({
+      ...ledger,
+      entities: ledger.entities.map((candidate) => candidate.id === entity.id
+        ? { ...candidate, splitwise: { kind: entity.kind === "person" ? "user" : "group", id }, updatedAt: now }
+        : candidate),
+    });
+  }
+
+  async function pullSplitwise(entity: Entity) {
+    if (!entity.splitwise) return;
+    const sync = (ledger.splitwiseSync ?? []).find((item) => item.entityId === entity.id);
+    if (!sync && !sinceDate) {
+      setError("Choose a since date for the first pull.");
+      return;
+    }
+    setBusyEntityId(entity.id);
+    try {
+      const [user, expenses] = await Promise.all([
+        getCurrentUser(),
+        getExpenses(entity.splitwise, sync ? { updatedAfter: sync.lastPulledAt } : { datedAfter: sinceDate }),
+      ]);
+      update(pullIntoInbox(ledger, entity, expenses, user.id));
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not pull Splitwise expenses.");
+    } finally {
+      setBusyEntityId(null);
+    }
+  }
 
   function saveEntity(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,6 +130,20 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
         <button className="primary" onClick={() => { setEditingId(null); setName(""); setError(""); }} type="button">Add person or group</button>
       </header>
 
+      <section className="form-grid" aria-label="Splitwise connection">
+        <h2>Splitwise</h2>
+        {connectedName ? <p className="banner success">Connected as {connectedName}</p> : null}
+        <form className="form-grid" onSubmit={connectSplitwise}>
+          <label>
+            API key
+            <input autoComplete="off" name="splitwise-key" type="password" required />
+          </label>
+          <div className="dialog-actions"><button className="primary" type="submit">Connect Splitwise</button></div>
+        </form>
+        {hasKey() && <label>First pull since<input type="date" value={sinceDate} onChange={(event) => setSinceDate(event.target.value)} /></label>}
+        {error && <p className="banner error" role="alert">{error}</p>}
+      </section>
+
       <form className="form-grid" onSubmit={saveEntity}>
         <label>
           Name
@@ -93,7 +167,7 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Splitwise</th><th /></tr></thead>
           <tbody>
             {ledger.entities.map((entity) => {
               const fixed = entity.id === SELF_ENTITY_ID || entity.id === HOUSE_ENTITY_ID;
@@ -102,6 +176,24 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
                   <td>{entity.name}</td>
                   <td>{kindLabels[entity.kind]}</td>
                   <td>{entity.archived ? "Archived" : "Active"}</td>
+                  <td>
+                    {(entity.kind === "person" || entity.kind === "group") && hasKey() && (
+                      <div className="form-grid">
+                        <label>
+                          {entity.kind === "person" ? "Splitwise friend" : "Splitwise group"}
+                          <select value={links[entity.id] ?? entity.splitwise?.id ?? ""} onChange={(event) => setLinks({ ...links, [entity.id]: event.target.value })}>
+                            <option value="">Choose</option>
+                            {(entity.kind === "person" ? friends : groups).map((remote) => (
+                              <option key={remote.id} value={remote.id}>{entity.kind === "person" ? `${(remote as SplitwiseUser).first_name} ${(remote as SplitwiseUser).last_name}` : (remote as SplitwiseGroup).name}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <button className="secondary" onClick={() => linkSplitwise(entity)} type="button">Link</button>{" "}
+                        {entity.splitwise && <button className="secondary" disabled={busyEntityId === entity.id} onClick={() => void pullSplitwise(entity)} type="button">{busyEntityId === entity.id ? "Pulling..." : "Pull"}</button>}
+                      </div>
+                    )}
+                    {entity.splitwise && !hasKey() && `${entity.splitwise.kind}: ${entity.splitwise.id}`}
+                  </td>
                   <td>
                     {!fixed && (
                       <>

@@ -28,4 +28,10 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 09: Import coverage gaps, account balance checkpoints, refund accounting and review, and activity balance inclusion controls implemented. Tests and typecheck pass.
 - Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/AccountsView.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SpendForm.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 10.
+- Batch 10: Splitwise connection, person/group linking, paged AUD pulls, reviewable expense/payment inbox, local spend linking/creation, settlement recording, and revision comparisons implemented. Tests and typecheck pass.
+- Files changed: `src/adapters/splitwise.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/PeopleView.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SettleView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: Live connection and friend pull were not exercised because no API key was provided to the app. Next: 11.
+- Batch 11: Person and group spends can be posted to Splitwise with persisted posting states, unknown-post recovery, and editable group shares. The requested group-split test was added.
+- Files changed: `src/adapters/splitwise.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/ActivityView.tsx`, `tests/splitwise.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: Live friend post/delete was not exercised because no API key was provided. Planned batches are complete.
 

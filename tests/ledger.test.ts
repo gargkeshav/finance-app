@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { balances, openItems, report, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
+import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
 
 function makeLedger(entry: Entry): Ledger {
   return {
@@ -222,5 +223,55 @@ describe("transfer suggestions", () => {
     expect(confirmed).not.toBeNull();
     expect(balances(confirmed!).byEntity.house).toBe(3_000);
     expect(confirmed!.bankRows?.every((row) => row.settlementId !== null)).toBe(true);
+  });
+});
+
+describe("Splitwise expense mapping", () => {
+  it("creates the owed portion once when a friend paid the expense", () => {
+    const ledger = makeLedger({
+      id: "placeholder",
+      kind: "income",
+      date: "2026-10-25",
+      description: "",
+      amountCents: 1,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    const friend = { id: "friend", kind: "person" as const, name: "Friend", archived: false, updatedAt: "now", splitwise: { kind: "user" as const, id: "42" } };
+    ledger.entities.push(friend);
+    const expense: SplitwiseExpense = {
+      id: 123,
+      group_id: null,
+      description: "Dinner",
+      date: "2026-10-24T12:00:00Z",
+      cost: "60.00",
+      currency_code: "AUD",
+      payment: false,
+      updated_at: "2026-10-24T12:00:00Z",
+      deleted_at: null,
+      users: [
+        { user_id: 42, paid_share: "60.00", owed_share: "35.00" },
+        { user_id: 7, paid_share: "0.00", owed_share: "25.00" },
+      ],
+    };
+    const inboxLedger = pullIntoInbox(ledger, friend, [expense], 7);
+    const item = inboxLedger.splitwiseInbox![0];
+
+    const mapped = createSplitwiseSpend(inboxLedger, item);
+    const duplicate = createSplitwiseSpend(mapped, item);
+    const spend = mapped.entries.find((entry) => entry.splitwiseExpenseId === "123")!;
+
+    expect(spend.kind).toBe("spend");
+    expect(spend.payerEntityId).toBe("friend");
+    expect(spend.amountCents).toBe(6_000);
+    expect(spend.portions).toEqual([
+      { entityId: "self", amountCents: 2_500 },
+      { entityId: "friend", amountCents: 3_500 },
+    ]);
+    expect(balances(mapped).byEntity.friend).toBe(-2_500);
+    expect(duplicate.entries.filter((entry) => entry.splitwiseExpenseId === "123")).toHaveLength(1);
   });
 });

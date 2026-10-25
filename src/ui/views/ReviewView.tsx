@@ -3,6 +3,7 @@ import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type BankRow, type Entry, type Ledger 
 import { cardCycle, confirmTransfer, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatAud } from "../../domain/value";
 import { SpendForm } from "./SpendForm";
+import { createSplitwiseSpend, type SplitwiseInboxItem } from "../../adapters/splitwise";
 
 interface ReviewViewProps {
   ledger: Ledger;
@@ -208,6 +209,73 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     });
   }
 
+  const splitwiseItems = (ledger.splitwiseInbox ?? []).filter((item) =>
+    !item.isPayment && ["new", "changed", "deleted"].includes(item.status),
+  );
+
+  function matchingSplitwiseEntry(item: SplitwiseInboxItem) {
+    const payerEntityId = item.yourPaidCents === 0 ? item.entityId : SELF_ENTITY_ID;
+    const target = Date.parse(`${item.date}T00:00:00Z`);
+    return ledger.entries.find((entry) => {
+      if (entry.kind !== "spend" || entry.payerEntityId !== payerEntityId || entry.amountCents !== item.costCents) return false;
+      const differenceDays = Math.abs(Date.parse(`${entry.date}T00:00:00Z`) - target) / 86_400_000;
+      return differenceDays <= 3;
+    });
+  }
+
+  function splitwiseChangeText(item: SplitwiseInboxItem) {
+    if (item.status === "deleted") return item.previous
+      ? `Deleted in Splitwise. Was ${item.previous.date}, ${item.previous.description}, ${formatAud(item.previous.costCents)}.`
+      : "Deleted in Splitwise.";
+    if (item.status !== "changed" || !item.previous) return item.status;
+    const changes: string[] = [];
+    if (item.previous.date !== item.date) changes.push(`date ${item.previous.date} to ${item.date}`);
+    if (item.previous.description !== item.description) changes.push(`description ${JSON.stringify(item.previous.description)} to ${JSON.stringify(item.description)}`);
+    if (item.previous.costCents !== item.costCents) changes.push(`cost ${formatAud(item.previous.costCents)} to ${formatAud(item.costCents)}`);
+    if (item.previous.yourPaidCents !== item.yourPaidCents) changes.push(`your paid share ${formatAud(item.previous.yourPaidCents)} to ${formatAud(item.yourPaidCents)}`);
+    if (item.previous.yourOwedCents !== item.yourOwedCents) changes.push(`your owed share ${formatAud(item.previous.yourOwedCents)} to ${formatAud(item.yourOwedCents)}`);
+    return changes.length ? `Changed in Splitwise: ${changes.join("; ")}.` : "Changed in Splitwise.";
+  }
+
+  function completeSplitwise(item: SplitwiseInboxItem, entryId?: string, recordPost = false) {
+    const now = new Date().toISOString();
+    const entry = entryId ? ledger.entries.find((candidate) => candidate.id === entryId) : undefined;
+    update({
+      ...ledger,
+      entries: entry
+        ? ledger.entries.map((candidate) => candidate.id === entry.id
+          ? { ...candidate, splitwiseExpenseId: item.splitwiseExpenseId, updatedAt: now }
+          : candidate)
+        : ledger.entries,
+      splitwiseInbox: (ledger.splitwiseInbox ?? []).map((candidate) => candidate.id === item.id
+        ? { ...candidate, status: "done" }
+        : candidate),
+      splitwisePosts: recordPost && entry
+        ? [...(ledger.splitwisePosts ?? []), {
+          id: crypto.randomUUID(),
+          entryId: entry.id,
+          entityId: item.entityId,
+          state: "posted",
+          splitwiseExpenseId: item.splitwiseExpenseId,
+          updatedAt: now,
+        }]
+        : ledger.splitwisePosts,
+    });
+  }
+
+  function dismissSplitwise(item: SplitwiseInboxItem) {
+    update({
+      ...ledger,
+      splitwiseInbox: (ledger.splitwiseInbox ?? []).map((candidate) => candidate.id === item.id
+        ? { ...candidate, status: "dismissed" }
+        : candidate),
+    });
+  }
+
+  function createFromSplitwise(item: SplitwiseInboxItem) {
+    update(createSplitwiseSpend(ledger, item));
+  }
+
   function pendingPair(first: BankRow, second: BankRow) {
     return first.amountCents < 0 ? { outgoing: first, incoming: second } : { outgoing: second, incoming: first };
   }
@@ -285,6 +353,48 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         );
       })()}
       {transferMessage && <p className="banner error" role="status">{transferMessage}</p>}
+      {splitwiseItems.length > 0 && (
+        <section aria-label="From Splitwise">
+          <h2>From Splitwise</h2>
+          <div className="table-scroll">
+            <table>
+              <thead><tr><th>Date</th><th>Description</th><th>Entity</th><th>Amount</th><th>Status</th><th /></tr></thead>
+              <tbody>
+                {splitwiseItems.map((item) => {
+                  const entity = ledger.entities.find((candidate) => candidate.id === item.entityId);
+                  const fullySelfPaid = item.yourPaidCents === item.costCents;
+                  const manuallyEntered = item.yourPaidCents > 0 && !fullySelfPaid;
+                  const match = matchingSplitwiseEntry(item);
+                  return (
+                    <tr key={item.id}>
+                      <td className="date-cell">{item.date}</td>
+                      <td>{item.description || "Splitwise expense"}</td>
+                      <td>{entity?.name ?? "Unknown"}</td>
+                      <td className="amount">{formatAud(item.costCents)}</td>
+                      <td>{item.status === "changed" || item.status === "deleted" ? splitwiseChangeText(item) : item.status}</td>
+                      <td>
+                        {item.status === "changed" || item.status === "deleted" ? (
+                          <button className="secondary" onClick={() => completeSplitwise(item)} type="button">Done</button>
+                        ) : manuallyEntered ? (
+                          <>
+                            <span>Enter by hand </span>
+                            <button className="secondary" onClick={() => dismissSplitwise(item)} type="button">Dismiss</button>
+                          </>
+                        ) : (
+                          <>
+                            {match && <button className="secondary" onClick={() => completeSplitwise(item, match.id, fullySelfPaid)} type="button">Link</button>}{" "}
+                            <button className="primary" onClick={() => createFromSplitwise(item)} type="button">{fullySelfPaid ? "Create" : "Confirm"}</button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
       <div className="table-scroll">
         <table>
           <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th /></tr></thead>

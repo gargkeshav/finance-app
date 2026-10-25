@@ -10,6 +10,7 @@ import {
   type SettlementDirection,
 } from "../../domain/ledger";
 import { formatAud, parseAud } from "../../domain/value";
+import type { SplitwiseInboxItem } from "../../adapters/splitwise";
 
 interface SettleViewProps {
   ledger: Ledger;
@@ -91,6 +92,31 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
   const settlements = (ledger.settlements ?? [])
     .filter((settlement) => settlement.entityId === entityId)
     .sort((first, second) => second.date.localeCompare(first.date) || second.id.localeCompare(first.id));
+  const splitwisePayments = (ledger.splitwiseInbox ?? []).filter((item) =>
+    item.entityId === entityId && item.isPayment && ["new", "changed", "deleted"].includes(item.status),
+  );
+
+  function recordSplitwisePayment(item: SplitwiseInboxItem) {
+    const now = new Date().toISOString();
+    const settlement = {
+      id: crypto.randomUUID(),
+      date: item.date,
+      entityId: item.entityId,
+      direction: item.yourPaidCents === 0 ? "theyPaidYou" as const : "youPaidThem" as const,
+      amountCents: item.costCents,
+      bankRowIds: [],
+      note: item.description,
+      splitwisePaymentId: item.splitwiseExpenseId,
+      updatedAt: now,
+    };
+    update({
+      ...ledger,
+      settlements: [...(ledger.settlements ?? []), settlement],
+      splitwiseInbox: (ledger.splitwiseInbox ?? []).map((candidate) => candidate.id === item.id
+        ? { ...candidate, status: "done" }
+        : candidate),
+    });
+  }
 
   function bankActivity(settlement: (typeof settlements)[number]) {
     const rows = settlement.bankRowIds
@@ -210,6 +236,24 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
       <ItemsTable title="They owe you" items={items.theyOweYou} />
       <ItemsTable title="You owe them" items={items.youOweThem} />
 
+      <h3>Recorded in Splitwise</h3>
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Payment</th><th>Direction</th><th>Amount</th><th /></tr></thead>
+          <tbody>
+            {splitwisePayments.map((item) => (
+              <tr key={item.id}>
+                <td className="date-cell">{item.date}</td>
+                <td>{item.description || "Splitwise payment"}</td>
+                <td>{item.yourPaidCents === 0 ? "They paid you" : "You paid them"}</td>
+                <td className="amount">{formatAud(item.costCents)}</td>
+                <td><button className="primary" onClick={() => recordSplitwisePayment(item)} type="button">Record</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!splitwisePayments.length && <p className="empty-state compact">No unrecorded Splitwise payments.</p>}
+      </div>
       <h2>Past settlements</h2>
       <div className="table-scroll">
         <table>

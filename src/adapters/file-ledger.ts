@@ -6,12 +6,102 @@ import { csvMappingSchema, type CsvMapping } from "./csv-mapping";
 const idSchema = z.string().min(1, "must not be empty");
 const updatedAtSchema = z.string().min(1, "must not be empty");
 
+declare module "../domain/ledger" {
+  interface Entity {
+    splitwise?: { kind: "user" | "group"; id: string };
+  }
+
+  interface Entry {
+    splitwiseExpenseId?: string | null;
+  }
+
+  interface Ledger {
+    splitwiseSync?: SplitwiseSync[];
+    splitwiseInbox?: SplitwiseInbox[];
+    splitwisePosts?: SplitwisePost[];
+  }
+}
+
+interface SplitwiseSync {
+  id: string;
+  entityId: string;
+  lastPulledAt: string;
+  updatedAt: string;
+}
+
+interface SplitwiseInbox {
+  id: string;
+  splitwiseExpenseId: string;
+  entityId: string;
+  date: string;
+  description: string;
+  costCents: number;
+  yourPaidCents: number;
+  yourOwedCents: number;
+  isPayment: boolean;
+  status: "new" | "changed" | "deleted" | "done" | "dismissed";
+  updatedAt: string;
+  previous?: {
+    date: string;
+    description: string;
+    costCents: number;
+    yourPaidCents: number;
+    yourOwedCents: number;
+  };
+}
+
+interface SplitwisePost {
+  id: string;
+  entryId: string;
+  entityId: string;
+  state: "posting" | "posted" | "unknown";
+  splitwiseExpenseId: string | null;
+  updatedAt: string;
+}
+
+const splitwiseLinkSchema = z.object({ kind: z.enum(["user", "group"]), id: idSchema });
+const splitwiseSyncSchema = z.object({
+  id: idSchema,
+  entityId: idSchema,
+  lastPulledAt: updatedAtSchema,
+  updatedAt: updatedAtSchema,
+});
+const splitwiseInboxSchema = z.object({
+  id: idSchema,
+  splitwiseExpenseId: idSchema,
+  entityId: idSchema,
+  date: bankDateSchema,
+  description: z.string(),
+  costCents: centsSchema.nonnegative(),
+  yourPaidCents: centsSchema.nonnegative(),
+  yourOwedCents: centsSchema.nonnegative(),
+  isPayment: z.boolean(),
+  status: z.enum(["new", "changed", "deleted", "done", "dismissed"]),
+  updatedAt: updatedAtSchema,
+  previous: z.object({
+    date: bankDateSchema,
+    description: z.string(),
+    costCents: centsSchema.nonnegative(),
+    yourPaidCents: centsSchema.nonnegative(),
+    yourOwedCents: centsSchema.nonnegative(),
+  }).optional(),
+});
+const splitwisePostSchema = z.object({
+  id: idSchema,
+  entryId: idSchema,
+  entityId: idSchema,
+  state: z.enum(["posting", "posted", "unknown"]),
+  splitwiseExpenseId: idSchema.nullable(),
+  updatedAt: updatedAtSchema,
+});
+
 const entitySchema = z.object({
   id: idSchema,
   kind: z.enum(["self", "house", "person", "group"]),
   name: z.string().min(1, "must not be empty"),
   archived: z.boolean(),
   updatedAt: updatedAtSchema,
+  splitwise: splitwiseLinkSchema.optional(),
 });
 
 const accountSchema = z.object({
@@ -42,6 +132,7 @@ const entrySchema = z
     bankRowIds: z.array(idSchema).default([]),
     countsTowardDebt: z.boolean(),
     updatedAt: updatedAtSchema,
+    splitwiseExpenseId: idSchema.nullable().optional(),
   })
   .superRefine((entry, context) => {
     if ((entry.kind === "spend" || entry.kind === "refund") && !validateSpend({ ...entry, kind: "spend" })) {
@@ -135,6 +226,9 @@ const ledgerSchema = z.object({
   imports: z.array(importSchema).default([]),
   bankRows: z.array(bankRowSchema).default([]),
   checkpoints: z.array(checkpointSchema).default([]),
+  splitwiseSync: z.array(splitwiseSyncSchema).default([]),
+  splitwiseInbox: z.array(splitwiseInboxSchema).default([]),
+  splitwisePosts: z.array(splitwisePostSchema).default([]),
 }).superRefine((ledger, context) => {
   for (const entry of ledger.entries) {
     if (entry.kind !== "refund" || !entry.refundOf) continue;
