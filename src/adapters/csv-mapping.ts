@@ -19,6 +19,7 @@ export const csvMappingSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   dateFormat: z.enum(["D/M/YYYY", "D Mon YYYY"]),
+  dateColumn: csvColumnSchema.optional(),
   hasHeader: z.boolean(),
   amount: amountMappingSchema,
   descriptionColumns: z.array(csvColumnSchema),
@@ -222,12 +223,15 @@ export function parseWithMapping(text: string, mapping: CsvMapping): CsvMappingR
   const transactionDateColumn = headers.findIndex(
     (value) => headerKey(value) === "transactiondate",
   );
-  const dateColumn = mapping.hasHeader
-    ? transactionDateColumn >= 0
-      ? transactionDateColumn
-      : headers.findIndex((value) => headerKey(value) === "date")
-    : 0;
+  const dateColumn = mapping.dateColumn
+    ? resolveColumn(mapping.dateColumn, headers)
+    : mapping.hasHeader
+      ? transactionDateColumn >= 0
+        ? transactionDateColumn
+        : headers.findIndex((value) => headerKey(value) === "date")
+      : 0;
   if (
+    dateColumn === null ||
     dateColumn < 0 ||
     amountColumns.some((column) => column === null) ||
     (mapping.hasHeader && descriptionColumns.some((column) => column === null))

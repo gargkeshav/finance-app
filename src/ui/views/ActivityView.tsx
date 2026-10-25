@@ -18,7 +18,13 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
     update({
       ...ledger,
       entries: exists
-        ? ledger.entries.map((item) => item.id === entry.id ? entry : item)
+        ? ledger.entries.map((item) => item.id === entry.id
+          ? {
+              ...entry,
+              bankRowIds: entry.bankRowIds ?? item.bankRowIds,
+              countsTowardDebt: item.countsTowardDebt,
+            }
+          : item)
         : [...ledger.entries, entry],
     });
     setEditing(null);
@@ -27,7 +33,14 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
 
   function deleteEntry(entry: Entry) {
     if (!window.confirm(`Delete “${entry.description || "this entry"}”? This cannot be undone.`)) return;
-    update({ ...ledger, entries: ledger.entries.filter((item) => item.id !== entry.id) });
+    const now = new Date().toISOString();
+    update({
+      ...ledger,
+      entries: ledger.entries.filter((item) => item.id !== entry.id),
+      bankRows: (ledger.bankRows ?? []).map((row) => row.entryId === entry.id
+        ? { ...row, entryId: null, updatedAt: now }
+        : row),
+    });
     if (editing?.id === entry.id) setEditing(null);
   }
 
@@ -52,10 +65,18 @@ export function ActivityView({ ledger, update }: ActivityViewProps) {
           <tbody>
             {entries.map((entry) => {
               const payer = ledger.entities.find((entity) => entity.id === entry.payerEntityId);
+              const bankRows = (ledger.bankRows ?? []).filter((row) => entry.bankRowIds?.includes(row.id));
               return (
                 <tr key={entry.id}>
                   <td className="date-cell">{entry.date}</td>
-                  <td>{entry.description || (entry.kind === "spend" ? "Spend" : entry.kind)}</td>
+                  <td>
+                    <div>{entry.description || (entry.kind === "spend" ? "Spend" : entry.kind)}</div>
+                    {bankRows.map((row) => (
+                      <div key={row.id}>
+                        {row.date} · {row.description} · <span className="amount">{formatAud(row.amountCents)}</span>
+                      </div>
+                    ))}
+                  </td>
                   <td>{payer?.name ?? "Unknown"}</td>
                   <td className="amount">{formatAud(entry.amountCents)}</td>
                   <td>

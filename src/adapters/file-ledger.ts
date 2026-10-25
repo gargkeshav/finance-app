@@ -59,6 +59,18 @@ const baselineSchema = z.object({
   updatedAt: updatedAtSchema,
 });
 
+const settlementSchema = z.object({
+  id: idSchema,
+  date: bankDateSchema,
+  entityId: idSchema,
+  direction: z.enum(["theyPaidYou", "youPaidThem"]),
+  amountCents: centsSchema.positive(),
+  bankRowIds: z.array(idSchema).default([]),
+  note: z.string(),
+  splitwisePaymentId: idSchema.nullable().default(null),
+  updatedAt: updatedAtSchema,
+});
+
 const importSchema = z.object({
   id: idSchema,
   accountId: idSchema,
@@ -95,6 +107,7 @@ type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   mappings: CsvMapping[];
   imports: z.infer<typeof importSchema>[];
   bankRows: z.infer<typeof bankRowSchema>[];
+  settlements: z.infer<typeof settlementSchema>[];
 };
 
 const ledgerSchema = z.object({
@@ -103,6 +116,7 @@ const ledgerSchema = z.object({
   accounts: z.array(accountSchema).default([]),
   entries: z.array(entrySchema).default([]),
   baselines: z.array(baselineSchema).default([]),
+  settlements: z.array(settlementSchema).default([]),
   mappings: z.array(csvMappingSchema).default([]),
   imports: z.array(importSchema).default([]),
   bankRows: z.array(bankRowSchema).default([]),
@@ -119,6 +133,7 @@ export function emptyLedger(): PersistedLedger {
     accounts: [],
     entries: [],
     baselines: [],
+    settlements: [],
     mappings: [],
     imports: [],
     bankRows: [],

@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { FileStore, isPickerCancellation } from "../adapters/file-store";
 import { emptyLedger, stringifyLedger } from "../adapters/file-ledger";
-import type { Account, Baseline, Entry, Entity, Ledger } from "../domain/ledger";
+import type { Account, BankRow, Baseline, Entry, Entity, Ledger, Settlement } from "../domain/ledger";
 import { ActivityView } from "./views/ActivityView";
 import { AccountsView } from "./views/AccountsView";
 import { BalancesView } from "./views/BalancesView";
 import { DataView } from "./views/DataView";
+import { ImportView } from "./views/ImportView";
 import { PeopleView } from "./views/PeopleView";
+import { ReviewView } from "./views/ReviewView";
+import { SettleView } from "./views/SettleView";
 
-type ViewName = "Activity" | "Accounts" | "People" | "Balances" | "Data";
+type ViewName = "Activity" | "Import" | "Review" | "Settle" | "Accounts" | "People" | "Balances" | "Data";
 type RecordWithTimestamp = { id: string; updatedAt: string };
 
 function updateRecords<T extends RecordWithTimestamp>(
@@ -36,10 +39,14 @@ export function LocalApp() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [view, setView] = useState<ViewName>("Activity");
+  const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
   const [fileStore] = useState(() => new FileStore());
   const uploadInput = useRef<HTMLInputElement>(null);
   const currentContent = stringifyLedger(ledger);
   const hasUnsavedChanges = currentContent !== savedContent;
+  const reviewCount = (ledger.bankRows ?? []).filter(
+    (row) => !row.entryId && !row.settlementId && !row.skipped,
+  ).length;
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -60,6 +67,7 @@ export function LocalApp() {
         accounts: updateRecords<Account>(previous.accounts, next.accounts, updatedAt),
         entries: updateRecords<Entry>(previous.entries, next.entries, updatedAt),
         baselines: updateRecords<Baseline>(previous.baselines, next.baselines, updatedAt),
+        settlements: updateRecords<Settlement>(previous.settlements ?? [], next.settlements ?? [], updatedAt),
       };
     });
   }
@@ -123,6 +131,9 @@ export function LocalApp() {
 
   const views = {
     Activity: <ActivityView ledger={ledger} update={update} />,
+    Import: <ImportView ledger={ledger} update={update} />,
+    Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); setView("Settle"); }} />,
+    Settle: <SettleView key={settlementRow?.id ?? "manual"} ledger={ledger} update={update} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
     Accounts: <AccountsView ledger={ledger} update={update} />,
     People: <PeopleView ledger={ledger} update={update} />,
     Balances: <BalancesView ledger={ledger} update={update} />,
@@ -134,7 +145,7 @@ export function LocalApp() {
       <aside className="sidebar" aria-label="Main navigation">
         <div className="sidebar-brand">Finance</div>
         <nav>
-          {(["Activity", "Accounts", "People", "Balances", "Data"] as const).map(
+          {(["Activity", "Import", "Review", "Settle", "Accounts", "People", "Balances", "Data"] as const).map(
             (name) => (
               <button
                 className={`nav-item${view === name ? " active" : ""}`}
@@ -143,6 +154,7 @@ export function LocalApp() {
                 type="button"
               >
                 {name}
+                {name === "Review" && reviewCount > 0 && <span className="nav-count">{reviewCount}</span>}
               </button>
             ),
           )}

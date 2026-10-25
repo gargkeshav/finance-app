@@ -1,4 +1,5 @@
 import { centsSchema, sumCents } from "./value";
+import type { CsvMapping } from "../adapters/csv-mapping";
 
 export const SELF_ENTITY_ID = "self";
 export const HOUSE_ENTITY_ID = "house";
@@ -20,6 +21,7 @@ export interface Account {
   name: string;
   type: AccountType;
   payerEntityId: string;
+  mappingId?: string;
   updatedAt: string;
 }
 
@@ -37,7 +39,38 @@ export interface Entry {
   payerEntityId: string;
   accountId: string | null;
   portions: Portion[];
+  bankRowIds?: string[];
   countsTowardDebt: boolean;
+  updatedAt: string;
+}
+
+export interface LedgerImport {
+  id: string;
+  accountId: string;
+  mappingId: string;
+  fileName: string;
+  contentHash: string;
+  dateFrom: string | null;
+  dateTo: string | null;
+  countsTowardDebt: boolean;
+  importedAt: string;
+  updatedAt: string;
+}
+
+export interface BankRow {
+  id: string;
+  accountId: string;
+  importId: string;
+  line: number;
+  date: string;
+  description: string;
+  amountCents: number;
+  balanceCents: number | null;
+  raw: string[];
+  entryId: string | null;
+  settlementId: string | null;
+  skipped: boolean;
+  dismissedTransferIds: string[];
   updatedAt: string;
 }
 
@@ -48,12 +81,30 @@ export interface Baseline {
   updatedAt: string;
 }
 
+export type SettlementDirection = "theyPaidYou" | "youPaidThem";
+
+export interface Settlement {
+  id: string;
+  date: string;
+  entityId: string;
+  direction: SettlementDirection;
+  amountCents: number;
+  bankRowIds: string[];
+  note: string;
+  splitwisePaymentId: string | null;
+  updatedAt: string;
+}
+
 export interface Ledger {
   schemaVersion: 1;
   entities: Entity[];
   accounts: Account[];
   entries: Entry[];
   baselines: Baseline[];
+  settlements?: Settlement[];
+  mappings?: CsvMapping[];
+  imports?: LedgerImport[];
+  bankRows?: BankRow[];
 }
 
 export interface Debt {
@@ -65,6 +116,20 @@ export interface Debt {
 export interface BalanceReport {
   byEntity: Record<string, number>;
   betweenEntities: Debt[];
+}
+
+export interface OpenItem {
+  id: string;
+  date: string;
+  description: string;
+  source: "baseline" | "entry";
+  amountCents: number;
+  openAmountCents: number;
+}
+
+export interface EntityOpenItems {
+  theyOweYou: OpenItem[];
+  youOweThem: OpenItem[];
 }
 
 export function validateSpend(entry: Entry): boolean {
@@ -170,6 +235,15 @@ export function balances(ledger: Ledger): BalanceReport {
     }
   }
 
+  for (const settlement of ledger.settlements ?? []) {
+    const amount = BigInt(settlement.amountCents);
+    const balanceChange = settlement.direction === "theyPaidYou" ? -amount : amount;
+    byEntityBig.set(
+      settlement.entityId,
+      (byEntityBig.get(settlement.entityId) ?? 0n) + balanceChange,
+    );
+  }
+
   const byEntity = Object.fromEntries(
     [...byEntityBig].map(([id, amount]) => [id, centsSchema.parse(Number(amount))]),
   );
@@ -182,4 +256,62 @@ export function balances(ledger: Ledger): BalanceReport {
     }));
 
   return { byEntity, betweenEntities };
+}
+
+export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
+  const theyOweYou: OpenItem[] = [];
+  const youOweThem: OpenItem[] = [];
+
+  for (const baseline of ledger.baselines) {
+    if (baseline.entityId !== entityId || baseline.amountCents === 0) continue;
+    const item: OpenItem = {
+      id: baseline.id,
+      date: "",
+      description: "Opening balance",
+      source: "baseline",
+      amountCents: Math.abs(baseline.amountCents),
+      openAmountCents: Math.abs(baseline.amountCents),
+    };
+    (baseline.amountCents > 0 ? theyOweYou : youOweThem).push(item);
+  }
+
+  for (const entry of ledger.entries) {
+    for (const debt of debtsOf(entry)) {
+      const item = {
+        id: entry.id,
+        date: entry.date,
+        description: entry.description,
+        source: "entry" as const,
+        amountCents: debt.amountCents,
+        openAmountCents: debt.amountCents,
+      };
+      if (debt.debtorId === entityId && debt.creditorId === SELF_ENTITY_ID) {
+        theyOweYou.push(item);
+      } else if (debt.debtorId === SELF_ENTITY_ID && debt.creditorId === entityId) {
+        youOweThem.push(item);
+      }
+    }
+  }
+
+  const oldestFirst = (first: OpenItem, second: OpenItem) =>
+    first.date.localeCompare(second.date) || first.id.localeCompare(second.id);
+  theyOweYou.sort(oldestFirst);
+  youOweThem.sort(oldestFirst);
+
+  for (const settlement of ledger.settlements ?? []) {
+    const items = settlement.direction === "theyPaidYou" ? theyOweYou : youOweThem;
+    if (settlement.entityId !== entityId) continue;
+    let remaining = settlement.amountCents;
+    for (const item of items) {
+      const applied = Math.min(item.openAmountCents, remaining);
+      item.openAmountCents -= applied;
+      remaining -= applied;
+      if (remaining === 0) break;
+    }
+  }
+
+  return {
+    theyOweYou: theyOweYou.filter((item) => item.openAmountCents > 0),
+    youOweThem: youOweThem.filter((item) => item.openAmountCents > 0),
+  };
 }

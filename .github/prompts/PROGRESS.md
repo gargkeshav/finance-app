@@ -13,4 +13,13 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 04: CSV mappings, ING/HSBC/ANZ presets, row parsing, duplicate-aware matching, and optional ledger import storage implemented.
 - Files changed: `src/adapters/csv-mapping.ts`, `src/adapters/file-ledger.ts`, `tests/csv-mapping.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 05.
+- Batch 05: CSV import, mapping editor, spend/income/skip review, and linked activity details implemented; browser smoke check passed.
+- Files changed: `src/adapters/csv-mapping.ts`, `src/domain/ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/ImportView.tsx`, `src/ui/views/MappingEditor.tsx`, `src/ui/views/ReviewView.tsx`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 06.
+- Batch 06 handoff: Read the requested ledger, adapter, form, review, balances, and ledger-test files. `SpendForm` is also used by `src/ui/views/ActivityView.tsx`, outside the batch's allowed files; add-new categories must persist through both save paths. No implementation files changed.
+- Files changed: `.github/prompts/PROGRESS.md`.
+- Next: Read `src/ui/views/ActivityView.tsx` and wire category creation through both `SpendForm` callers, then complete batch 06.
+- Batch 07: Settlement persistence, oldest-first open-item allocation, bank-row settlement flow, and settlement view implemented. Tests and typecheck pass.
+- Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SettleView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 08.
 
