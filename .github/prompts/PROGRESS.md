@@ -67,4 +67,19 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 14: Split presets and account memories, review keyboard shortcuts, confirmed bulk skip/spend, and one-step 10-second undo implemented. `npm test` (10 files, 69 tests) and `npm run typecheck` pass.
 - Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SpendForm.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 15.
+- Batch 15 handoff: Read `PHASE2.md` and the files listed by the prompt. The prompt requires showing a display name beside the raw description in Activity, but `src/ui/views/ActivityView.tsx` is not in its read/create list. Batch instructions prohibit touching unnamed files and require a handoff; no application code changed.
+- Files changed: `.github/prompts/PROGRESS.md`.
+- Next: Amend batch 15's allowed-file list to include `src/ui/views/ActivityView.tsx`, then run 15 again in a new session.
+- Batch 15 rerun blocked: The prompt still requires display names in Activity without listing `src/ui/views/ActivityView.tsx` as an allowed file. No application files changed.
+- Files changed: `.github/prompts/PROGRESS.md`.
+- Next: Amend batch 15's allowed-file list to include `src/ui/views/ActivityView.tsx`, then run 15 again in a new session.
+- Batch 15: Ordered user rules, rule-first review prefills, eligible auto-confirm, source tracking/filtering, display names, rule preview/undo, and navigation implemented. `npm test` (10 files, 70 tests), `npm run typecheck`, and `git diff --check` pass.
+- Files changed: `src/domain/rules.ts`, `src/domain/ledger.ts`, `src/domain/query.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/RulesView.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/LocalApp.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 16.
+- Batch 16: Personal and household reports, monthly/category/merchant summaries, cash flow, activity drill-down, coverage labels, CSV export, and Reports navigation implemented. `npm test` (10 files, 71 tests), `npm run typecheck`, and `git diff --check` pass.
+- Files changed: `src/domain/reports.ts`, `src/ui/views/ReportsView.tsx`, `src/domain/query.ts`, `src/ui/LocalApp.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 17.
+- Batch 17: Health findings, sidebar count, folder backups with 20-file retention, backup restore preview and unsaved-change guard, and schema-version migration gate implemented. `npm test` (10 files, 72 tests), `npm run typecheck`, and `git diff --check` pass.
+- Files changed: `src/domain/health.ts`, `src/ui/views/HealthView.tsx`, `src/adapters/file-store.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/DataView.tsx`, `src/ui/LocalApp.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: Folder picker and restore interactions were not manually exercised. Next: 18.
 

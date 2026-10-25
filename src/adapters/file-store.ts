@@ -10,6 +10,10 @@ const fileTypes = [
 
 export type StorageMode = "in-place" | "download";
 
+type DirectoryPickerWindow = Window & {
+  showDirectoryPicker?: (options?: { mode: "readwrite" }) => Promise<FileSystemDirectoryHandle>;
+};
+
 export function getStorageMode(): StorageMode {
   return window.showOpenFilePicker && window.showSaveFilePicker
     ? "in-place"
@@ -23,6 +27,8 @@ export function isPickerCancellation(reason: unknown): boolean {
 export class FileStore {
   private handle: FinanceFileHandle | null = null;
   private currentFileName = "";
+  private backupDirectory: FileSystemDirectoryHandle | null = null;
+  private currentBackupWarning = "";
 
   get mode(): StorageMode {
     return getStorageMode();
@@ -30,6 +36,23 @@ export class FileStore {
 
   get fileName(): string {
     return this.currentFileName;
+  }
+
+  get backupSupported(): boolean {
+    return typeof (window as DirectoryPickerWindow).showDirectoryPicker === "function";
+  }
+
+  get backupWarning(): string {
+    return this.currentBackupWarning;
+  }
+
+  async chooseBackupFolder(): Promise<string> {
+    if (!this.backupSupported) throw new Error("Backups need Chrome or Edge with folder access support.");
+    const picker = (window as DirectoryPickerWindow).showDirectoryPicker!;
+    const directory = await picker({ mode: "readwrite" });
+    this.backupDirectory = directory;
+    this.currentBackupWarning = "";
+    return directory.name;
   }
 
   async openPickedFile(): Promise<{ ledger: Ledger; fileName: string }> {
@@ -59,17 +82,27 @@ export class FileStore {
   }
 
   async save(ledger: Ledger): Promise<string> {
-    if (this.mode === "download") return this.download(ledger);
+    const contents = stringifyLedger(ledger);
+    this.currentBackupWarning = "";
+    if (this.mode === "download") {
+      const name = this.downloadContents(contents);
+      await this.backup(contents);
+      return name;
+    }
     if (!this.handle) return this.saveAs(ledger);
 
-    await this.write(this.handle, stringifyLedger(ledger));
+    await this.write(this.handle, contents);
+    await this.backup(contents);
     return this.currentFileName;
   }
 
   async saveAs(ledger: Ledger): Promise<string> {
     const contents = stringifyLedger(ledger);
+    this.currentBackupWarning = "";
     if (this.mode === "download" || !window.showSaveFilePicker) {
-      return this.downloadContents(contents);
+      const name = this.downloadContents(contents);
+      await this.backup(contents);
+      return name;
     }
 
     const handle = await window.showSaveFilePicker({
@@ -80,7 +113,37 @@ export class FileStore {
     await this.write(handle, contents);
     this.handle = handle;
     this.currentFileName = handle.name;
+    await this.backup(contents);
     return handle.name;
+  }
+
+  private async backup(contents: string): Promise<void> {
+    if (!this.backupDirectory) return;
+    try {
+      const name = this.backupFileName(new Date());
+      const handle = await this.backupDirectory.getFileHandle(name, { create: true });
+      await this.write(handle, contents);
+      const matches: Array<{ name: string; handle: FileSystemFileHandle }> = [];
+      for await (const [fileName, entry] of this.backupDirectory.entries()) {
+        if (entry.kind === "file" && /^ledger-\d{8}-\d{6}\.finance\.json$/.test(fileName)) {
+          matches.push({ name: fileName, handle: entry });
+        }
+      }
+      matches.sort((first, second) => second.name.localeCompare(first.name));
+      for (const older of matches.slice(20)) {
+        await this.backupDirectory.removeEntry(older.name);
+      }
+      this.currentBackupWarning = "";
+    } catch {
+      this.currentBackupWarning = "The ledger was saved, but its folder backup could not be created or cleaned up.";
+    }
+  }
+
+  private backupFileName(date: Date): string {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const day = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
+    const time = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+    return `ledger-${day}-${time}.finance.json`;
   }
 
   private async write(handle: FinanceFileHandle, contents: string): Promise<void> {
@@ -92,10 +155,6 @@ export class FileStore {
       await writable.abort?.();
       throw reason;
     }
-  }
-
-  private download(ledger: Ledger): string {
-    return this.downloadContents(stringifyLedger(ledger));
   }
 
   private downloadContents(contents: string): string {

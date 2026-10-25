@@ -1,5 +1,6 @@
 import { centsSchema, sumCents } from "./value";
 import type { CsvMapping } from "../adapters/csv-mapping";
+import type { EntryRule } from "./rules";
 
 export const SELF_ENTITY_ID = "self";
 export const HOUSE_ENTITY_ID = "house";
@@ -7,6 +8,7 @@ export const HOUSE_ENTITY_ID = "house";
 export type EntityKind = "self" | "house" | "person" | "group";
 export type AccountType = "asset" | "credit";
 export type EntryKind = "spend" | "transfer" | "income" | "refund";
+export type EntryOrigin = "manual" | "bank" | "splitwise" | "rule" | "memory" | "history";
 
 export interface Entity {
   id: string;
@@ -63,6 +65,9 @@ export interface Entry {
   portions: Portion[];
   refundOf?: string | null;
   bankRowIds?: string[];
+  source?: EntryOrigin;
+  ruleId?: string;
+  displayName?: string;
   categoryId?: string | null;
   tags?: string[];
   note?: string;
@@ -144,6 +149,7 @@ export interface Ledger {
   checkpoints?: BalanceCheckpoint[];
   categories?: Category[];
   categoryMemory?: CategoryMemory[];
+  rules?: EntryRule[];
   lastSplitByAccount?: Record<string, SplitPreset>;
 }
 

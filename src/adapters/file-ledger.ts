@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type Category, type CategoryMemory, type Ledger, type SplitPreset, validateSpend } from "../domain/ledger";
+import type { EntryRule } from "../domain/rules";
 import { bankDateSchema, centsSchema } from "../domain/value";
 import { csvMappingSchema, type CsvMapping } from "./csv-mapping";
 
@@ -140,6 +141,9 @@ const entrySchema = z
     countsTowardDebt: z.boolean(),
     updatedAt: updatedAtSchema,
     splitwiseExpenseId: idSchema.nullable().optional(),
+    source: z.enum(["manual", "bank", "splitwise", "rule", "memory", "history"]).optional(),
+    ruleId: idSchema.optional(),
+    displayName: z.string().optional(),
   })
   .superRefine((entry, context) => {
     if ((entry.kind === "spend" || entry.kind === "refund") && !validateSpend({ ...entry, kind: "spend" })) {
@@ -235,6 +239,29 @@ const splitPresetSchema: z.ZodType<SplitPreset> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("equal"), entityIds: z.array(idSchema).min(1) }),
 ]);
 
+const ruleSchema: z.ZodType<EntryRule> = z.object({
+  id: idSchema,
+  name: z.string().min(1, "must not be empty"),
+  order: z.number().int(),
+  enabled: z.boolean(),
+  match: z.object({
+    text: z.string(),
+    mode: z.enum(["contains", "startsWith"]),
+    accountId: idSchema.nullable(),
+    sign: z.enum(["out", "in", "any"]),
+    minCents: centsSchema.nonnegative().nullable(),
+    maxCents: centsSchema.nonnegative().nullable(),
+  }),
+  action: z.object({
+    displayName: z.string().nullable(),
+    categoryId: idSchema.nullable(),
+    split: splitPresetSchema.nullable(),
+    tags: z.array(z.string()),
+  }),
+  autoConfirm: z.boolean().default(false),
+  updatedAt: updatedAtSchema,
+});
+
 type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   accounts: (Ledger["accounts"][number] & { mappingId?: string })[];
   entries: (Ledger["entries"][number] & { bankRowIds: string[] })[];
@@ -263,6 +290,7 @@ const ledgerSchema = z.object({
   splitwisePosts: z.array(splitwisePostSchema).default([]),
   categories: z.array(categorySchema).default([]),
   categoryMemory: z.array(categoryMemorySchema).default([]),
+  rules: z.array(ruleSchema).default([]),
   lastSplitByAccount: z.record(z.string(), splitPresetSchema).optional(),
 }).superRefine((ledger, context) => {
   for (const entry of ledger.entries) {
@@ -298,6 +326,7 @@ export function emptyLedger(): PersistedLedger {
     checkpoints: [],
     categories: [],
     categoryMemory: [],
+    rules: [],
   };
 }
 
@@ -316,11 +345,21 @@ export function parseLedger(text: string): PersistedLedger {
     throw new Error("The ledger file is not valid JSON.");
   }
 
-  const result = ledgerSchema.safeParse(value);
+  const result = ledgerSchema.safeParse(migrate(value));
   if (!result.success) {
     throw formatValidationError("The ledger file is invalid", result.error.issues);
   }
   return result.data;
+}
+
+function migrate(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const version = (raw as { schemaVersion?: unknown }).schemaVersion;
+  if (version === 1) return raw;
+  if (typeof version === "number" && version > 1) {
+    throw new Error(`This ledger uses schema version ${version}, which this app does not support.`);
+  }
+  return raw;
 }
 
 export function ledgerProblem(ledger: Ledger): string | null {

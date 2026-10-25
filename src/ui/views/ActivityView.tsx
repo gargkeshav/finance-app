@@ -415,7 +415,7 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
                   <td><input aria-label={`Select ${entry.description || entry.kind}`} type="checkbox" checked={selectedEntryIds.includes(entry.id)} onChange={(event) => setSelectedEntryIds((current) => event.target.checked ? [...current, entry.id] : current.filter((id) => id !== entry.id))} /></td>
                   <td className="date-cell">{entry.date}</td>
                   <td>
-                    <div>{entry.description || (entry.kind === "spend" ? "Spend" : entry.kind)}{entry.kind === "refund" && <> <strong>Refund</strong></>}</div>
+                    <div>{entry.description || (entry.kind === "spend" ? "Spend" : entry.kind)}{entry.kind === "refund" && <> <strong>Refund</strong></>}{entry.displayName && <span className="muted"> ({entry.displayName})</span>}</div>
                     {entry.kind === "spend" && entry.portions.map((portion) => {
                       if (portion.entityId === entry.payerEntityId || portion.entityId === "self") return null;
                       const entity = ledger.entities.find((candidate) => candidate.id === portion.entityId);

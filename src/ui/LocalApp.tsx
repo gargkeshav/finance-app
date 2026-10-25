@@ -2,17 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import { FileStore, isPickerCancellation } from "../adapters/file-store";
 import { emptyLedger, ledgerProblem, stringifyLedger } from "../adapters/file-ledger";
 import type { Account, BankRow, Baseline, Entry, Entity, Ledger, Settlement } from "../domain/ledger";
+import type { EntryRule } from "../domain/rules";
 import type { EntryFilter } from "../domain/query";
 import { ActivityView } from "./views/ActivityView";
 import { AccountsView } from "./views/AccountsView";
 import { BalancesView } from "./views/BalancesView";
 import { DataView } from "./views/DataView";
+import { findIssues } from "../domain/health";
+import { HealthView } from "./views/HealthView";
 import { ImportView } from "./views/ImportView";
 import { PeopleView } from "./views/PeopleView";
+import { ReportsView } from "./views/ReportsView";
 import { ReviewView } from "./views/ReviewView";
+import { RulesView } from "./views/RulesView";
 import { SettleView } from "./views/SettleView";
 
-type ViewName = "Activity" | "Import" | "Review" | "Settle" | "Accounts" | "People" | "Balances" | "Data";
+type ViewName = "Activity" | "Import" | "Review" | "Settle" | "Accounts" | "People" | "Balances" | "Reports" | "Data" | "Rules" | "Health";
 type RecordWithTimestamp = { id: string; updatedAt: string };
 
 function updateRecords<T extends RecordWithTimestamp>(
@@ -39,9 +44,11 @@ export function LocalApp() {
   const [fileName, setFileName] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
   const [undoState, setUndoState] = useState<{ ledger: Ledger; label: string } | null>(null);
   const [view, setView] = useState<ViewName>("Activity");
   const [activityFilter, setActivityFilter] = useState<EntryFilter>({});
+  const [ruleDescription, setRuleDescription] = useState("");
   const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
   const [fileStore] = useState(() => new FileStore());
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -58,6 +65,9 @@ export function LocalApp() {
   const reviewCount = (ledger.bankRows ?? []).filter(
     (row) => !row.entryId && !row.settlementId && !row.skipped,
   ).length;
+  const today = new Date();
+  const healthIssues = findIssues(ledger, `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
+  const healthCount = healthIssues.reduce((total, issue) => total + issue.count, 0);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -119,6 +129,7 @@ export function LocalApp() {
         entries: updateRecords<Entry>(previous.entries, next.entries, updatedAt),
         baselines: updateRecords<Baseline>(previous.baselines, next.baselines, updatedAt),
         settlements: updateRecords<Settlement>(previous.settlements ?? [], next.settlements ?? [], updatedAt),
+        rules: updateRecords<EntryRule>(previous.rules ?? [], next.rules ?? [], updatedAt),
       };
     });
   }
@@ -136,6 +147,7 @@ export function LocalApp() {
   function navigate(nextView: ViewName) {
     setMessage("");
     setError("");
+    setWarning("");
     setView(nextView);
   }
 
@@ -162,6 +174,7 @@ export function LocalApp() {
     setView(waitingRows > 0 ? "Review" : "Activity");
     setMessage("Ledger opened.");
     setError("");
+    setWarning("");
   }
 
   async function openLedger() {
@@ -201,6 +214,7 @@ export function LocalApp() {
       setFileName(savedFileName);
       setMessage("Ledger saved.");
       setError("");
+      setWarning(fileStore.backupWarning);
     } catch (reason) {
       if (isPickerCancellation(reason)) return;
       setError(reason instanceof Error ? reason.message : "The ledger could not be saved.");
@@ -216,17 +230,44 @@ export function LocalApp() {
     setFileName(savedFileName);
     setError("");
     setMessage("");
+    setWarning(fileStore.backupWarning);
+  }
+
+  async function chooseBackupFolder() {
+    try {
+      const folderName = await fileStore.chooseBackupFolder();
+      setWarning("");
+      setError("");
+      setMessage(`Backups will be saved in ${folderName}.`);
+    } catch (reason) {
+      if (isPickerCancellation(reason)) return;
+      setError(reason instanceof Error ? reason.message : "The backup folder could not be selected.");
+      setMessage("");
+    }
+  }
+
+  function restoreLedger(restoredLedger: Ledger) {
+    if (!canReplaceLedger()) return;
+    acceptOpenedLedger({ ledger: restoredLedger, fileName: fileStore.fileName || "Restored backup" });
   }
 
   const views = {
     Import: <ImportView ledger={ledger} update={update} />,
-    Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); navigate("Settle"); }} />,
+    Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); navigate("Settle"); }} onCreateRule={(description) => { setRuleDescription(description); navigate("Rules"); }} />,
     Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} activityFilter={activityFilter} openActivity={openActivity} onNavigate={navigate} />,
+    Rules: <RulesView ledger={ledger} update={update} initialDescription={ruleDescription} onClearInitialDescription={() => setRuleDescription("")} />,
     Settle: <SettleView ledger={ledger} update={update} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
     Accounts: <AccountsView ledger={ledger} update={update} />,
     People: <PeopleView ledger={ledger} update={update} />,
     Balances: <BalancesView ledger={ledger} update={update} />,
-    Data: <DataView mode={fileStore.mode} onSave={() => void saveLedger(false)} />,
+    Reports: <ReportsView ledger={ledger} openActivity={openActivity} />,
+    Data: <DataView
+      mode={fileStore.mode}
+      onSave={() => void saveLedger(false)}
+      onChooseBackupFolder={fileStore.backupSupported ? () => void chooseBackupFolder() : undefined}
+      onRestore={restoreLedger}
+    />,
+    Health: <HealthView issues={healthIssues} onNavigate={navigate} />,
   };
 
   return (
@@ -235,14 +276,15 @@ export function LocalApp() {
         <div className="sidebar-brand">Finance</div>
         <nav>
           <div className="nav-group">Daily</div>
-          {(["Review", "Activity", "Settle", "Balances", "Import"] as const).map((name) => (
+          {(["Review", "Activity", "Settle", "Balances", "Reports", "Import", "Health"] as const).map((name) => (
             <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
               {name}
               {name === "Review" && reviewCount > 0 && <span className="nav-count">{reviewCount}</span>}
+              {name === "Health" && healthCount > 0 && <span className="nav-count">{healthCount}</span>}
             </button>
           ))}
           <div className="nav-group">Setup</div>
-          {(["Accounts", "People", "Data"] as const).map((name) => (
+          {(["Accounts", "People", "Rules", "Data"] as const).map((name) => (
             <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
               {name}
             </button>
@@ -266,6 +308,7 @@ export function LocalApp() {
           />
         </header>
         {message && <p className="banner success" role="status">{message}</p>}
+        {warning && <p className="banner warning" role="status">{warning}</p>}
         {undoState && <p className="banner" role="status">{undoState.label}. <button className="secondary" onClick={undoLastAction} type="button">Undo</button></p>}
         {visibleError && <p className="banner error" role="alert">{visibleError}</p>}
         {views[view]}

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, splitPreset, type BankRow, type Category, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
 import { cardCycle, confirmTransfer, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatMoney } from "../../domain/value";
+import { canAutoConfirm, firstRule } from "../../domain/rules";
 import { SpendForm } from "./SpendForm";
 import { createSplitwiseSpend, type SplitwiseInboxItem } from "../../adapters/splitwise";
 
@@ -9,9 +10,10 @@ interface ReviewViewProps {
   ledger: Ledger;
   update: (next: Ledger, undoLabel?: string) => void;
   onSettle: (row: BankRow) => void;
+  onCreateRule: (description: string) => void;
 }
 
-export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
+export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewViewProps) {
   const [openDetail, setOpenDetail] = useState<{ rowId: string; kind: "spend" | "refund" | "transfer" | "suggestion" } | null>(null);
   const [refundOfId, setRefundOfId] = useState("");
   const [focusNextId, setFocusNextId] = useState<string | null>(null);
@@ -34,9 +36,14 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     .sort((first, second) => second.date.localeCompare(first.date) || second.line - first.line);
   const selectedRows = pendingRows.filter((row) => selectedRowIds.has(row.id));
   const memoryFor = (row: BankRow) => ledger.categoryMemory?.find((memory) => memory.key === categoryMemoryKey(row.accountId, row.description));
+  const ruleFor = (row: BankRow) => firstRule(ledger.rules ?? [], row, ledger.accounts.find((account) => account.id === row.accountId));
   const suggestedSpends = pendingRows.filter((row) => {
     const memory = memoryFor(row);
-    return row.amountCents < 0 && Boolean(memory?.entityId && memory.categoryId && ledger.entities.some((entity) => entity.id === memory.entityId));
+    return !ruleFor(row) && row.amountCents < 0 && Boolean(memory?.entityId && memory.categoryId && ledger.entities.some((entity) => entity.id === memory.entityId));
+  });
+  const autoRuleRows = pendingRows.flatMap((row) => {
+    const rule = ruleFor(row);
+    return row.amountCents < 0 && rule && canAutoConfirm(rule) ? [{ row, rule }] : [];
   });
   const spendingRow = openDetail?.kind === "spend" ? pendingRows.find((row) => row.id === openDetail.rowId) : undefined;
   const refundRow = openDetail?.kind === "refund" ? pendingRows.find((row) => row.id === openDetail.rowId) : undefined;
@@ -191,6 +198,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         note: "",
         extraReimbursable: false,
         countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
+        source: "bank",
         updatedAt: now,
       };
     });
@@ -236,6 +244,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         note: "",
         extraReimbursable: false,
         countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
+        source: "memory",
         updatedAt: now,
       };
     });
@@ -250,12 +259,53 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     }, "Accept suggested spends");
   }
 
+  function applyAutoRules() {
+    if (!autoRuleRows.length || !window.confirm(`Create ${autoRuleRows.length} spends from auto rules?`)) return;
+    const now = new Date().toISOString();
+    const entries = autoRuleRows.map(({ row, rule }): Entry => {
+      const amountCents = Math.abs(row.amountCents);
+      const payerEntityId = ledger.accounts.find((account) => account.id === row.accountId)?.payerEntityId ?? SELF_ENTITY_ID;
+      return {
+        id: crypto.randomUUID(),
+        kind: "spend",
+        date: row.date,
+        description: row.description,
+        displayName: rule.action.displayName ?? undefined,
+        amountCents,
+        payerEntityId,
+        accountId: row.accountId,
+        portions: splitPreset(amountCents, payerEntityId, rule.action.split!),
+        bankRowIds: [row.id],
+        source: "rule",
+        ruleId: rule.id,
+        categoryId: rule.action.categoryId,
+        tags: rule.action.tags,
+        note: "",
+        extraReimbursable: false,
+        countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
+        updatedAt: now,
+      };
+    });
+    const entryByRowId = new Map(entries.map((entry) => [entry.bankRowIds![0], entry]));
+    update({
+      ...ledger,
+      entries: [...ledger.entries, ...entries],
+      bankRows: bankRows.map((row) => {
+        const entry = entryByRowId.get(row.id);
+        return entry ? { ...row, entryId: entry.id, updatedAt: now } : row;
+      }),
+    }, `Apply ${entries.length} auto rules`);
+  }
+
   function saveSpend(row: BankRow, draft: Entry, preset?: SplitPreset) {
     const now = new Date().toISOString();
     const entry: Entry = {
       ...draft,
       id: crypto.randomUUID(),
       bankRowIds: [row.id],
+      source: ruleFor(row) ? "rule" : memoryFor(row) ? "memory" : "bank",
+      ruleId: ruleFor(row)?.id,
+      displayName: ruleFor(row)?.action.displayName ?? undefined,
       countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
       updatedAt: now,
     };
@@ -282,6 +332,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       kind: "refund",
       refundOf: refundOfId,
       bankRowIds: [row.id],
+      source: "bank",
       countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
       updatedAt: now,
     };
@@ -310,6 +361,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
       accountId: row.accountId,
       portions: [],
       bankRowIds: [row.id],
+      source: "bank",
       countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
       updatedAt: now,
     };
@@ -336,12 +388,18 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
   }
 
   function confirmPair(outgoing: BankRow, incoming: BankRow, choice?: TransferChoice) {
-    const next = confirmTransfer(ledger, outgoing, incoming, choice);
-    if (!next) {
+    const confirmed = confirmTransfer(ledger, outgoing, incoming, choice);
+    if (!confirmed) {
       setTransferMessage("This payer combination is unsupported. Both rows remain in review.");
       setConfirmingTransfer(null);
       return;
     }
+    const next = {
+      ...confirmed,
+      entries: confirmed.entries.map((entry) => ledger.entries.some((existing) => existing.id === entry.id)
+        ? entry
+        : { ...entry, source: "bank" as const }),
+    };
     update(next, "Confirm transfer");
     setConfirmingTransfer(null);
     setOpenDetail(null);
@@ -441,7 +499,11 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
   }
 
   function createFromSplitwise(item: SplitwiseInboxItem) {
-    update(createSplitwiseSpend(ledger, item), "Create Splitwise spend");
+    const next = createSplitwiseSpend(ledger, item);
+    const entries = next.entries.map((entry) => ledger.entries.some((existing) => existing.id === entry.id)
+      ? entry
+      : { ...entry, source: "splitwise" as const });
+    update({ ...next, entries }, "Create Splitwise spend");
   }
 
   function pendingPair(first: BankRow, second: BankRow) {
@@ -473,8 +535,11 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     <>
       <header className="page-heading">
         <h1 ref={headingRef} tabIndex={-1}>Review <span className="muted">{pendingRows.length} to review</span></h1>
-        {suggestedSpends.length > 0 && <button className="primary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
+        {autoRuleRows.length > 0
+          ? <button className="primary" onClick={applyAutoRules} type="button">Apply {autoRuleRows.length} auto rules</button>
+          : suggestedSpends.length > 0 && <button className="primary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
       </header>
+      {autoRuleRows.length > 0 && suggestedSpends.length > 0 && <button className="secondary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} memory suggestions</button>}
       {transferMessage && <p className="banner error" role="status">{transferMessage}</p>}
       <p className="hint">Up/Down or j/k move; s spend, i income, x skip, t transfer, e settlement, r refund.</p>
       {splitwiseItems.length > 0 && (
@@ -559,6 +624,8 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
           <tbody>
             {pendingRows.map((row) => {
               const account = ledger.accounts.find((item) => item.id === row.accountId);
+              const matchedRule = ruleFor(row);
+              const memory = matchedRule ? undefined : memoryFor(row);
               const suggestion = suggestionByRow.get(row.id);
               const otherRow = suggestion && (suggestion.outgoing.id === row.id ? suggestion.incoming : suggestion.outgoing);
               const otherAccount = otherRow && ledger.accounts.find((item) => item.id === otherRow.accountId);
@@ -572,7 +639,10 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                   <tr key={row.id} data-review-row={row.id} onFocusCapture={() => setActiveRowId(row.id)}>
                     <td><input aria-label={`Select ${row.description || "bank transaction"}`} checked={selectedRowIds.has(row.id)} onChange={(event) => changeSelection(row.id, event.target.checked)} type="checkbox" /></td>
                     <td className="date-cell">{row.date}</td>
-                    <td>{row.description || "Bank transaction"}</td>
+                    <td>
+                      <div>{row.description || "Bank transaction"}{matchedRule?.action.displayName && <span className="muted"> ({matchedRule.action.displayName})</span>}</div>
+                      {matchedRule && <span className="muted">By rule: {matchedRule.name}</span>}
+                    </td>
                     <td>{account?.name ?? "Unknown"}</td>
                     <td className="amount">{formatMoney(row.amountCents)}</td>
                     <td>
@@ -607,6 +677,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                             setRefundOfId(refundCandidates(row)[0]?.id ?? "");
                             setOpenDetail({ rowId: row.id, kind: "refund" });
                           }} type="button">Refund</button>}
+                          <button className="secondary" onClick={(event) => { closeMoreMenu(event); onCreateRule(row.description); }} type="button">Create rule from this row</button>
                           <button ref={shortcutRef(row.id, "e")} className="secondary" onClick={(event) => { closeMoreMenu(event); onSettle(row); }} type="button">Settlement</button>
                         </div>
                       </details>
@@ -624,9 +695,12 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                               amountCents: Math.abs(row.amountCents),
                               accountId: row.accountId,
                               bankRowIds: [row.id],
-                              categoryId: memoryFor(row)?.categoryId ?? null,
+                              categoryId: matchedRule?.action.categoryId ?? memory?.categoryId ?? null,
                               payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
-                              portions: [{ entityId: memoryFor(row)?.entityId ?? account?.payerEntityId ?? SELF_ENTITY_ID, amountCents: Math.abs(row.amountCents) }],
+                              portions: matchedRule?.action.split
+                                ? splitPreset(Math.abs(row.amountCents), account?.payerEntityId ?? SELF_ENTITY_ID, matchedRule.action.split)
+                                : [{ entityId: memory?.entityId ?? account?.payerEntityId ?? SELF_ENTITY_ID, amountCents: Math.abs(row.amountCents) }],
+                              tags: matchedRule?.action.tags ?? [],
                             }} ledger={ledger}
                               onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
                               onCancel={() => setOpenDetail(null)} onSave={(entry, preset) => saveSpend(row, entry, preset)} />

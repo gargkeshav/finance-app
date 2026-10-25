@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { balances, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
 import { filterEntries } from "../src/domain/query";
+import { monthly } from "../src/domain/reports";
+import { findIssues } from "../src/domain/health";
+import { canAutoConfirm, firstRule, type EntryRule } from "../src/domain/rules";
 import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
 
 function makeLedger(entry: Entry): Ledger {
@@ -18,6 +21,75 @@ function makeLedger(entry: Entry): Ledger {
 }
 
 describe("ledger spending rules", () => {
+  it("reports a review row and a checkpoint difference", () => {
+    const ledger = makeLedger({
+      id: "health-entry",
+      kind: "income",
+      date: "2026-10-20",
+      description: "Income",
+      amountCents: 1_000,
+      payerEntityId: "self",
+      accountId: "card",
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.accounts = [{ id: "card", name: "Card", type: "credit", payerEntityId: "self", updatedAt: "now" }];
+    ledger.bankRows = [{
+      id: "review-row",
+      accountId: "card",
+      importId: "import",
+      line: 1,
+      date: "2026-10-24",
+      description: "Pending",
+      amountCents: -500,
+      balanceCents: null,
+      raw: [],
+      entryId: null,
+      settlementId: null,
+      skipped: false,
+      dismissedTransferIds: [],
+      updatedAt: "now",
+    }];
+    ledger.checkpoints = [
+      { id: "before", accountId: "card", date: "2026-10-01", balanceCents: 0, note: "", updatedAt: "now" },
+      { id: "after", accountId: "card", date: "2026-10-24", balanceCents: 0, note: "", updatedAt: "now" },
+    ];
+
+    expect(findIssues(ledger, "2026-10-25")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "Rows waiting in review", count: 1, view: "Review" }),
+      expect.objectContaining({ kind: "Checkpoint differences", count: 1, view: "Accounts", detail: expect.stringContaining("$5.00") }),
+    ]));
+  });
+
+  it("reports House spending by personal and household scope", () => {
+    const today = new Date();
+    const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-10`;
+    const houseSpend: Entry = {
+      id: "house-report-spend",
+      kind: "spend",
+      date,
+      description: "House purchase",
+      amountCents: 10_000,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [{ entityId: "house", amountCents: 10_000 }],
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const ledger = makeLedger(houseSpend);
+    ledger.entries.push({
+      ...houseSpend,
+      id: "self-report-spend",
+      description: "Personal purchase",
+      amountCents: 2_000,
+      portions: [{ entityId: "self", amountCents: 2_000 }],
+    });
+
+    expect(monthly(ledger, "personal", 1)[0].spendingCents).toBe(7_000);
+    expect(monthly(ledger, "household", 1)[0].spendingCents).toBe(12_000);
+  });
+
   it("splits $10.00 evenly over three entities with the leftover cent first", () => {
     expect(splitPreset(1_000, "self", { kind: "equal", entityIds: ["self", "house", "alex"] })).toEqual([
       { entityId: "self", amountCents: 334 },
@@ -354,6 +426,44 @@ describe("transfer suggestions", () => {
     expect(confirmed).not.toBeNull();
     expect(balances(confirmed!).byEntity.house).toBe(3_000);
     expect(confirmed!.bankRows?.every((row) => row.settlementId !== null)).toBe(true);
+  });
+});
+
+describe("entry rules", () => {
+  it("uses the lowest-order match and requires a split for auto-confirm", () => {
+    const row: BankRow = {
+      id: "row-rule",
+      accountId: "account-rule",
+      importId: "import",
+      line: 1,
+      date: "2026-10-25",
+      description: "Corner Market",
+      amountCents: -2_500,
+      balanceCents: null,
+      raw: [],
+      entryId: null,
+      settlementId: null,
+      skipped: false,
+      dismissedTransferIds: [],
+      updatedAt: "now",
+    };
+    const rule = (id: string, order: number, split: EntryRule["action"]["split"]): EntryRule => ({
+      id,
+      name: id,
+      order,
+      enabled: true,
+      match: { text: "market", mode: "contains", accountId: null, sign: "out", minCents: null, maxCents: null },
+      action: { displayName: null, categoryId: null, split, tags: [] },
+      autoConfirm: true,
+      updatedAt: "now",
+    });
+    const lowerOrder = rule("lower", 1, null);
+    const higherOrder = rule("higher", 2, { kind: "payer" });
+
+    expect(firstRule([higherOrder, lowerOrder], row, { id: row.accountId, name: "Card", type: "asset", payerEntityId: "self", updatedAt: "now" })?.id)
+      .toBe("lower");
+    expect(canAutoConfirm(lowerOrder)).toBe(false);
+    expect(canAutoConfirm(higherOrder)).toBe(true);
   });
 });
 

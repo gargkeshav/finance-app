@@ -10,6 +10,7 @@ import { sumCents } from "./value";
 export type EntrySource = "bank" | "manual" | "splitwise";
 
 export interface EntryFilter {
+  entryIds?: string[];
   text?: string;
   from?: string;
   to?: string;
@@ -31,8 +32,15 @@ export interface FilteredTotals {
 }
 
 function entrySource(entry: Entry): EntrySource {
-  if ("splitwiseExpenseId" in entry && entry.splitwiseExpenseId) return "splitwise";
-  return entry.bankRowIds?.length ? "bank" : "manual";
+  const source = entry.source ?? (entry.ruleId
+    ? "rule"
+    : entry.splitwiseExpenseId
+      ? "splitwise"
+      : entry.bankRowIds?.length
+        ? "bank"
+        : "manual");
+  if (source === "rule" || source === "memory" || source === "history") return "bank";
+  return source;
 }
 
 export function filterEntries(ledger: Ledger, filter: EntryFilter): Entry[] {
@@ -41,6 +49,7 @@ export function filterEntries(ledger: Ledger, filter: EntryFilter): Entry[] {
 
   return ledger.entries
     .filter((entry) => {
+      if (filter.entryIds && !filter.entryIds.includes(entry.id)) return false;
       if (filter.from && entry.date < filter.from) return false;
       if (filter.to && entry.date > filter.to) return false;
       if (filter.accountId) {
