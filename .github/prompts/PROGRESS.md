@@ -58,4 +58,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 11e: Review actions and row details, four-step CSV import, People layout, and Settle form layout implemented. Tests and typecheck pass; browser smoke verified import, spend, transfer confirmation, skip, and the caught-up state.
 - Files changed: `src/ui/views/ReviewView.tsx`, `src/ui/views/ImportView.tsx`, `src/ui/views/PeopleView.tsx`, `src/ui/views/SettleView.tsx`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 12.
+- Batch 12: All 14 agreed money cases added as table-driven tests; existing rules passed without changes. `npm test` (10 files, 67 tests) and `npm run typecheck` pass.
+- Files changed: `tests/money-cases.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 13.
 
