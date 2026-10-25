@@ -25,4 +25,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 08: Unambiguous transfer suggestions, dismissals, transfer/contribution/settlement confirmation, card-cycle checks, and settlement bank activity implemented. Tests and typecheck pass.
 - Files changed: `src/domain/transfers.ts`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SettleView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 09.
+- Batch 09: Import coverage gaps, account balance checkpoints, refund accounting and review, and activity balance inclusion controls implemented. Tests and typecheck pass.
+- Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/AccountsView.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SpendForm.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 10.
 

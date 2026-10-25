@@ -39,6 +39,7 @@ export interface Entry {
   payerEntityId: string;
   accountId: string | null;
   portions: Portion[];
+  refundOf?: string | null;
   bankRowIds?: string[];
   countsTowardDebt: boolean;
   updatedAt: string;
@@ -54,6 +55,15 @@ export interface LedgerImport {
   dateTo: string | null;
   countsTowardDebt: boolean;
   importedAt: string;
+  updatedAt: string;
+}
+
+export interface BalanceCheckpoint {
+  id: string;
+  accountId: string;
+  date: string;
+  balanceCents: number;
+  note: string;
   updatedAt: string;
 }
 
@@ -105,6 +115,7 @@ export interface Ledger {
   mappings?: CsvMapping[];
   imports?: LedgerImport[];
   bankRows?: BankRow[];
+  checkpoints?: BalanceCheckpoint[];
 }
 
 export interface Debt {
@@ -132,6 +143,23 @@ export interface EntityOpenItems {
   youOweThem: OpenItem[];
 }
 
+export interface CoverageRange {
+  from: string;
+  to: string;
+}
+
+export interface AccountCoverage {
+  ranges: CoverageRange[];
+  gaps: CoverageRange[];
+}
+
+export interface CheckpointDifference {
+  earlier: BalanceCheckpoint;
+  later: BalanceCheckpoint;
+  bankRowsCents: number;
+  differenceCents: number;
+}
+
 export function validateSpend(entry: Entry): boolean {
   if (entry.kind !== "spend" || !Number.isSafeInteger(entry.amountCents) || entry.amountCents <= 0) {
     return false;
@@ -155,14 +183,14 @@ export function validateSpend(entry: Entry): boolean {
 }
 
 export function debtsOf(entry: Entry): Debt[] {
-  if (entry.kind !== "spend" || !entry.countsTowardDebt) return [];
+  if ((entry.kind !== "spend" && entry.kind !== "refund") || !entry.countsTowardDebt) return [];
 
   return entry.portions
     .filter((portion) => portion.entityId !== entry.payerEntityId)
     .map((portion) => ({
       debtorId: portion.entityId,
       creditorId: entry.payerEntityId,
-      amountCents: portion.amountCents,
+      amountCents: entry.kind === "refund" ? -portion.amountCents : portion.amountCents,
     }));
 }
 
@@ -172,17 +200,18 @@ export function report(
   to: string,
 ): { entries: Entry[]; personalCents: number; houseCents: number } {
   const spends = entries.filter(
-    (entry) => entry.kind === "spend" && entry.date >= from && entry.date <= to,
+    (entry) => (entry.kind === "spend" || entry.kind === "refund") && entry.date >= from && entry.date <= to,
   );
   const personalAmounts: number[] = [];
   const houseAmounts: number[] = [];
 
   for (const entry of spends) {
     for (const portion of entry.portions) {
-      if (portion.entityId === SELF_ENTITY_ID) personalAmounts.push(portion.amountCents);
+      const signedAmount = entry.kind === "refund" ? -portion.amountCents : portion.amountCents;
+      if (portion.entityId === SELF_ENTITY_ID) personalAmounts.push(signedAmount);
       if (portion.entityId === HOUSE_ENTITY_ID) {
-        houseAmounts.push(portion.amountCents);
-        personalAmounts.push(Math.ceil(portion.amountCents / 2));
+        houseAmounts.push(signedAmount);
+        personalAmounts.push(Math.sign(signedAmount) * Math.ceil(Math.abs(signedAmount) / 2));
       }
     }
   }
@@ -258,6 +287,57 @@ export function balances(ledger: Ledger): BalanceReport {
   return { byEntity, betweenEntities };
 }
 
+function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+export function accountCoverage(ledger: Ledger, accountId: string): AccountCoverage {
+  const ranges = (ledger.imports ?? [])
+    .filter((item) => item.accountId === accountId && item.dateFrom !== null && item.dateTo !== null)
+    .map((item) => ({ from: item.dateFrom!, to: item.dateTo! }))
+    .sort((first, second) => first.from.localeCompare(second.from) || first.to.localeCompare(second.to));
+  const merged: CoverageRange[] = [];
+
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+    if (!previous || range.from > addDays(previous.to, 1)) {
+      merged.push({ ...range });
+    } else if (range.to > previous.to) {
+      previous.to = range.to;
+    }
+  }
+
+  const gaps = merged.slice(1).map((range, index) => ({
+    from: addDays(merged[index].to, 1),
+    to: addDays(range.from, -1),
+  }));
+  return { ranges: merged, gaps };
+}
+
+export function checkpointDifferences(ledger: Ledger, accountId: string): CheckpointDifference[] {
+  const checkpoints = (ledger.checkpoints ?? [])
+    .filter((checkpoint) => checkpoint.accountId === accountId)
+    .sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
+  const differences: CheckpointDifference[] = [];
+
+  for (let index = 1; index < checkpoints.length; index += 1) {
+    const earlier = checkpoints[index - 1];
+    const later = checkpoints[index];
+    const bankRowsCents = sumCents((ledger.bankRows ?? [])
+      .filter((row) => row.accountId === accountId && row.date > earlier.date && row.date <= later.date)
+      .map((row) => row.amountCents));
+    differences.push({
+      earlier,
+      later,
+      bankRowsCents,
+      differenceCents: later.balanceCents - earlier.balanceCents - bankRowsCents,
+    });
+  }
+  return differences;
+}
+
 export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
   const theyOweYou: OpenItem[] = [];
   const youOweThem: OpenItem[] = [];
@@ -277,17 +357,20 @@ export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
 
   for (const entry of ledger.entries) {
     for (const debt of debtsOf(entry)) {
+      if (debt.amountCents === 0) continue;
       const item = {
         id: entry.id,
         date: entry.date,
         description: entry.description,
         source: "entry" as const,
-        amountCents: debt.amountCents,
-        openAmountCents: debt.amountCents,
+        amountCents: Math.abs(debt.amountCents),
+        openAmountCents: Math.abs(debt.amountCents),
       };
-      if (debt.debtorId === entityId && debt.creditorId === SELF_ENTITY_ID) {
+      const debtorId = debt.amountCents > 0 ? debt.debtorId : debt.creditorId;
+      const creditorId = debt.amountCents > 0 ? debt.creditorId : debt.debtorId;
+      if (debtorId === entityId && creditorId === SELF_ENTITY_ID) {
         theyOweYou.push(item);
-      } else if (debt.debtorId === SELF_ENTITY_ID && debt.creditorId === entityId) {
+      } else if (debtorId === SELF_ENTITY_ID && creditorId === entityId) {
         youOweThem.push(item);
       }
     }

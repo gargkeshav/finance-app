@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { HOUSE_ENTITY_ID, type Account, type Ledger } from "../../domain/ledger";
+import { accountCoverage, checkpointDifferences, HOUSE_ENTITY_ID, type Account, type BalanceCheckpoint, type Ledger } from "../../domain/ledger";
+import { formatAud, isBankDate, parseAud } from "../../domain/value";
 
 interface AccountsViewProps {
   ledger: Ledger;
@@ -11,6 +12,10 @@ export function AccountsView({ ledger, update }: AccountsViewProps) {
   const [type, setType] = useState<Account["type"]>("asset");
   const [payerEntityId, setPayerEntityId] = useState("self");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [checkpointAccountId, setCheckpointAccountId] = useState<string | null>(null);
+  const [checkpointDate, setCheckpointDate] = useState("");
+  const [checkpointBalance, setCheckpointBalance] = useState("");
+  const [checkpointNote, setCheckpointNote] = useState("");
   const [error, setError] = useState("");
 
   function saveAccount(event: React.FormEvent<HTMLFormElement>) {
@@ -48,6 +53,35 @@ export function AccountsView({ ledger, update }: AccountsViewProps) {
     setName(account.name);
     setType(account.type);
     setPayerEntityId(account.payerEntityId);
+    setError("");
+  }
+
+  function saveCheckpoint(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    let balanceCents: number;
+    try {
+      balanceCents = parseAud(checkpointBalance);
+    } catch {
+      setError("Enter a valid checkpoint balance.");
+      return;
+    }
+    if (!checkpointAccountId || !isBankDate(checkpointDate)) {
+      setError("Enter a valid checkpoint date.");
+      return;
+    }
+    const checkpoint: BalanceCheckpoint = {
+      id: crypto.randomUUID(),
+      accountId: checkpointAccountId,
+      date: checkpointDate,
+      balanceCents,
+      note: checkpointNote.trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    update({ ...ledger, checkpoints: [...(ledger.checkpoints ?? []), checkpoint] });
+    setCheckpointAccountId(null);
+    setCheckpointDate("");
+    setCheckpointBalance("");
+    setCheckpointNote("");
     setError("");
   }
 
@@ -103,16 +137,31 @@ export function AccountsView({ ledger, update }: AccountsViewProps) {
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Payer</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Payer</th><th>Coverage</th><th>Balance checkpoints</th><th /></tr></thead>
           <tbody>
             {ledger.accounts.map((account) => {
               const payer = ledger.entities.find((entity) => entity.id === account.payerEntityId);
+              const coverage = accountCoverage(ledger, account.id);
+              const differences = checkpointDifferences(ledger, account.id);
               return (
                 <tr key={account.id}>
                   <td>{account.name}</td>
                   <td>{account.type === "asset" ? "Asset" : "Credit"}</td>
                   <td>{account.payerEntityId === HOUSE_ENTITY_ID ? "House money" : payer?.name ?? "Unknown"}</td>
-                  <td><button className="secondary" onClick={() => editAccount(account)} type="button">Rename</button></td>
+                  <td>
+                    {coverage.ranges.length ? coverage.ranges.map((range) => <div key={`${range.from}-${range.to}`}>{range.from} to {range.to}</div>) : "No imported coverage"}
+                    {coverage.gaps.map((gap) => <div key={`${gap.from}-${gap.to}`}>Gap: {gap.from} to {gap.to}</div>)}
+                  </td>
+                  <td>
+                    {(ledger.checkpoints ?? []).filter((item) => item.accountId === account.id).sort((first, second) => first.date.localeCompare(second.date)).map((checkpoint) => (
+                      <div key={checkpoint.id}>{checkpoint.date}: <span className="amount">{formatAud(checkpoint.balanceCents)}</span>{checkpoint.note ? ` · ${checkpoint.note}` : ""}</div>
+                    ))}
+                    {differences.map((item) => <div key={`${item.earlier.id}-${item.later.id}`}>{item.earlier.date} to {item.later.date}: difference <span className="amount">{formatAud(item.differenceCents)}</span></div>)}
+                  </td>
+                  <td>
+                    <button className="secondary" onClick={() => editAccount(account)} type="button">Rename</button>{" "}
+                    <button className="secondary" onClick={() => { setCheckpointAccountId(account.id); setError(""); }} type="button">Add checkpoint</button>
+                  </td>
                 </tr>
               );
             })}
@@ -120,6 +169,19 @@ export function AccountsView({ ledger, update }: AccountsViewProps) {
         </table>
         {ledger.accounts.length === 0 && <p className="empty-state compact">No accounts yet.</p>}
       </div>
+      {checkpointAccountId && (
+        <form className="form-grid" onSubmit={saveCheckpoint}>
+          <h2>Add balance checkpoint for {ledger.accounts.find((account) => account.id === checkpointAccountId)?.name}</h2>
+          <label>Date<input type="date" value={checkpointDate} onChange={(event) => setCheckpointDate(event.target.value)} required /></label>
+          <label>Balance (AUD)<input inputMode="decimal" value={checkpointBalance} onChange={(event) => setCheckpointBalance(event.target.value)} required /></label>
+          <label>Note<input value={checkpointNote} onChange={(event) => setCheckpointNote(event.target.value)} /></label>
+          <div className="dialog-actions">
+            <button className="primary" type="submit">Save checkpoint</button>
+            <button className="secondary" onClick={() => setCheckpointAccountId(null)} type="button">Cancel</button>
+          </div>
+          {error && <p className="banner error" role="alert">{error}</p>}
+        </form>
+      )}
     </>
   );
 }

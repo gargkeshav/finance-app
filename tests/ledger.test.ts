@@ -94,6 +94,58 @@ describe("ledger spending rules", () => {
     }]);
     expect(balances(ledger).byEntity.house).toBe(1_000);
   });
+
+  it("makes you owe House for a refund after House settled the original spend", () => {
+    const spend: Entry = {
+      id: "spend-refunded",
+      kind: "spend",
+      date: "2026-10-20",
+      description: "House groceries",
+      amountCents: 10_000,
+      payerEntityId: "self",
+      accountId: "card",
+      portions: [{ entityId: "house", amountCents: 10_000 }],
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const refund: Entry = {
+      id: "refund-1",
+      kind: "refund",
+      refundOf: spend.id,
+      date: "2026-10-25",
+      description: "House groceries refund",
+      amountCents: 3_000,
+      payerEntityId: "self",
+      accountId: "card",
+      portions: [{ entityId: "house", amountCents: 3_000 }],
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const ledger = makeLedger(spend);
+    ledger.accounts = [{ id: "card", name: "Card", type: "credit", payerEntityId: "self", updatedAt: "now" }];
+    ledger.entries.push(refund);
+    ledger.settlements = [{
+      id: "house-payment",
+      date: "2026-10-24",
+      entityId: "house",
+      direction: "theyPaidYou",
+      amountCents: 10_000,
+      bankRowIds: [],
+      note: "",
+      splitwisePaymentId: null,
+      updatedAt: "now",
+    }];
+
+    expect(balances(ledger).byEntity.house).toBe(-3_000);
+    expect(openItems(ledger, "house").youOweThem).toEqual([{
+      id: refund.id,
+      date: refund.date,
+      description: refund.description,
+      source: "entry",
+      amountCents: 3_000,
+      openAmountCents: 3_000,
+    }]);
+  });
 });
 
 describe("transfer suggestions", () => {

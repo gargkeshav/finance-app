@@ -12,6 +12,8 @@ interface ReviewViewProps {
 
 export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
   const [spendingRowId, setSpendingRowId] = useState<string | null>(null);
+  const [refundRowId, setRefundRowId] = useState<string | null>(null);
+  const [refundOfId, setRefundOfId] = useState("");
   const [focusNextId, setFocusNextId] = useState<string | null>(null);
   const [transferPickerRowId, setTransferPickerRowId] = useState<string | null>(null);
   const [transferPartnerId, setTransferPartnerId] = useState("");
@@ -25,11 +27,45 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     .filter((row) => !row.entryId && !row.settlementId && !row.skipped)
     .sort((first, second) => second.date.localeCompare(first.date) || second.line - first.line);
   const spendingRow = pendingRows.find((row) => row.id === spendingRowId);
+  const refundRow = pendingRows.find((row) => row.id === refundRowId);
   const suggestions = suggestTransfers(ledger);
   const suggestionByRow = new Map<string, PossibleTransfer>();
   for (const suggestion of suggestions) {
     suggestionByRow.set(suggestion.outgoing.id, suggestion);
     suggestionByRow.set(suggestion.incoming.id, suggestion);
+  }
+
+  function refundCandidates(row: BankRow) {
+    const normalizedDescription = row.description.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const rowWords = new Set(normalizedDescription.split(/\s+/).filter(Boolean));
+    return ledger.entries
+      .filter((entry) => entry.kind === "spend")
+      .map((entry) => {
+        const spendDescription = entry.description.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        const similarDescription = spendDescription.split(/\s+/).some((word) => rowWords.has(word));
+        return { entry, priority: entry.accountId === row.accountId && similarDescription ? 0 : 1 };
+      })
+      .sort((first, second) => first.priority - second.priority || second.entry.date.localeCompare(first.entry.date))
+      .map((item) => item.entry);
+  }
+
+  function scaledPortions(original: Entry, refundAmountCents: number) {
+    const originalTotal = original.portions.reduce((total, portion) => total + BigInt(portion.amountCents), 0n);
+    if (originalTotal === 0n) return [];
+    const shares = original.portions.map((portion, index) => {
+      const numerator = BigInt(refundAmountCents) * BigInt(portion.amountCents);
+      return { entityId: portion.entityId, cents: numerator / originalTotal, remainder: numerator % originalTotal, index };
+    });
+    let remaining = BigInt(refundAmountCents) - shares.reduce((total, share) => total + share.cents, 0n);
+    const byRemainder = [...shares].sort((first, second) =>
+      first.remainder === second.remainder ? first.index - second.index : first.remainder > second.remainder ? -1 : 1,
+    );
+    for (let index = 0; remaining > 0n; index += 1, remaining -= 1n) {
+      byRemainder[index % byRemainder.length].cents += 1n;
+    }
+    return shares
+      .filter((share) => share.cents > 0n)
+      .map((share) => ({ entityId: share.entityId, amountCents: Number(share.cents) }));
   }
 
   useEffect(() => {
@@ -65,6 +101,30 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         : item),
     });
     setSpendingRowId(null);
+    setRefundRowId(null);
+    focusFollowingRow(row);
+  }
+
+  function saveRefund(row: BankRow, draft: Entry) {
+    const now = new Date().toISOString();
+    const entry: Entry = {
+      ...draft,
+      id: crypto.randomUUID(),
+      kind: "refund",
+      refundOf: refundOfId,
+      bankRowIds: [row.id],
+      countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
+      updatedAt: now,
+    };
+    update({
+      ...ledger,
+      entries: [...ledger.entries, entry],
+      bankRows: bankRows.map((item) => item.id === row.id
+        ? { ...item, entryId: entry.id, updatedAt: now }
+        : item),
+    });
+    setRefundRowId(null);
+    setRefundOfId("");
     focusFollowingRow(row);
   }
 
@@ -189,6 +249,41 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
           />
         </section>
       )}
+      {refundRow && (() => {
+        const candidates = refundCandidates(refundRow);
+        const original = candidates.find((entry) => entry.id === refundOfId);
+        const payerEntityId = ledger.accounts.find((item) => item.id === refundRow.accountId)?.payerEntityId ?? SELF_ENTITY_ID;
+        return (
+          <section className="form-grid" aria-label="Review refund">
+            <h2>Review refund</h2>
+            <label>
+              Original spend
+              <select value={refundOfId} onChange={(event) => setRefundOfId(event.target.value)}>
+                <option value="">Choose a spend</option>
+                {candidates.map((entry) => <option key={entry.id} value={entry.id}>{entry.date} | {entry.description} | {formatAud(entry.amountCents)}</option>)}
+              </select>
+            </label>
+            {original ? (
+              <SpendForm
+                key={`${refundRow.id}-${original.id}`}
+                initialValues={{
+                  kind: "refund",
+                  refundOf: original.id,
+                  date: refundRow.date,
+                  description: refundRow.description,
+                  amountCents: Math.abs(refundRow.amountCents),
+                  accountId: refundRow.accountId,
+                  payerEntityId,
+                  portions: scaledPortions(original, Math.abs(refundRow.amountCents)),
+                }}
+                ledger={ledger}
+                onCancel={() => setRefundRowId(null)}
+                onSave={(entry) => saveRefund(refundRow, entry)}
+              />
+            ) : candidates.length === 0 ? <p className="banner">No spends are available to refund.</p> : null}
+          </section>
+        );
+      })()}
       {transferMessage && <p className="banner error" role="status">{transferMessage}</p>}
       <div className="table-scroll">
         <table>
@@ -217,7 +312,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                           else actionRefs.current.delete(row.id);
                         }}
                         className="primary"
-                        onClick={() => setSpendingRowId(row.id)}
+                        onClick={() => { setRefundRowId(null); setSpendingRowId(row.id); }}
                         type="button"
                       >Spend</button>
                     ) : row.amountCents > 0 ? (
@@ -231,6 +326,11 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                         type="button"
                       >Income</button>
                     ) : null}{" "}
+                    {row.amountCents > 0 && <button className="secondary" onClick={() => {
+                      setSpendingRowId(null);
+                      setRefundRowId(row.id);
+                      setRefundOfId(refundCandidates(row)[0]?.id ?? "");
+                    }} type="button">Refund</button>}{" "}
                     <button className="secondary" onClick={() => onSettle(row)} type="button">Settlement</button>{" "}
                     {suggestion && otherRow && otherAccount ? (
                       <div className="form-grid" aria-label="Possible transfer">

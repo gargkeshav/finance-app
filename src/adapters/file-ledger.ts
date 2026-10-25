@@ -38,17 +38,21 @@ const entrySchema = z
     payerEntityId: idSchema,
     accountId: idSchema.nullable(),
     portions: z.array(portionSchema),
+    refundOf: idSchema.nullable().optional(),
     bankRowIds: z.array(idSchema).default([]),
     countsTowardDebt: z.boolean(),
     updatedAt: updatedAtSchema,
   })
   .superRefine((entry, context) => {
-    if (entry.kind === "spend" && !validateSpend(entry)) {
+    if ((entry.kind === "spend" || entry.kind === "refund") && !validateSpend({ ...entry, kind: "spend" })) {
       context.addIssue({
         code: "custom",
-        message: "Spend portions must be unique, positive, and sum to the amount.",
+        message: "Spend and refund portions must be unique, positive, and sum to the amount.",
         path: ["portions"],
       });
+    }
+    if (entry.kind === "refund" && !entry.refundOf) {
+      context.addIssue({ code: "custom", message: "A refund must reference a spend.", path: ["refundOf"] });
     }
   });
 
@@ -101,6 +105,15 @@ const bankRowSchema = z.object({
   updatedAt: updatedAtSchema,
 });
 
+const checkpointSchema = z.object({
+  id: idSchema,
+  accountId: idSchema,
+  date: bankDateSchema,
+  balanceCents: centsSchema,
+  note: z.string(),
+  updatedAt: updatedAtSchema,
+});
+
 type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   accounts: (Ledger["accounts"][number] & { mappingId?: string })[];
   entries: (Ledger["entries"][number] & { bankRowIds: string[] })[];
@@ -108,6 +121,7 @@ type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   imports: z.infer<typeof importSchema>[];
   bankRows: z.infer<typeof bankRowSchema>[];
   settlements: z.infer<typeof settlementSchema>[];
+  checkpoints: z.infer<typeof checkpointSchema>[];
 };
 
 const ledgerSchema = z.object({
@@ -120,6 +134,15 @@ const ledgerSchema = z.object({
   mappings: z.array(csvMappingSchema).default([]),
   imports: z.array(importSchema).default([]),
   bankRows: z.array(bankRowSchema).default([]),
+  checkpoints: z.array(checkpointSchema).default([]),
+}).superRefine((ledger, context) => {
+  for (const entry of ledger.entries) {
+    if (entry.kind !== "refund" || !entry.refundOf) continue;
+    const original = ledger.entries.find((candidate) => candidate.id === entry.refundOf);
+    if (original?.kind !== "spend") {
+      context.addIssue({ code: "custom", message: "A refund must reference an existing spend.", path: ["entries"] });
+    }
+  }
 });
 
 export function emptyLedger(): PersistedLedger {
@@ -137,6 +160,7 @@ export function emptyLedger(): PersistedLedger {
     mappings: [],
     imports: [],
     bankRows: [],
+    checkpoints: [],
   };
 }
 

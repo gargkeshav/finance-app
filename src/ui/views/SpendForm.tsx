@@ -52,25 +52,26 @@ export function SpendForm({ ledger, initialValues, onSave, onCancel }: SpendForm
 
   const draft: Entry = {
     id: initialValues?.id ?? "draft",
-    kind: "spend",
+    kind: initialValues?.kind === "refund" ? "refund" : "spend",
     date,
     description,
     amountCents: amountCents ?? 0,
     payerEntityId: effectivePayerId,
     accountId: accountId || null,
     portions: portionValues,
+    refundOf: initialValues?.refundOf,
     countsTowardDebt: true,
     updatedAt: initialValues?.updatedAt ?? "draft",
   };
-  const valid = amountCents !== null && isBankDate(date) && validateSpend(draft);
+  const valid = amountCents !== null && isBankDate(date) && validateSpend({ ...draft, kind: "spend" });
   const debts = valid ? debtsOf(draft) : [];
   const firstDebt = debts[0];
   const payerName = ledger.entities.find((entity) => entity.id === effectivePayerId)?.name ?? "Payer";
   const effect = firstDebt
-    ? `${ledger.entities.find((entity) => entity.id === firstDebt.debtorId)?.name ?? "Entity"} will owe ${ledger.entities.find((entity) => entity.id === firstDebt.creditorId)?.name ?? "entity"} ${formatAud(firstDebt.amountCents)}${debts.length > 1 ? ` and ${debts.length - 1} other debt${debts.length === 2 ? "" : "s"}` : ""}.`
+    ? `${ledger.entities.find((entity) => entity.id === (firstDebt.amountCents < 0 ? firstDebt.creditorId : firstDebt.debtorId))?.name ?? "Entity"} will owe ${ledger.entities.find((entity) => entity.id === (firstDebt.amountCents < 0 ? firstDebt.debtorId : firstDebt.creditorId))?.name ?? "entity"} ${formatAud(Math.abs(firstDebt.amountCents))}${debts.length > 1 ? ` and ${debts.length - 1} other debt${debts.length === 2 ? "" : "s"}` : ""}.`
     : valid
       ? "No debts are created by this spend."
-      : `${payerName} is the payer; allocations must equal the spend amount.`;
+      : `${payerName} is the payer; allocations must equal the ${draft.kind === "refund" ? "refund" : "spend"} amount.`;
 
   function setPortion(index: number, key: keyof PortionDraft, value: string) {
     setPortions((current) => current.map((portion, row) => row === index ? { ...portion, [key]: value } : portion));
@@ -79,7 +80,7 @@ export function SpendForm({ ledger, initialValues, onSave, onCancel }: SpendForm
   function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!valid) {
-      setError("Enter a valid date, positive amount, and portions that sum to the amount.");
+      setError(`Enter a valid date, positive amount, and portions that sum to the ${draft.kind === "refund" ? "refund" : "spend"} amount.`);
       return;
     }
     onSave({ ...draft, amountCents: amountCents!, portions: portionValues });
@@ -156,7 +157,7 @@ export function SpendForm({ ledger, initialValues, onSave, onCancel }: SpendForm
       <p aria-live="polite">{effect}</p>
       {error && <p className="banner error" role="alert">{error}</p>}
       <div className="dialog-actions">
-        <button className="primary" disabled={!valid} type="submit">Save spend</button>
+        <button className="primary" disabled={!valid} type="submit">{draft.kind === "refund" ? "Save refund" : "Save spend"}</button>
         {onCancel && <button className="secondary" onClick={onCancel} type="button">Cancel</button>}
       </div>
     </form>
