@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, type BankRow, type Category, type Entry, type Ledger } from "../../domain/ledger";
 import { cardCycle, confirmTransfer, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
-import { formatAud } from "../../domain/value";
+import { formatMoney } from "../../domain/value";
 import { SpendForm } from "./SpendForm";
 import { createSplitwiseSpend, type SplitwiseInboxItem } from "../../adapters/splitwise";
 
@@ -12,11 +12,9 @@ interface ReviewViewProps {
 }
 
 export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
-  const [spendingRowId, setSpendingRowId] = useState<string | null>(null);
-  const [refundRowId, setRefundRowId] = useState<string | null>(null);
+  const [openDetail, setOpenDetail] = useState<{ rowId: string; kind: "spend" | "refund" | "transfer" | "suggestion" } | null>(null);
   const [refundOfId, setRefundOfId] = useState("");
   const [focusNextId, setFocusNextId] = useState<string | null>(null);
-  const [transferPickerRowId, setTransferPickerRowId] = useState<string | null>(null);
   const [transferPartnerId, setTransferPartnerId] = useState("");
   const [confirmingTransfer, setConfirmingTransfer] = useState<{ outgoingId: string; incomingId: string } | null>(null);
   const [transferMessage, setTransferMessage] = useState("");
@@ -32,8 +30,8 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     const memory = memoryFor(row);
     return row.amountCents < 0 && Boolean(memory?.entityId && memory.categoryId && ledger.entities.some((entity) => entity.id === memory.entityId));
   });
-  const spendingRow = pendingRows.find((row) => row.id === spendingRowId);
-  const refundRow = pendingRows.find((row) => row.id === refundRowId);
+  const spendingRow = openDetail?.kind === "spend" ? pendingRows.find((row) => row.id === openDetail.rowId) : undefined;
+  const refundRow = openDetail?.kind === "refund" ? pendingRows.find((row) => row.id === openDetail.rowId) : undefined;
   const suggestions = suggestTransfers(ledger);
   const suggestionByRow = new Map<string, PossibleTransfer>();
   for (const suggestion of suggestions) {
@@ -143,8 +141,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         ? { ...item, entryId: entry.id, updatedAt: now }
         : item),
     });
-    setSpendingRowId(null);
-    setRefundRowId(null);
+    setOpenDetail(null);
     focusFollowingRow(row);
   }
 
@@ -166,7 +163,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         ? { ...item, entryId: entry.id, updatedAt: now }
         : item),
     });
-    setRefundRowId(null);
+    setOpenDetail(null);
     setRefundOfId("");
     focusFollowingRow(row);
   }
@@ -205,7 +202,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
         ? { ...item, skipped: true, updatedAt: now }
         : item),
     });
-    setSpendingRowId(null);
+    setOpenDetail(null);
     focusFollowingRow(row);
   }
 
@@ -218,7 +215,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     }
     update(next);
     setConfirmingTransfer(null);
-    setTransferPickerRowId(null);
+    setOpenDetail(null);
     setTransferMessage("");
     focusFollowingRow(outgoing);
   }
@@ -267,15 +264,15 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
 
   function splitwiseChangeText(item: SplitwiseInboxItem) {
     if (item.status === "deleted") return item.previous
-      ? `Deleted in Splitwise. Was ${item.previous.date}, ${item.previous.description}, ${formatAud(item.previous.costCents)}.`
+      ? `Deleted in Splitwise. Was ${item.previous.date}, ${item.previous.description}, ${formatMoney(item.previous.costCents)}.`
       : "Deleted in Splitwise.";
     if (item.status !== "changed" || !item.previous) return item.status;
     const changes: string[] = [];
     if (item.previous.date !== item.date) changes.push(`date ${item.previous.date} to ${item.date}`);
     if (item.previous.description !== item.description) changes.push(`description ${JSON.stringify(item.previous.description)} to ${JSON.stringify(item.description)}`);
-    if (item.previous.costCents !== item.costCents) changes.push(`cost ${formatAud(item.previous.costCents)} to ${formatAud(item.costCents)}`);
-    if (item.previous.yourPaidCents !== item.yourPaidCents) changes.push(`your paid share ${formatAud(item.previous.yourPaidCents)} to ${formatAud(item.yourPaidCents)}`);
-    if (item.previous.yourOwedCents !== item.yourOwedCents) changes.push(`your owed share ${formatAud(item.previous.yourOwedCents)} to ${formatAud(item.yourOwedCents)}`);
+    if (item.previous.costCents !== item.costCents) changes.push(`cost ${formatMoney(item.previous.costCents)} to ${formatMoney(item.costCents)}`);
+    if (item.previous.yourPaidCents !== item.yourPaidCents) changes.push(`your paid share ${formatMoney(item.previous.yourPaidCents)} to ${formatMoney(item.yourPaidCents)}`);
+    if (item.previous.yourOwedCents !== item.yourOwedCents) changes.push(`your owed share ${formatMoney(item.previous.yourOwedCents)} to ${formatMoney(item.yourOwedCents)}`);
     return changes.length ? `Changed in Splitwise: ${changes.join("; ")}.` : "Changed in Splitwise.";
   }
 
@@ -326,80 +323,29 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     if (confirmingTransfer?.outgoingId !== outgoing.id || confirmingTransfer.incomingId !== incoming.id) return null;
     return (
       <>
-        <button className="secondary" onClick={() => confirmPair(outgoing, incoming, "contribution")} type="button">Contribution</button>{" "}
-        <button className="secondary" onClick={() => confirmPair(outgoing, incoming, "settlement")} type="button">Settlement</button>
+        <p>Choose how this transfer should be recorded.</p>
+        <button className="secondary" onClick={() => confirmPair(outgoing, incoming, "contribution")} type="button">Contribution (no one owes anything)</button>{" "}
+        <button className="secondary" onClick={() => confirmPair(outgoing, incoming, "settlement")} type="button">Settlement (pays back what House owes)</button>
       </>
     );
+  }
+
+  function closeMoreMenu(event: React.MouseEvent<HTMLButtonElement>) {
+    event.currentTarget.closest("details")?.removeAttribute("open");
+  }
+
+  function displayDate(date: string) {
+    const [, month, day] = date.split("-").map(Number);
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${day} ${months[month - 1]}`;
   }
 
   return (
     <>
       <header className="page-heading">
-        <h1 ref={headingRef} tabIndex={-1}>Review</h1>
+        <h1 ref={headingRef} tabIndex={-1}>Review <span className="muted">{pendingRows.length} to review</span></h1>
         {suggestedSpends.length > 0 && <button className="primary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
       </header>
-      {spendingRow && (
-        <section className="form-grid" aria-label="Review spend">
-          <h2>Review spend</h2>
-          <SpendForm
-            key={spendingRow.id}
-            initialValues={{
-              date: spendingRow.date,
-              description: spendingRow.description,
-              amountCents: Math.abs(spendingRow.amountCents),
-              accountId: spendingRow.accountId,
-              bankRowIds: [spendingRow.id],
-              categoryId: memoryFor(spendingRow)?.categoryId ?? null,
-              payerEntityId: ledger.accounts.find((item) => item.id === spendingRow.accountId)?.payerEntityId ?? SELF_ENTITY_ID,
-              portions: [{
-                entityId: memoryFor(spendingRow)?.entityId ?? ledger.accounts.find((item) => item.id === spendingRow.accountId)?.payerEntityId ?? SELF_ENTITY_ID,
-                amountCents: Math.abs(spendingRow.amountCents),
-              }],
-            }}
-            ledger={ledger}
-            onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
-            onCancel={() => setSpendingRowId(null)}
-            onSave={(entry) => saveSpend(spendingRow, entry)}
-          />
-        </section>
-      )}
-      {refundRow && (() => {
-        const candidates = refundCandidates(refundRow);
-        const original = candidates.find((entry) => entry.id === refundOfId);
-        const payerEntityId = ledger.accounts.find((item) => item.id === refundRow.accountId)?.payerEntityId ?? SELF_ENTITY_ID;
-        return (
-          <section className="form-grid" aria-label="Review refund">
-            <h2>Review refund</h2>
-            <label>
-              Original spend
-              <select value={refundOfId} onChange={(event) => setRefundOfId(event.target.value)}>
-                <option value="">Choose a spend</option>
-                {candidates.map((entry) => <option key={entry.id} value={entry.id}>{entry.date} | {entry.description} | {formatAud(entry.amountCents)}</option>)}
-              </select>
-            </label>
-            {original ? (
-              <SpendForm
-                key={`${refundRow.id}-${original.id}`}
-                initialValues={{
-                  kind: "refund",
-                  refundOf: original.id,
-                  date: refundRow.date,
-                  description: refundRow.description,
-                  amountCents: Math.abs(refundRow.amountCents),
-                  accountId: refundRow.accountId,
-                  bankRowIds: [refundRow.id],
-                  payerEntityId,
-                  portions: scaledPortions(original, Math.abs(refundRow.amountCents)),
-                }}
-                ledger={ledger}
-                onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
-                onCancel={() => setRefundRowId(null)}
-                onSave={(entry) => saveRefund(refundRow, entry)}
-              />
-            ) : candidates.length === 0 ? <p className="banner">No spends are available to refund.</p> : null}
-          </section>
-        );
-      })()}
       {transferMessage && <p className="banner error" role="status">{transferMessage}</p>}
       {splitwiseItems.length > 0 && (
         <section aria-label="From Splitwise">
@@ -418,7 +364,7 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                       <td className="date-cell">{item.date}</td>
                       <td>{item.description || "Splitwise expense"}</td>
                       <td>{entity?.name ?? "Unknown"}</td>
-                      <td className="amount">{formatAud(item.costCents)}</td>
+                      <td className="amount">{formatMoney(item.costCents)}</td>
                       <td>{item.status === "changed" || item.status === "deleted" ? splitwiseChangeText(item) : item.status}</td>
                       <td>
                         {item.status === "changed" || item.status === "deleted" ? (
@@ -453,104 +399,118 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
               const otherRow = suggestion && (suggestion.outgoing.id === row.id ? suggestion.incoming : suggestion.outgoing);
               const otherAccount = otherRow && ledger.accounts.find((item) => item.id === otherRow.accountId);
               const paymentCycle = row.amountCents > 0 && account?.type === "credit" ? cardCycle(ledger, row) : null;
-              const selectableRows = transferPickerRowId === row.id
+              const detailIsOpen = openDetail?.rowId === row.id;
+              const selectableRows = detailIsOpen && openDetail.kind === "transfer"
                 ? pendingRows.filter((item) => item.id !== row.id && item.accountId !== row.accountId && Math.sign(item.amountCents) !== Math.sign(row.amountCents))
                 : [];
               return (
-                <tr key={row.id}>
-                  <td className="date-cell">{row.date}</td>
-                  <td>{row.description || "Bank transaction"}</td>
-                  <td>{account?.name ?? "Unknown"}</td>
-                  <td className="amount">{formatAud(row.amountCents)}</td>
-                  <td>
-                    {row.amountCents < 0 ? (
-                      <button
-                        ref={(button) => {
-                          if (button) actionRefs.current.set(row.id, button);
-                          else actionRefs.current.delete(row.id);
-                        }}
-                        className="primary"
-                        onClick={() => { setRefundRowId(null); setSpendingRowId(row.id); }}
-                        type="button"
-                      >Spend</button>
-                    ) : row.amountCents > 0 ? (
-                      <button
-                        ref={(button) => {
-                          if (button) actionRefs.current.set(row.id, button);
-                          else actionRefs.current.delete(row.id);
-                        }}
-                        className="primary"
-                        onClick={() => classifyIncome(row)}
-                        type="button"
-                      >Income</button>
-                    ) : null}{" "}
-                    {row.amountCents > 0 && <button className="secondary" onClick={() => {
-                      setSpendingRowId(null);
-                      setRefundRowId(row.id);
-                      setRefundOfId(refundCandidates(row)[0]?.id ?? "");
-                    }} type="button">Refund</button>}{" "}
-                    <button className="secondary" onClick={() => onSettle(row)} type="button">Settlement</button>{" "}
-                    {suggestion && otherRow && otherAccount ? (
-                      <div className="form-grid" aria-label="Possible transfer">
-                        <p>Possible transfer with {otherAccount.name} ({otherRow.date}).</p>
-                        <button className="secondary" onClick={() => requestConfirm(suggestion.outgoing, suggestion.incoming)} type="button">Confirm</button>{" "}
-                        {choiceActions(suggestion.outgoing, suggestion.incoming)}
-                        <button className="secondary" onClick={() => dismissPair(row, otherRow)} type="button">Dismiss</button>
-                      </div>
-                    ) : !suggestion && row.amountCents !== 0 ? (
-                      <div className="form-grid">
-                        <button className="secondary" onClick={() => {
-                          setTransferPickerRowId(transferPickerRowId === row.id ? null : row.id);
-                          setTransferPartnerId("");
-                        }} type="button">Transfer</button>
-                        {transferPickerRowId === row.id && (
-                          <>
-                            <label>
-                              Other bank row
-                              <select value={transferPartnerId} onChange={(event) => setTransferPartnerId(event.target.value)}>
-                                <option value="">Choose a row</option>
-                                {selectableRows.map((item) => {
-                                  const itemAccount = ledger.accounts.find((candidate) => candidate.id === item.accountId);
-                                  return <option key={item.id} value={item.id}>{item.date} | {item.description} | {itemAccount?.name ?? "Unknown"} | {formatAud(item.amountCents)}</option>;
-                                })}
-                              </select>
-                            </label>
-                            {transferPartnerId && (() => {
-                              const partner = pendingRows.find((item) => item.id === transferPartnerId);
-                              if (!partner) return null;
-                              const pair = pendingPair(row, partner);
-                              return (
-                                <>
-                                  <button className="secondary" onClick={() => requestConfirm(pair.outgoing, pair.incoming)} type="button">Confirm</button>{" "}
-                                  {choiceActions(pair.outgoing, pair.incoming)}
-                                </>
-                              );
-                            })()}
-                          </>
-                        )}
-                      </div>
-                    ) : null}
-                    {paymentCycle && (
-                      <p>
-                        Card cycle: {formatAud(paymentCycle.sumCents)}. Difference: {formatAud(paymentCycle.differenceCents)}; a difference may be interest, a fee, or a missing row.
-                      </p>
-                    )}{" "}
-                    <button
-                      ref={row.amountCents === 0 ? (button) => {
+                <Fragment key={row.id}>
+                  <tr key={row.id}>
+                    <td className="date-cell">{row.date}</td>
+                    <td>{row.description || "Bank transaction"}</td>
+                    <td>{account?.name ?? "Unknown"}</td>
+                    <td className="amount">{formatMoney(row.amountCents)}</td>
+                    <td>
+                      {row.amountCents < 0 ? <button ref={(button) => {
                         if (button) actionRefs.current.set(row.id, button);
                         else actionRefs.current.delete(row.id);
-                      } : undefined}
-                      className="secondary"
-                      onClick={() => skipRow(row)}
-                      type="button"
-                    >Skip</button>
-                  </td>
-                </tr>
+                      }} className="primary" onClick={() => setOpenDetail({ rowId: row.id, kind: "spend" })} type="button">Spend</button> : row.amountCents > 0 ? <button ref={(button) => {
+                        if (button) actionRefs.current.set(row.id, button);
+                        else actionRefs.current.delete(row.id);
+                      }} className="primary" onClick={() => classifyIncome(row)} type="button">Income</button> : null}{" "}
+                      <button ref={row.amountCents === 0 ? (button) => {
+                        if (button) actionRefs.current.set(row.id, button);
+                        else actionRefs.current.delete(row.id);
+                      } : undefined} className="secondary" onClick={() => skipRow(row)} type="button">Skip</button>{" "}
+                      <details className="more-menu">
+                        <summary className="secondary">More</summary>
+                        <div>
+                          <button className="secondary" onClick={(event) => {
+                            closeMoreMenu(event);
+                            setTransferPartnerId("");
+                            setOpenDetail({ rowId: row.id, kind: suggestion && otherRow ? "suggestion" : "transfer" });
+                          }} type="button">Transfer</button>
+                          {row.amountCents > 0 && <button className="secondary" onClick={(event) => {
+                            closeMoreMenu(event);
+                            setRefundOfId(refundCandidates(row)[0]?.id ?? "");
+                            setOpenDetail({ rowId: row.id, kind: "refund" });
+                          }} type="button">Refund</button>}
+                          <button className="secondary" onClick={(event) => { closeMoreMenu(event); onSettle(row); }} type="button">Settlement</button>
+                        </div>
+                      </details>
+                    </td>
+                  </tr>
+                  {(detailIsOpen || paymentCycle) && (
+                    <tr className="row-detail" key={`${row.id}-detail`}>
+                      <td colSpan={5}>
+                        {detailIsOpen && openDetail.kind === "spend" && spendingRow?.id === row.id && (
+                          <section className="form-grid" aria-label="Review spend">
+                            <h2>Review spend</h2>
+                            <SpendForm key={row.id} initialValues={{
+                              date: row.date,
+                              description: row.description,
+                              amountCents: Math.abs(row.amountCents),
+                              accountId: row.accountId,
+                              bankRowIds: [row.id],
+                              categoryId: memoryFor(row)?.categoryId ?? null,
+                              payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
+                              portions: [{ entityId: memoryFor(row)?.entityId ?? account?.payerEntityId ?? SELF_ENTITY_ID, amountCents: Math.abs(row.amountCents) }],
+                            }} ledger={ledger}
+                              onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
+                              onCancel={() => setOpenDetail(null)} onSave={(entry) => saveSpend(row, entry)} />
+                          </section>
+                        )}
+                        {detailIsOpen && openDetail.kind === "refund" && refundRow?.id === row.id && (() => {
+                          const candidates = refundCandidates(row);
+                          const original = candidates.find((entry) => entry.id === refundOfId);
+                          return <section className="form-grid" aria-label="Review refund">
+                            <h2>Review refund</h2>
+                            <label>Original spend<select value={refundOfId} onChange={(event) => setRefundOfId(event.target.value)}>
+                              <option value="">Choose a spend</option>
+                              {candidates.map((entry) => <option key={entry.id} value={entry.id}>{entry.date} | {entry.description} | {formatMoney(entry.amountCents)}</option>)}
+                            </select></label>
+                            {original ? <SpendForm key={`${row.id}-${original.id}`} initialValues={{
+                              kind: "refund", refundOf: original.id, date: row.date, description: row.description,
+                              amountCents: Math.abs(row.amountCents), accountId: row.accountId, bankRowIds: [row.id],
+                              payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
+                              portions: scaledPortions(original, Math.abs(row.amountCents)),
+                            }} ledger={ledger}
+                              onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
+                              onCancel={() => setOpenDetail(null)} onSave={(entry) => saveRefund(row, entry)} />
+                              : candidates.length === 0 ? <p className="banner">No spends are available to refund.</p> : null}
+                          </section>;
+                        })()}
+                        {detailIsOpen && openDetail.kind === "suggestion" && suggestion && otherRow && otherAccount && <section aria-label="Transfer suggestion">
+                          <p>Looks like a transfer {row.amountCents < 0 ? "to" : "from"} {otherAccount.name} on {displayDate(otherRow.date)}. {formatMoney(Math.abs(row.amountCents))}.</p>
+                          <button className="primary" onClick={() => requestConfirm(suggestion.outgoing, suggestion.incoming)} type="button">Confirm transfer</button>{" "}
+                          <button className="secondary" onClick={() => { dismissPair(row, otherRow); setOpenDetail(null); }} type="button">Not a transfer</button>
+                          {choiceActions(suggestion.outgoing, suggestion.incoming)}
+                        </section>}
+                        {detailIsOpen && openDetail.kind === "transfer" && row.amountCents !== 0 && <section className="form-grid" aria-label="Choose transfer row">
+                          <label>Other bank row<select value={transferPartnerId} onChange={(event) => setTransferPartnerId(event.target.value)}>
+                            <option value="">Choose a row</option>
+                            {selectableRows.map((item) => {
+                              const itemAccount = ledger.accounts.find((candidate) => candidate.id === item.accountId);
+                              return <option key={item.id} value={item.id}>{item.date} | {item.description} | {itemAccount?.name ?? "Unknown"} | {formatMoney(item.amountCents)}</option>;
+                            })}
+                          </select></label>
+                          {transferPartnerId && (() => {
+                            const partner = pendingRows.find((item) => item.id === transferPartnerId);
+                            if (!partner) return null;
+                            const pair = pendingPair(row, partner);
+                            return <><button className="primary" onClick={() => requestConfirm(pair.outgoing, pair.incoming)} type="button">Confirm transfer</button>{choiceActions(pair.outgoing, pair.incoming)}</>;
+                          })()}
+                        </section>}
+                        {paymentCycle && <p className="hint">Card payments this cycle: {formatMoney(paymentCycle.sumCents)}. Difference {formatMoney(paymentCycle.differenceCents)}. This may be interest or a fee.</p>}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>
         </table>
-        {!pendingRows.length && <p className="empty-state compact">No bank rows need review.</p>}
+        {!pendingRows.length && <p className="empty-state compact">All caught up.</p>}
       </div>
     </>
   );

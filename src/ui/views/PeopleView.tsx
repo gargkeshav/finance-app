@@ -144,46 +144,9 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
     <>
       <header className="page-heading">
         <h1>People</h1>
-        <button className="primary" onClick={() => { setEditingId(null); setName(""); setError(""); }} type="button">Add person or group</button>
       </header>
 
       {error && <p className="banner error" role="alert">{error}</p>}
-      <section className="form-grid" aria-label="Splitwise connection">
-        <h2>Splitwise</h2>
-        {connectedName ? <p className="banner success">Connected as {connectedName}</p> : null}
-        <form className="form-grid" onSubmit={connectSplitwise}>
-          <label>
-            API key
-            <input autoComplete="new-password" name="splitwise-key" type="password" required />
-          </label>
-          <div className="dialog-actions">
-            <button className="primary" type="submit">Connect Splitwise</button>
-            {connected && <button className="secondary" onClick={disconnectSplitwise} type="button">Disconnect</button>}
-          </div>
-        </form>
-        {connected && <label>First pull since<input type="date" value={sinceDate} onChange={(event) => setSinceDate(event.target.value)} /></label>}
-      </section>
-
-      <form className="form-grid" onSubmit={saveEntity}>
-        <label>
-          Name
-          <input value={name} onChange={(event) => setName(event.target.value)} required />
-        </label>
-        {!editingId && (
-          <label>
-            Kind
-            <select value={kind} onChange={(event) => setKind(event.target.value as "person" | "group")}>
-              <option value="person">Person</option>
-              <option value="group">Group</option>
-            </select>
-          </label>
-        )}
-        <div className="dialog-actions">
-          <button className="primary" type="submit">{editingId ? "Save name" : "Add"}</button>
-          {editingId && <button className="secondary" onClick={() => setEditingId(null)} type="button">Cancel</button>}
-        </div>
-      </form>
-
       <div className="table-scroll">
         <table>
           <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Splitwise</th><th /></tr></thead>
@@ -193,11 +156,11 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
               return (
                 <tr key={entity.id}>
                   <td>{entity.name}</td>
-                  <td>{kindLabels[entity.kind]}</td>
+                  <td><span className="allocation-tag">{kindLabels[entity.kind]}</span></td>
                   <td>{entity.archived ? "Archived" : "Active"}</td>
                   <td>
                     {(entity.kind === "person" || entity.kind === "group") && connected && (
-                      <div className="form-grid">
+                      <div>
                         <label>
                           {entity.kind === "person" ? "Splitwise friend" : "Splitwise group"}
                           <select value={links[entity.id] ?? entity.splitwise?.id ?? ""} onChange={(event) => setLinks({ ...links, [entity.id]: event.target.value })}>
@@ -211,7 +174,6 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
                         {entity.splitwise && <button className="secondary" disabled={busyEntityId === entity.id} onClick={() => void pullSplitwise(entity)} type="button">{busyEntityId === entity.id ? "Pulling..." : "Pull"}</button>}
                       </div>
                     )}
-                    {entity.splitwise && !connected && `${entity.splitwise.kind}: ${entity.splitwise.id}`}
                   </td>
                   <td>
                     {!fixed && (
@@ -229,6 +191,35 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
           </tbody>
         </table>
       </div>
+
+      <section className="card" aria-label="Add person or group">
+        <div className="section-heading"><h2>{editingId ? "Rename person or group" : "Add person or group"}</h2></div>
+        <form className="form-grid" onSubmit={saveEntity}>
+          <label>Name<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
+          {!editingId && <label>Kind<select value={kind} onChange={(event) => setKind(event.target.value as "person" | "group")}>
+            <option value="person">Person</option><option value="group">Group</option>
+          </select></label>}
+          <div className="dialog-actions">
+            <button className="primary" type="submit">{editingId ? "Save name" : "Add"}</button>
+            {editingId && <button className="secondary" onClick={() => setEditingId(null)} type="button">Cancel</button>}
+          </div>
+        </form>
+      </section>
+
+      <section className="card" aria-label="Splitwise">
+        <div className="section-heading"><h2>Splitwise</h2></div>
+        <p className="muted">{connected ? `Connected as ${connectedName}` : "Not connected"}</p>
+        {!connected && <form className="form-grid" onSubmit={connectSplitwise}>
+          <label>API key<input autoComplete="new-password" name="splitwise-key" type="password" required /></label>
+          <div className="dialog-actions"><button className="primary" type="submit">Connect</button></div>
+        </form>}
+        {connected && <>
+          <div className="form-grid">
+            <label>First pull since<input type="date" value={sinceDate} onChange={(event) => setSinceDate(event.target.value)} /></label>
+            <div className="dialog-actions"><button className="secondary" onClick={disconnectSplitwise} type="button">Disconnect</button></div>
+          </div>
+        </>}
+      </section>
     </>
   );
 }

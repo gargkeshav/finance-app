@@ -7,7 +7,7 @@ import {
   type CsvMapping,
 } from "../../adapters/csv-mapping";
 import type { BankRow, Ledger, LedgerImport } from "../../domain/ledger";
-import { formatAud } from "../../domain/value";
+import { formatMoney } from "../../domain/value";
 import { MappingEditor } from "./MappingEditor";
 
 interface ImportViewProps {
@@ -52,6 +52,7 @@ export function ImportView({ ledger, update }: ImportViewProps) {
   const newRows = parsed ? findNewRows(existingRows, parsed.rows) : [];
   const duplicateCount = parsed ? parsed.rows.length - newRows.length : 0;
   const rowsToAdd = duplicateChoice === "add" ? parsed?.rows ?? [] : newRows;
+  const stepFourComplete = Boolean(parsed && !parsed.errors.length && !sameFile && (duplicateCount === 0 || duplicateChoice !== null));
 
   function saveMappingChoice(mapping: CsvMapping) {
     const nextMappings = mappings.some((item) => item.id === mapping.id)
@@ -174,87 +175,66 @@ export function ImportView({ ledger, update }: ImportViewProps) {
     <>
       <header className="page-heading">
         <h1>Import CSV</h1>
-        <button className="primary" disabled={!account || !selectedMapping || !parsed || parsed.errors.length > 0 || sameFile || (duplicateCount > 0 && duplicateChoice === null)} onClick={commit} type="button">Import rows</button>
+        <button className="primary" disabled={!stepFourComplete} onClick={commit} type="button">Import {rowsToAdd.length} rows</button>
       </header>
       {message && <p className="banner success" role="status">{message}</p>}
       {error && <p className="banner error" role="alert">{error}</p>}
-      <div className="form-grid">
-        <label>
-          Account
-          <select value={accountId} onChange={(event) => changeAccount(event.target.value)} required>
-            <option value="">Choose an account</option>
-            {ledger.accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-        </label>
-        <label>
-          CSV file
-          <input accept=".csv,text/csv" onChange={(event) => void loadFile(event)} type="file" />
-        </label>
-        {text && (
-          <>
-            <label>
-              Mapping
-              <select value={mappingId} onChange={(event) => chooseMapping(event.target.value)}>
-                <option value="">Choose a mapping</option>
-                {mappingOptions.map((option) => <option key={option.id} value={option.id}>{option.name}{option.suggested ? " (Suggested)" : ""}</option>)}
-              </select>
-            </label>
-            <button className="secondary" onClick={() => setShowMappingEditor(true)} type="button">New mapping</button>
-          </>
-        )}
-      </div>
-      {showMappingEditor && text && (
-        <MappingEditor
-          initialMapping={selectedMapping}
-          onCancel={() => setShowMappingEditor(false)}
-          onSave={saveMappingChoice}
-          text={text}
-        />
-      )}
-      {sameFile && <p className="banner">This file has already been imported for this account. No rows were added.</p>}
-      {parsed && !sameFile && (
-        <>
-          <label className="checkbox-label">
-            <input checked={olderHistory} onChange={(event) => setOlderHistory(event.target.checked)} type="checkbox" />
-            Older history: keep out of balances
-          </label>
-          {duplicateCount > 0 && (
-            <fieldset className="filters">
-              <legend>{duplicateCount} existing row{duplicateCount === 1 ? "" : "s"} found</legend>
+      <section className="card" aria-label="Import steps">
+        <ol className="steps">
+          <li className={accountId && account ? "done" : ""}>
+            <strong>Choose the account</strong>
+            <label>Account<select value={accountId} onChange={(event) => changeAccount(event.target.value)} required>
+              <option value="">Choose an account</option>
+              {ledger.accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select></label>
+          </li>
+          <li className={text ? "done" : ""}>
+            <strong>Choose the CSV file</strong>
+            <label>CSV file<input accept=".csv,text/csv" onChange={(event) => void loadFile(event)} type="file" /></label>
+          </li>
+          <li className={selectedMapping && text ? "done" : ""}>
+            <strong>Check the format</strong>
+            {text && <>
+              <label>Format<select value={mappingId} onChange={(event) => chooseMapping(event.target.value)}>
+                <option value="">Choose a format</option>
+                {mappingOptions.map((option) => <option key={option.id} value={option.id}>{option.name}{option.suggested ? " · Suggested" : ""}</option>)}
+              </select></label>
+              <button className="text-button" onClick={() => setShowMappingEditor(true)} type="button">New format</button>
+              {showMappingEditor && <MappingEditor initialMapping={selectedMapping} onCancel={() => setShowMappingEditor(false)} onSave={saveMappingChoice} text={text} />}
+            </>}
+          </li>
+          <li className={stepFourComplete ? "done" : ""}>
+            <strong>Check the rows</strong>
+            {sameFile && <p className="banner warning">This file has already been imported for this account. No rows were added.</p>}
+            {parsed && <>
+              <p>{newRows.length} new, {duplicateCount} already imported</p>
               <label className="checkbox-label">
-                <input checked={duplicateChoice === "skip"} onChange={() => setDuplicateChoice("skip")} type="radio" />
-                Skip {duplicateCount} existing rows
+                <input checked={olderHistory} onChange={(event) => setOlderHistory(event.target.checked)} type="checkbox" />
+                Older history: keep out of balances
               </label>
-              <label className="checkbox-label">
-                <input checked={duplicateChoice === "add"} onChange={() => setDuplicateChoice("add")} type="radio" />
-                Add them anyway
-              </label>
-            </fieldset>
-          )}
-          {parsed.errors.length > 0 && (
-            <section aria-label="CSV row errors">
-              <h2>Errors ({parsed.errors.length})</h2>
-              <ul>{parsed.errors.map((rowError, index) => <li key={`${rowError.line}-${index}`}>Line {rowError.line}: {rowError.message}</li>)}</ul>
-            </section>
-          )}
-          <div className="table-scroll">
-            <table>
-              <thead><tr><th>Line</th><th>Date</th><th>Description</th><th>Amount</th></tr></thead>
-              <tbody>
-                {(parsed.rows.slice(0, 20)).map((row) => (
-                  <tr key={`${row.line}-${row.date}`}>
-                    <td>{row.line}</td>
-                    <td className="date-cell">{row.date}</td>
-                    <td>{row.description}</td>
-                    <td className="amount">{formatAud(row.amountCents)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!parsed.rows.length && <p className="empty-state compact">No valid rows to preview.</p>}
-          </div>
-        </>
-      )}
+              <p className="hint">Use this for old statements. The rows appear in reports but do not change who owes what.</p>
+              {duplicateCount > 0 && <div className="banner warning">
+                <p>{duplicateCount} already imported. Choose whether to skip or add these rows again.</p>
+                <label className="checkbox-label"><input checked={duplicateChoice === "skip"} onChange={() => setDuplicateChoice("skip")} type="radio" />Skip existing rows</label>
+                <label className="checkbox-label"><input checked={duplicateChoice === "add"} onChange={() => setDuplicateChoice("add")} type="radio" />Add them anyway</label>
+              </div>}
+              {parsed.errors.length > 0 && <div className="banner error" role="alert">
+                <strong>Errors ({parsed.errors.length})</strong>
+                <ul>{parsed.errors.map((rowError, index) => <li key={`${rowError.line}-${index}`}>Line {rowError.line}: {rowError.message}</li>)}</ul>
+              </div>}
+              <div className="table-scroll">
+                <table>
+                  <thead><tr><th>Line</th><th>Date</th><th>Description</th><th>Amount</th></tr></thead>
+                  <tbody>{parsed.rows.slice(0, 20).map((row) => <tr key={`${row.line}-${row.date}`}>
+                    <td>{row.line}</td><td className="date-cell">{row.date}</td><td>{row.description}</td><td className="amount">{formatMoney(row.amountCents)}</td>
+                  </tr>)}</tbody>
+                </table>
+                {!parsed.rows.length && <p className="empty-state compact">No valid rows to preview.</p>}
+              </div>
+            </>}
+          </li>
+        </ol>
+      </section>
     </>
   );
 }

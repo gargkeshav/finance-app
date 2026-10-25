@@ -9,7 +9,7 @@ import {
   type OpenItem,
   type SettlementDirection,
 } from "../../domain/ledger";
-import { formatAud, parseAud } from "../../domain/value";
+import { formatMoney, parseAud } from "../../domain/value";
 import type { SplitwiseInboxItem } from "../../adapters/splitwise";
 
 interface SettleViewProps {
@@ -41,7 +41,7 @@ function ItemsTable({ title, items }: { title: string; items: OpenItem[] }) {
   return (
     <>
       <h3>{title}</h3>
-      <div className="table-scroll">
+      {!items.length ? <p className="muted">Nothing open.</p> : <div className="table-scroll">
         <table>
           <thead><tr><th>Date</th><th>Item</th><th>Open amount</th></tr></thead>
           <tbody>
@@ -49,13 +49,12 @@ function ItemsTable({ title, items }: { title: string; items: OpenItem[] }) {
               <tr key={`${item.id}-${index}`}>
                 <td className="date-cell">{item.date || "Opening"}</td>
                 <td>{item.description}</td>
-                <td className="amount">{formatAud(item.openAmountCents)}</td>
+                <td className="amount">{formatMoney(item.openAmountCents)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!items.length && <p className="empty-state compact">No open items.</p>}
-      </div>
+        </div>}
     </>
   );
 }
@@ -194,64 +193,51 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
     <>
       <header className="page-heading">
         <h1>Settle</h1>
-        <button className="primary" disabled={!entities.length} form="settlement-form" type="submit">Record settlement</button>
       </header>
-      <section className="summary-strip" aria-label="Current balance">
-        <div>
-          <span className="metric-label">{entity ? `${entity.name} balance` : "Balance"}</span>
-          <strong className="amount">
-            {netBalance > 0 ? `Owes you ${formatAud(netBalance)}` : netBalance < 0 ? `You owe ${entity?.name ?? "them"} ${formatAud(Math.abs(netBalance))}` : "Settled"}
-          </strong>
-        </div>
+      <section className="card" aria-label="Current balance">
+        <p>{entity ? `${entity.name}: ` : "Balance: "}{netBalance > 0 ? `They owe you ${formatMoney(netBalance)}` : netBalance < 0 ? `You owe ${entity?.name ?? "them"} ${formatMoney(Math.abs(netBalance))}` : "Settled"}</p>
       </section>
 
-      <form className="form-grid" id="settlement-form" onSubmit={save}>
+      <form className="form-grid card" id="settlement-form" onSubmit={save}>
         {error && <p className="banner error" role="alert">{error}</p>}
         {success && <p className="banner success" role="status">{success}</p>}
         <label>
-          Entity
+          Who
           <select value={entityId} onChange={(event) => setEntityId(event.target.value)} required>
             {entities.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
         <label>
-          Date
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
-        </label>
-        <label>
           Direction
           <select value={direction} onChange={(event) => setDirection(event.target.value as SettlementDirection)}>
-            <option value="theyPaidYou">They paid you</option>
-            <option value="youPaidThem">You paid them</option>
+            <option value="theyPaidYou">They paid me</option>
+            <option value="youPaidThem">I paid them</option>
           </select>
         </label>
         <label>
-          Amount (AUD)
+          Amount
           <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required />
         </label>
+        <label>Date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
         <label>
           Note
           <input value={note} onChange={(event) => setNote(event.target.value)} />
         </label>
+        <div className="dialog-actions"><button className="primary" disabled={!entities.length} type="submit">Record</button></div>
       </form>
 
-      <h2>Payment allocation</h2>
-      <p>Applied oldest first. Allocation is fixed.</p>
-      <div className="table-scroll">
-        <table>
-          <thead><tr><th>Date</th><th>Item</th><th>Applied</th></tr></thead>
-          <tbody>
-            {preview.map(({ item, appliedCents }, index) => (
-              <tr key={`${item.id}-${index}`}>
-                <td className="date-cell">{item.date || "Opening"}</td>
-                <td>{item.description}</td>
-                <td className="amount">{formatAud(appliedCents)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!preview.length && <p className="empty-state compact">This payment will not close any open items.</p>}
-      </div>
+      {amount.trim() && <>
+        <h2>Payment allocation</h2>
+        <p className="muted">Applied oldest first. Allocation is fixed.</p>
+        {!preview.length ? <p className="muted">Nothing open.</p> : <div className="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Item</th><th>Applied</th></tr></thead>
+            <tbody>{preview.map(({ item, appliedCents }, index) => <tr key={`${item.id}-${index}`}>
+              <td className="date-cell">{item.date || "Opening"}</td><td>{item.description}</td><td className="amount">{formatMoney(appliedCents)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
+      </>}
 
       <h2>Open items</h2>
       <ItemsTable title="They owe you" items={items.theyOweYou} />
@@ -267,7 +253,7 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
                 <td className="date-cell">{item.date}</td>
                 <td>{item.description || "Splitwise payment"}</td>
                 <td>{item.yourPaidCents === 0 ? "They paid you" : "You paid them"}</td>
-                <td className="amount">{formatAud(item.costCents)}</td>
+                <td className="amount">{formatMoney(item.costCents)}</td>
                 <td>{item.status === "new" && !recordedSplitwisePaymentIds.has(item.splitwiseExpenseId) && (
                   <button className="primary" onClick={() => recordSplitwisePayment(item)} type="button">Record</button>
                 )}</td>
@@ -286,7 +272,7 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
               <tr key={settlement.id}>
                 <td className="date-cell">{settlement.date}</td>
                 <td>{settlement.direction === "theyPaidYou" ? "They paid you" : "You paid them"}</td>
-                <td className="amount">{formatAud(settlement.amountCents)}</td>
+                <td className="amount">{formatMoney(settlement.amountCents)}</td>
                 <td>{settlement.note}</td>
                 <td>{bankActivity(settlement)}</td>
                 <td><button className="secondary" onClick={() => deleteSettlement(settlement)} type="button">Delete</button></td>

@@ -55,4 +55,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 11d: Friendlier shell navigation, money formatting, plain wording, first-run steps, and balance/account display updates implemented. `npm test` (9 files, 53 tests) and `npm run typecheck` pass; empty-ledger first-run steps verified in the browser.
 - Files changed: `src/domain/value.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/SpendForm.tsx`, `src/ui/views/BalancesView.tsx`, `src/ui/views/AccountsView.tsx`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 11e.
+- Batch 11e: Review actions and row details, four-step CSV import, People layout, and Settle form layout implemented. Tests and typecheck pass; browser smoke verified import, spend, transfer confirmation, skip, and the caught-up state.
+- Files changed: `src/ui/views/ReviewView.tsx`, `src/ui/views/ImportView.tsx`, `src/ui/views/PeopleView.tsx`, `src/ui/views/SettleView.tsx`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 12.
 
