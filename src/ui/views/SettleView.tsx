@@ -92,6 +92,15 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
     .filter((settlement) => settlement.entityId === entityId)
     .sort((first, second) => second.date.localeCompare(first.date) || second.id.localeCompare(first.id));
 
+  function bankActivity(settlement: (typeof settlements)[number]) {
+    const rows = settlement.bankRowIds
+      .map((id) => (ledger.bankRows ?? []).find((row) => row.id === id))
+      .filter((row): row is BankRow => Boolean(row));
+    return rows.length
+      ? rows.map((row) => `${row.date} ${row.description || "Bank transaction"}`).join("; ")
+      : "Manual";
+  }
+
   function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     let parsedAmount: number;
@@ -204,7 +213,7 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
       <h2>Past settlements</h2>
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Note</th></tr></thead>
+          <thead><tr><th>Date</th><th>Direction</th><th>Amount</th><th>Note</th><th>Bank activity</th></tr></thead>
           <tbody>
             {settlements.map((settlement) => (
               <tr key={settlement.id}>
@@ -212,6 +221,7 @@ export function SettleView({ ledger, update, bankRow, onSaved }: SettleViewProps
                 <td>{settlement.direction === "theyPaidYou" ? "They paid you" : "You paid them"}</td>
                 <td className="amount">{formatAud(settlement.amountCents)}</td>
                 <td>{settlement.note}</td>
+                <td>{bankActivity(settlement)}</td>
               </tr>
             ))}
           </tbody>

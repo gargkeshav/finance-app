@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { balances, openItems, report, type Entry, type Ledger } from "../src/domain/ledger";
+import { balances, openItems, report, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
+import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
 
 function makeLedger(entry: Entry): Ledger {
   return {
@@ -92,5 +93,82 @@ describe("ledger spending rules", () => {
       openAmountCents: 1_000,
     }]);
     expect(balances(ledger).byEntity.house).toBe(1_000);
+  });
+});
+
+describe("transfer suggestions", () => {
+  function bankRow(id: string, accountId: string, amountCents: number): BankRow {
+    return {
+      id,
+      accountId,
+      importId: "import",
+      line: 1,
+      date: "2026-10-25",
+      description: "Transfer",
+      amountCents,
+      balanceCents: null,
+      raw: [],
+      entryId: null,
+      settlementId: null,
+      skipped: false,
+      dismissedTransferIds: [],
+      updatedAt: "now",
+    };
+  }
+
+  it("does not suggest ambiguous same-day pairs", () => {
+    const ledger = makeLedger({
+      id: "unused",
+      kind: "income",
+      date: "2026-10-25",
+      description: "",
+      amountCents: 1,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.accounts = [
+      { id: "checking", name: "Checking", type: "asset", payerEntityId: "self", updatedAt: "now" },
+      { id: "savings", name: "Savings", type: "asset", payerEntityId: "self", updatedAt: "now" },
+    ];
+    ledger.bankRows = [
+      bankRow("out-1", "checking", -5_000),
+      bankRow("out-2", "checking", -5_000),
+      bankRow("in-1", "savings", 5_000),
+      bankRow("in-2", "savings", 5_000),
+    ];
+
+    expect(suggestTransfers(ledger)).toEqual([]);
+  });
+
+  it("reduces House debt when a House-to-self move is confirmed as settlement", () => {
+    const ledger = makeLedger({
+      id: "unused",
+      kind: "income",
+      date: "2026-10-25",
+      description: "",
+      amountCents: 1,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.accounts = [
+      { id: "house-account", name: "House", type: "asset", payerEntityId: "house", updatedAt: "now" },
+      { id: "checking", name: "Checking", type: "asset", payerEntityId: "self", updatedAt: "now" },
+    ];
+    ledger.baselines = [{ id: "house-debt", entityId: "house", amountCents: 8_000, updatedAt: "now" }];
+    const outgoing = bankRow("house-out", "house-account", -5_000);
+    const incoming = bankRow("self-in", "checking", 5_000);
+    ledger.bankRows = [outgoing, incoming];
+
+    const confirmed = confirmTransfer(ledger, outgoing, incoming, "settlement");
+
+    expect(confirmed).not.toBeNull();
+    expect(balances(confirmed!).byEntity.house).toBe(3_000);
+    expect(confirmed!.bankRows?.every((row) => row.settlementId !== null)).toBe(true);
   });
 });

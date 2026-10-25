@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { SELF_ENTITY_ID, type BankRow, type Entry, type Ledger } from "../../domain/ledger";
+import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type BankRow, type Entry, type Ledger } from "../../domain/ledger";
+import { cardCycle, confirmTransfer, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatAud } from "../../domain/value";
 import { SpendForm } from "./SpendForm";
 
@@ -12,6 +13,10 @@ interface ReviewViewProps {
 export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
   const [spendingRowId, setSpendingRowId] = useState<string | null>(null);
   const [focusNextId, setFocusNextId] = useState<string | null>(null);
+  const [transferPickerRowId, setTransferPickerRowId] = useState<string | null>(null);
+  const [transferPartnerId, setTransferPartnerId] = useState("");
+  const [confirmingTransfer, setConfirmingTransfer] = useState<{ outgoingId: string; incomingId: string } | null>(null);
+  const [transferMessage, setTransferMessage] = useState("");
   const actionRefs = useRef(new Map<string, HTMLButtonElement>());
   const headingRef = useRef<HTMLHeadingElement>(null);
   const bankRows = ledger.bankRows ?? [];
@@ -20,6 +25,12 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     .filter((row) => !row.entryId && !row.settlementId && !row.skipped)
     .sort((first, second) => second.date.localeCompare(first.date) || second.line - first.line);
   const spendingRow = pendingRows.find((row) => row.id === spendingRowId);
+  const suggestions = suggestTransfers(ledger);
+  const suggestionByRow = new Map<string, PossibleTransfer>();
+  for (const suggestion of suggestions) {
+    suggestionByRow.set(suggestion.outgoing.id, suggestion);
+    suggestionByRow.set(suggestion.incoming.id, suggestion);
+  }
 
   useEffect(() => {
     if (!focusNextId) return;
@@ -95,6 +106,62 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
     focusFollowingRow(row);
   }
 
+  function confirmPair(outgoing: BankRow, incoming: BankRow, choice?: TransferChoice) {
+    const next = confirmTransfer(ledger, outgoing, incoming, choice);
+    if (!next) {
+      setTransferMessage("This payer combination is unsupported. Both rows remain in review.");
+      setConfirmingTransfer(null);
+      return;
+    }
+    update(next);
+    setConfirmingTransfer(null);
+    setTransferPickerRowId(null);
+    setTransferMessage("");
+    focusFollowingRow(outgoing);
+  }
+
+  function requestConfirm(outgoing: BankRow, incoming: BankRow) {
+    const outgoingPayer = ledger.accounts.find((item) => item.id === outgoing.accountId)?.payerEntityId;
+    const incomingPayer = ledger.accounts.find((item) => item.id === incoming.accountId)?.payerEntityId;
+    if (outgoingPayer === incomingPayer) {
+      confirmPair(outgoing, incoming);
+      return;
+    }
+    const selfAndHouse =
+      (outgoingPayer === SELF_ENTITY_ID && incomingPayer === HOUSE_ENTITY_ID) ||
+      (outgoingPayer === HOUSE_ENTITY_ID && incomingPayer === SELF_ENTITY_ID);
+    if (!selfAndHouse) {
+      setTransferMessage("This payer combination is unsupported. Both rows remain in review.");
+      return;
+    }
+    setConfirmingTransfer({ outgoingId: outgoing.id, incomingId: incoming.id });
+    setTransferMessage("");
+  }
+
+  function dismissPair(row: BankRow, other: BankRow) {
+    const now = new Date().toISOString();
+    update({
+      ...ledger,
+      bankRows: bankRows.map((item) => item.id === row.id
+        ? { ...item, dismissedTransferIds: [...new Set([...item.dismissedTransferIds, other.id])], updatedAt: now }
+        : item),
+    });
+  }
+
+  function pendingPair(first: BankRow, second: BankRow) {
+    return first.amountCents < 0 ? { outgoing: first, incoming: second } : { outgoing: second, incoming: first };
+  }
+
+  function choiceActions(outgoing: BankRow, incoming: BankRow) {
+    if (confirmingTransfer?.outgoingId !== outgoing.id || confirmingTransfer.incomingId !== incoming.id) return null;
+    return (
+      <>
+        <button className="secondary" onClick={() => confirmPair(outgoing, incoming, "contribution")} type="button">Contribution</button>{" "}
+        <button className="secondary" onClick={() => confirmPair(outgoing, incoming, "settlement")} type="button">Settlement</button>
+      </>
+    );
+  }
+
   return (
     <>
       <header className="page-heading">
@@ -122,12 +189,20 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
           />
         </section>
       )}
+      {transferMessage && <p className="banner error" role="status">{transferMessage}</p>}
       <div className="table-scroll">
         <table>
           <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th /></tr></thead>
           <tbody>
             {pendingRows.map((row) => {
               const account = ledger.accounts.find((item) => item.id === row.accountId);
+              const suggestion = suggestionByRow.get(row.id);
+              const otherRow = suggestion && (suggestion.outgoing.id === row.id ? suggestion.incoming : suggestion.outgoing);
+              const otherAccount = otherRow && ledger.accounts.find((item) => item.id === otherRow.accountId);
+              const paymentCycle = row.amountCents > 0 && account?.type === "credit" ? cardCycle(ledger, row) : null;
+              const selectableRows = transferPickerRowId === row.id
+                ? pendingRows.filter((item) => item.id !== row.id && item.accountId !== row.accountId && Math.sign(item.amountCents) !== Math.sign(row.amountCents))
+                : [];
               return (
                 <tr key={row.id}>
                   <td className="date-cell">{row.date}</td>
@@ -157,6 +232,51 @@ export function ReviewView({ ledger, update, onSettle }: ReviewViewProps) {
                       >Income</button>
                     ) : null}{" "}
                     <button className="secondary" onClick={() => onSettle(row)} type="button">Settlement</button>{" "}
+                    {suggestion && otherRow && otherAccount ? (
+                      <div className="form-grid" aria-label="Possible transfer">
+                        <p>Possible transfer with {otherAccount.name} ({otherRow.date}).</p>
+                        <button className="secondary" onClick={() => requestConfirm(suggestion.outgoing, suggestion.incoming)} type="button">Confirm</button>{" "}
+                        {choiceActions(suggestion.outgoing, suggestion.incoming)}
+                        <button className="secondary" onClick={() => dismissPair(row, otherRow)} type="button">Dismiss</button>
+                      </div>
+                    ) : !suggestion && row.amountCents !== 0 ? (
+                      <div className="form-grid">
+                        <button className="secondary" onClick={() => {
+                          setTransferPickerRowId(transferPickerRowId === row.id ? null : row.id);
+                          setTransferPartnerId("");
+                        }} type="button">Transfer</button>
+                        {transferPickerRowId === row.id && (
+                          <>
+                            <label>
+                              Other bank row
+                              <select value={transferPartnerId} onChange={(event) => setTransferPartnerId(event.target.value)}>
+                                <option value="">Choose a row</option>
+                                {selectableRows.map((item) => {
+                                  const itemAccount = ledger.accounts.find((candidate) => candidate.id === item.accountId);
+                                  return <option key={item.id} value={item.id}>{item.date} | {item.description} | {itemAccount?.name ?? "Unknown"} | {formatAud(item.amountCents)}</option>;
+                                })}
+                              </select>
+                            </label>
+                            {transferPartnerId && (() => {
+                              const partner = pendingRows.find((item) => item.id === transferPartnerId);
+                              if (!partner) return null;
+                              const pair = pendingPair(row, partner);
+                              return (
+                                <>
+                                  <button className="secondary" onClick={() => requestConfirm(pair.outgoing, pair.incoming)} type="button">Confirm</button>{" "}
+                                  {choiceActions(pair.outgoing, pair.incoming)}
+                                </>
+                              );
+                            })()}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
+                    {paymentCycle && (
+                      <p>
+                        Card cycle: {formatAud(paymentCycle.sumCents)}. Difference: {formatAud(paymentCycle.differenceCents)}; a difference may be interest, a fee, or a missing row.
+                      </p>
+                    )}{" "}
                     <button
                       ref={row.amountCents === 0 ? (button) => {
                         if (button) actionRefs.current.set(row.id, button);

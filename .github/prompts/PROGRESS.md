@@ -22,4 +22,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 07: Settlement persistence, oldest-first open-item allocation, bank-row settlement flow, and settlement view implemented. Tests and typecheck pass.
 - Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SettleView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 08.
+- Batch 08: Unambiguous transfer suggestions, dismissals, transfer/contribution/settlement confirmation, card-cycle checks, and settlement bank activity implemented. Tests and typecheck pass.
+- Files changed: `src/domain/transfers.ts`, `src/ui/views/ReviewView.tsx`, `src/ui/views/SettleView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 09.
 
