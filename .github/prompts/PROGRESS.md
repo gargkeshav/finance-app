@@ -88,4 +88,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 19: Standalone metadata, shell-only offline caching, production-only worker registration, narrow horizontal navigation, and the Android Chrome download/upload notice implemented. `npm run build` passes; production preview confirmed the worker cached only the shell and referenced assets, and the app rendered after an offline reload. Phase 2 complete.
 - Files changed: `index.html`, `public/manifest.webmanifest`, `public/icon.svg`, `public/sw.js`, `src/main.tsx`, `src/ui/styles.css`, `src/ui/views/DataView.tsx`, `.github/prompts/PROGRESS.md`.
 - Left: App installation and Android picker fallback were not manually tested on physical devices. Next: none.
+- Batch 20: Remembered in-place file reopening, unsaved recovery copies, and debounced autosave with capped retry backoff implemented. `npm test` (11 files, 75 tests) and `npm run typecheck` pass.
+- Files changed: `src/adapters/file-store.ts`, `src/ui/LocalApp.tsx`, `tests/file-store.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: Chrome reopen, recovery, and autosave interactions were not manually exercised. Next: 21.
 

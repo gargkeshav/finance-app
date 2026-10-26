@@ -14,6 +14,21 @@ type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: (options?: { mode: "readwrite" }) => Promise<FileSystemDirectoryHandle>;
 };
 
+type ReopenableFileHandle = FileSystemFileHandle & {
+  queryPermission: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
+  requestPermission: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
+};
+
+export type RecoveryCopy = {
+  fileName: string;
+  content: string;
+  savedAt: string;
+};
+
+export function nextAutosaveDelayMs(failedAttempts: number): number {
+  return Math.min(30_000, 1000 * 2 ** Math.min(failedAttempts, 5));
+}
+
 export function getStorageMode(): StorageMode {
   return window.showOpenFilePicker && window.showSaveFilePicker
     ? "in-place"
@@ -29,6 +44,9 @@ export class FileStore {
   private currentFileName = "";
   private backupDirectory: FileSystemDirectoryHandle | null = null;
   private currentBackupWarning = "";
+  private databasePromise: Promise<IDBDatabase | null> | null = null;
+  private reopenEnabled = true;
+  private recoveryEnabled = true;
 
   get mode(): StorageMode {
     return getStorageMode();
@@ -36,6 +54,10 @@ export class FileStore {
 
   get fileName(): string {
     return this.currentFileName;
+  }
+
+  get hasOpenFile(): boolean {
+    return this.handle !== null;
   }
 
   get backupSupported(): boolean {
@@ -71,7 +93,112 @@ export class FileStore {
     const ledger = parseLedger(await file.text());
     this.handle = handle;
     this.currentFileName = handle.name;
+    await this.rememberHandle(handle);
     return { ledger, fileName: handle.name };
+  }
+
+  async rememberHandle(handle: FinanceFileHandle): Promise<void> {
+    if (!this.reopenEnabled) return;
+    try {
+      const database = await this.database();
+      if (!database) return;
+      const transaction = database.transaction("handles", "readwrite");
+      transaction.objectStore("handles").put(handle, "last");
+      await this.transactionComplete(transaction);
+    } catch {
+      this.reopenEnabled = false;
+    }
+  }
+
+  async forgetHandle(): Promise<void> {
+    if (!this.reopenEnabled) return;
+    try {
+      const database = await this.database();
+      if (!database) return;
+      const transaction = database.transaction("handles", "readwrite");
+      transaction.objectStore("handles").delete("last");
+      await this.transactionComplete(transaction);
+    } catch {
+      this.reopenEnabled = false;
+    }
+  }
+
+  async loadRememberedHandle(): Promise<FinanceFileHandle | null> {
+    if (!this.reopenEnabled) return null;
+    try {
+      const database = await this.database();
+      if (!database) return null;
+      const transaction = database.transaction("handles", "readonly");
+      const handle = await this.requestResult<FinanceFileHandle | undefined>(
+        transaction.objectStore("handles").get("last"),
+      );
+      await this.transactionComplete(transaction);
+      return handle ?? null;
+    } catch {
+      this.reopenEnabled = false;
+      return null;
+    }
+  }
+
+  async reopenHandle(handle: FinanceFileHandle): Promise<{ ledger: Ledger; fileName: string }> {
+    const reopenable = handle as ReopenableFileHandle;
+    let permission = await reopenable.queryPermission({ mode: "readwrite" });
+    if (permission !== "granted") {
+      permission = await reopenable.requestPermission({ mode: "readwrite" });
+    }
+    if (permission !== "granted") {
+      throw new Error(`Permission to reopen ${handle.name} was not granted.`);
+    }
+    const file = await handle.getFile();
+    const ledger = parseLedger(await file.text());
+    this.handle = handle;
+    this.currentFileName = handle.name;
+    await this.rememberHandle(handle);
+    return { ledger, fileName: handle.name };
+  }
+
+  async writeRecovery(fileName: string, content: string): Promise<void> {
+    if (!this.recoveryEnabled) return;
+    try {
+      const database = await this.database();
+      if (!database) return;
+      const recovery: RecoveryCopy = { fileName, content, savedAt: new Date().toISOString() };
+      const transaction = database.transaction("recovery", "readwrite");
+      transaction.objectStore("recovery").put(recovery, "current");
+      await this.transactionComplete(transaction);
+    } catch {
+      this.recoveryEnabled = false;
+    }
+  }
+
+  async readRecovery(): Promise<RecoveryCopy | null> {
+    if (!this.recoveryEnabled) return null;
+    try {
+      const database = await this.database();
+      if (!database) return null;
+      const transaction = database.transaction("recovery", "readonly");
+      const recovery = await this.requestResult<RecoveryCopy | undefined>(
+        transaction.objectStore("recovery").get("current"),
+      );
+      await this.transactionComplete(transaction);
+      return recovery ?? null;
+    } catch {
+      this.recoveryEnabled = false;
+      return null;
+    }
+  }
+
+  async clearRecovery(): Promise<void> {
+    if (!this.recoveryEnabled) return;
+    try {
+      const database = await this.database();
+      if (!database) return;
+      const transaction = database.transaction("recovery", "readwrite");
+      transaction.objectStore("recovery").delete("current");
+      await this.transactionComplete(transaction);
+    } catch {
+      this.recoveryEnabled = false;
+    }
   }
 
   async openUploadedFile(file: File): Promise<{ ledger: Ledger; fileName: string }> {
@@ -113,8 +240,53 @@ export class FileStore {
     await this.write(handle, contents);
     this.handle = handle;
     this.currentFileName = handle.name;
+    await this.rememberHandle(handle);
     await this.backup(contents);
     return handle.name;
+  }
+
+  private async database(): Promise<IDBDatabase | null> {
+    if (!this.databasePromise) {
+      this.databasePromise = new Promise<IDBDatabase>((resolve, reject) => {
+        try {
+          const request = indexedDB.open("financeApp", 1);
+          request.onupgradeneeded = () => {
+            try {
+              const database = request.result;
+              if (!database.objectStoreNames.contains("handles")) database.createObjectStore("handles");
+              if (!database.objectStoreNames.contains("recovery")) database.createObjectStore("recovery");
+            } catch (reason) {
+              reject(reason);
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+          request.onblocked = () => reject(new Error("The local file database is blocked."));
+        } catch (reason) {
+          reject(reason);
+        }
+      }).catch(() => {
+        this.reopenEnabled = false;
+        this.recoveryEnabled = false;
+        return null;
+      });
+    }
+    return this.databasePromise;
+  }
+
+  private requestResult<T>(request: IDBRequest<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  private transactionComplete(transaction: IDBTransaction): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
   }
 
   private async backup(contents: string): Promise<void> {

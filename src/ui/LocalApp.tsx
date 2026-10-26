@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { FileStore, isPickerCancellation } from "../adapters/file-store";
-import { emptyLedger, ledgerProblem, stringifyLedger } from "../adapters/file-ledger";
+import { FileStore, isPickerCancellation, nextAutosaveDelayMs } from "../adapters/file-store";
+import { emptyLedger, ledgerProblem, parseLedger, stringifyLedger } from "../adapters/file-ledger";
 import type { Account, BankRow, Baseline, Entry, Entity, Ledger, Settlement } from "../domain/ledger";
 import type { EntryRule } from "../domain/rules";
 import type { EntryFilter } from "../domain/query";
@@ -42,6 +42,8 @@ export function LocalApp() {
   const [ledger, setLedger] = useState<Ledger>(initialState.ledger);
   const [savedContent, setSavedContent] = useState(initialState.savedContent);
   const [fileName, setFileName] = useState("");
+  const [reopenPrompt, setReopenPrompt] = useState<{ handle: NonNullable<Awaited<ReturnType<FileStore["loadRememberedHandle"]>>>; fileName: string } | null>(null);
+  const [recoveryCopy, setRecoveryCopy] = useState<Awaited<ReturnType<FileStore["readRecovery"]>>>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
@@ -51,8 +53,16 @@ export function LocalApp() {
   const [ruleDescription, setRuleDescription] = useState("");
   const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
   const [fileStore] = useState(() => new FileStore());
+  const [isSaving, setIsSaving] = useState(false);
+  const [autosaveFailures, setAutosaveFailures] = useState(0);
+  const [autosaveDelayMs, setAutosaveDelayMs] = useState(1000);
+  const [autosaveVersion, setAutosaveVersion] = useState(0);
   const uploadInput = useRef<HTMLInputElement>(null);
   const undoTimeout = useRef<number | null>(null);
+  const autosaveFailureCount = useRef(0);
+  const autosaveInProgress = useRef(false);
+  const lastAutosaveContent = useRef("");
+  const saveLedgerRef = useRef<(saveAs: boolean, automatic?: boolean) => Promise<void>>(async () => {});
   let currentContent = "";
   let serializationError = "";
   try {
@@ -88,6 +98,43 @@ export function LocalApp() {
   useEffect(() => () => {
     if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
   }, []);
+
+  useEffect(() => {
+    if (fileStore.mode !== "in-place") return;
+    let cancelled = false;
+    void (async () => {
+      const handle = await fileStore.loadRememberedHandle();
+      if (cancelled) return;
+      if (handle) {
+        setReopenPrompt({ handle, fileName: handle.name });
+        return;
+      }
+      const recovery = await fileStore.readRecovery();
+      if (!cancelled && recovery && recovery.content !== initialState.savedContent) {
+        setRecoveryCopy(recovery);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [fileStore, initialState.savedContent]);
+
+  useEffect(() => {
+    if (lastAutosaveContent.current === currentContent) return;
+    lastAutosaveContent.current = currentContent;
+    setAutosaveDelayMs(1000);
+  }, [currentContent]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges || serializationError) return;
+    const content = currentContent;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        await fileStore.writeRecovery(fileName || fileStore.fileName || "finance-ledger.finance.json", content);
+        if (fileStore.mode !== "in-place" || !fileStore.hasOpenFile || autosaveInProgress.current) return;
+        await saveLedgerRef.current(false, true);
+      })();
+    }, autosaveDelayMs);
+    return () => window.clearTimeout(timer);
+  }, [currentContent, fileName, fileStore, hasUnsavedChanges, serializationError, autosaveDelayMs, autosaveVersion]);
 
   useEffect(() => {
     function saveOnShortcut(event: KeyboardEvent) {
@@ -160,7 +207,7 @@ export function LocalApp() {
     return !hasUnsavedChanges || window.confirm("Discard unsaved changes and open another ledger?");
   }
 
-  function acceptOpenedLedger(result: { ledger: Ledger; fileName: string }) {
+  function acceptOpenedLedger(result: { ledger: Ledger; fileName: string }, unsaved = false) {
     if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
     undoTimeout.current = null;
     setUndoState(null);
@@ -169,12 +216,54 @@ export function LocalApp() {
       (row) => !row.entryId && !row.settlementId && !row.skipped,
     ).length;
     setLedger(result.ledger);
-    setSavedContent(content);
+    setSavedContent(unsaved ? "" : content);
     setFileName(result.fileName);
+    setReopenPrompt(null);
+    setRecoveryCopy(null);
+    autosaveFailureCount.current = 0;
+    setAutosaveFailures(0);
+    setAutosaveDelayMs(1000);
     setView(waitingRows > 0 ? "Review" : "Activity");
     setMessage("Ledger opened.");
     setError("");
     setWarning("");
+  }
+
+  async function offerRecovery(loadedContent: string) {
+    const recovery = await fileStore.readRecovery();
+    if (recovery && recovery.content !== loadedContent) setRecoveryCopy(recovery);
+  }
+
+  async function reopenRememberedFile() {
+    if (!reopenPrompt) return;
+    const { handle } = reopenPrompt;
+    setReopenPrompt(null);
+    try {
+      const result = await fileStore.reopenHandle(handle);
+      acceptOpenedLedger(result);
+      await offerRecovery(stringifyLedger(result.ledger));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The ledger file could not be reopened.");
+      setMessage("");
+      await offerRecovery(currentContent);
+    }
+  }
+
+  function useRecoveryCopy() {
+    if (!recoveryCopy) return;
+    try {
+      const recoveredLedger = parseLedger(recoveryCopy.content);
+      acceptOpenedLedger({ ledger: recoveredLedger, fileName: recoveryCopy.fileName }, true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The recovered ledger could not be opened.");
+      setMessage("");
+      setRecoveryCopy(null);
+    }
+  }
+
+  async function discardRecoveryCopy() {
+    await fileStore.clearRecovery();
+    setRecoveryCopy(null);
   }
 
   async function openLedger() {
@@ -204,7 +293,15 @@ export function LocalApp() {
     }
   }
 
-  async function saveLedger(saveAs: boolean) {
+  async function saveLedger(saveAs: boolean, automatic = false) {
+    if (autosaveInProgress.current) return;
+    if (!automatic) {
+      autosaveFailureCount.current = 0;
+      setAutosaveFailures(0);
+      setAutosaveDelayMs(1000);
+    }
+    autosaveInProgress.current = true;
+    setIsSaving(true);
     try {
       const content = currentContent;
       const savedFileName = saveAs
@@ -212,18 +309,41 @@ export function LocalApp() {
         : await fileStore.save(ledger);
       setSavedContent(content);
       setFileName(savedFileName);
-      setMessage("Ledger saved.");
+      setMessage(automatic ? "" : "Ledger saved.");
       setError("");
       setWarning(fileStore.backupWarning);
+      autosaveFailureCount.current = 0;
+      setAutosaveFailures(0);
+      setAutosaveDelayMs(1000);
+      await fileStore.clearRecovery();
     } catch (reason) {
       if (isPickerCancellation(reason)) return;
       setError(reason instanceof Error ? reason.message : "The ledger could not be saved.");
       setMessage("");
+      if (automatic) {
+        const failedAttempts = autosaveFailureCount.current + 1;
+        autosaveFailureCount.current = failedAttempts;
+        setAutosaveFailures(failedAttempts);
+        setAutosaveDelayMs(nextAutosaveDelayMs(failedAttempts));
+        setAutosaveVersion((version) => version + 1);
+      } else {
+        autosaveFailureCount.current = 0;
+        setAutosaveFailures(0);
+        setAutosaveDelayMs(1000);
+        setAutosaveVersion((version) => version + 1);
+      }
+    } finally {
+      autosaveInProgress.current = false;
+      setIsSaving(false);
     }
   }
+  saveLedgerRef.current = saveLedger;
 
   async function saveNow(nextLedger: Ledger): Promise<void> {
     if (fileStore.mode === "download") return;
+    autosaveFailureCount.current = 0;
+    setAutosaveFailures(0);
+    setAutosaveDelayMs(1000);
     const content = stringifyLedger(nextLedger);
     const savedFileName = await fileStore.save(nextLedger);
     setSavedContent(content);
@@ -231,6 +351,7 @@ export function LocalApp() {
     setError("");
     setMessage("");
     setWarning(fileStore.backupWarning);
+    await fileStore.clearRecovery();
   }
 
   async function chooseBackupFolder() {
@@ -299,7 +420,9 @@ export function LocalApp() {
             <button className="secondary" onClick={() => void saveLedger(true)} type="button">Save as</button>
             <button className="primary" onClick={() => void saveLedger(false)} type="button">Save</button>
           </div>
-          {hasUnsavedChanges && <span className="ledger-unsaved" role="status">Unsaved changes</span>}
+          <span className="ledger-unsaved" role="status">
+            {isSaving ? "Saving…" : hasUnsavedChanges ? autosaveFailures > 0 ? "Not saved · retrying" : "Saving…" : "Saved"}
+          </span>
         </section>
       </aside>
       <main className="workspace">
@@ -316,6 +439,8 @@ export function LocalApp() {
         {warning && <p className="banner warning" role="status">{warning}</p>}
         {undoState && <p className="banner" role="status">{undoState.label}. <button className="secondary" onClick={undoLastAction} type="button">Undo</button></p>}
         {visibleError && <p className="banner error" role="alert">{visibleError}</p>}
+        {reopenPrompt && <p className="banner" role="status">Reopen <strong>{reopenPrompt.fileName}</strong>? <button className="secondary" onClick={() => void reopenRememberedFile()} type="button">Reopen</button></p>}
+        {!reopenPrompt && recoveryCopy && <p className="banner" role="status">Recovered unsaved work from {new Date(recoveryCopy.savedAt).toLocaleString()}. <button className="secondary" onClick={useRecoveryCopy} type="button">Use recovered copy</button> <button className="secondary" onClick={() => void discardRecoveryCopy()} type="button">Discard</button></p>}
         {views[view]}
         </div>
       </main>
