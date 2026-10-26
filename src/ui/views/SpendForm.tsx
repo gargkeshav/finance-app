@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { categoryMemoryKey, debtsOf, linkedBankAmountCents, SELF_ENTITY_ID, splitPreset, validateSpend, type Category, type Entry, type Ledger, type Portion, type SplitPreset } from "../../domain/ledger";
+import { categoryMemoryKey, debtsOf, linkedBankAmountCents, SELF_ENTITY_ID, splitPreset, validateSpend, type Category, type Entity, type Entry, type Ledger, type Portion, type SplitPreset } from "../../domain/ledger";
 import { formatAud, formatMoney, isBankDate, parseAud } from "../../domain/value";
+import { ComboField } from "./ComboField";
 
 interface SpendFormProps {
   ledger: Ledger;
   initialValues?: Partial<Entry>;
   onSave: (entry: Entry, preset?: SplitPreset) => void;
   onAddCategory?: (category: Category) => void;
+  onAddEntity?: (entity: Entity) => void;
   onCancel?: () => void;
 }
 
@@ -24,7 +26,7 @@ function centsText(cents: number): string {
   return formatAud(cents).slice(4);
 }
 
-export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCancel }: SpendFormProps) {
+export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddEntity, onCancel }: SpendFormProps) {
   const [date, setDate] = useState(initialValues?.date ?? todayLocal());
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [amount, setAmount] = useState(initialValues?.amountCents === undefined ? "" : centsText(initialValues.amountCents));
@@ -35,7 +37,6 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
     : undefined;
   const suggestedCategoryId = rememberedCategoryId;
   const [categoryId, setCategoryId] = useState(initialValues?.categoryId === undefined ? rememberedCategoryId ?? "" : initialValues.categoryId ?? "");
-  const [newCategoryName, setNewCategoryName] = useState("");
   const [tagsText, setTagsText] = useState(initialValues?.tags?.join(", ") ?? "");
   const [note, setNote] = useState(initialValues?.note ?? "");
   const [extraReimbursable, setExtraReimbursable] = useState(initialValues?.extraReimbursable ?? false);
@@ -49,6 +50,10 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
 
   const selectedAccount = ledger.accounts.find((account) => account.id === accountId);
   const effectivePayerId = selectedAccount?.payerEntityId ?? payerEntityId;
+  const selectedEntityIds = [effectivePayerId, presetEntityId, ...portions.map((portion) => portion.entityId)];
+  const entityOptions = ledger.entities
+    .filter((entity) => !entity.archived || selectedEntityIds.includes(entity.id))
+    .map((entity) => ({ id: entity.id, name: entity.name }));
   let amountCents: number | null = null;
   let portionValues: Portion[] = [];
   let remainingCents: number | null = null;
@@ -142,19 +147,16 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
     }, activePreset);
   }
 
-  function addCategory() {
-    const name = newCategoryName.trim();
-    if (!name) return;
-    const existing = ledger.categories?.find((category) => category.name.toLowerCase() === name.toLowerCase());
-    if (existing) {
-      setCategoryId(existing.id);
-      setNewCategoryName("");
-      return;
-    }
+  function createCategory(name: string): string {
     const category: Category = { id: crypto.randomUUID(), name, archived: false, updatedAt: new Date().toISOString() };
     onAddCategory?.(category);
-    setCategoryId(category.id);
-    setNewCategoryName("");
+    return category.id;
+  }
+
+  function createEntity(name: string): string {
+    const entity: Entity = { id: crypto.randomUUID(), kind: "person", name, archived: false, updatedAt: new Date().toISOString() };
+    onAddEntity?.(entity);
+    return entity.id;
   }
 
   return (
@@ -171,23 +173,12 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
         Amount (AUD)
         <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required />
       </label>
-      <label>
-        Category
-        <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-          <option value="">Uncategorized</option>
-          {(ledger.categories ?? []).filter((category) => !category.archived || category.id === categoryId).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-        </select>
-      </label>
+      <ComboField label="Category" value={categoryId} options={(ledger.categories ?? [])
+        .filter((category) => !category.archived || category.id === categoryId)
+        .map((category) => ({ id: category.id, name: category.name }))}
+        nonePlaceholder="Uncategorized" onChange={setCategoryId}
+        onCreate={onAddCategory ? createCategory : undefined} />
       {categoryId && categoryId === suggestedCategoryId && <p>Suggested from a past spend</p>}
-      {onAddCategory && (
-        <div className="dialog-actions">
-          <label>
-            Add category
-            <input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} />
-          </label>
-          <button className="secondary" disabled={!newCategoryName.trim()} onClick={addCategory} type="button">Add category</button>
-        </div>
-      )}
       <label>
         Tags (comma-separated)
         <input value={tagsText} onChange={(event) => setTagsText(event.target.value)} />
@@ -223,12 +214,9 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
         </select>
       </label>
       {!selectedAccount && (
-        <label>
-          Paid by
-          <select value={payerEntityId} onChange={(event) => setPayerEntityId(event.target.value)}>
-            {ledger.entities.filter((entity) => !entity.archived).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-          </select>
-        </label>
+        <ComboField label="Paid by" value={payerEntityId} options={entityOptions}
+          nonePlaceholder="Choose payer" onChange={setPayerEntityId}
+          onCreate={onAddEntity ? createEntity : undefined} />
       )}
 
       <fieldset>
@@ -238,12 +226,9 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
           <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "halfHouse" })} type="button">Half House</button>
           <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "allHouse" })} type="button">All House</button>
           {ledger.entities.some((entity) => !entity.archived) && <>
-            <label>
-              Entity
-              <select value={presetEntityId} onChange={(event) => setPresetEntityId(event.target.value)}>
-                {ledger.entities.filter((entity) => !entity.archived || entity.id === presetEntityId).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-              </select>
-            </label>
+            <ComboField label="Entity" value={presetEntityId} options={entityOptions}
+              nonePlaceholder="Choose entity" onChange={setPresetEntityId}
+              onCreate={onAddEntity ? createEntity : undefined} />
             <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "entity", entityId: presetEntityId })} type="button">All to entity</button>
           </>}
           <label>
@@ -257,12 +242,9 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onCanc
         </div>
         {portions.map((portion, index) => (
           <div className="form-grid" key={`${index}-${portion.entityId}`}>
-            <label>
-              For
-              <select value={portion.entityId} onChange={(event) => setPortion(index, "entityId", event.target.value)}>
-                {ledger.entities.filter((entity) => !entity.archived || entity.id === portion.entityId).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-              </select>
-            </label>
+            <ComboField label="For" value={portion.entityId} options={entityOptions}
+              nonePlaceholder="Choose person" onChange={(id) => setPortion(index, "entityId", id)}
+              onCreate={onAddEntity ? createEntity : undefined} />
             <label>
               Amount
               <input inputMode="decimal" value={portion.amount} onChange={(event) => setPortion(index, "amount", event.target.value)} placeholder="0.00" />

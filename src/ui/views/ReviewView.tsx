@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, splitPreset, type BankRow, type Category, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, splitPreset, type BankRow, type Category, type Entity, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
 import { cardCycle, confirmTransfer, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatMoney } from "../../domain/value";
 import { canAutoConfirm, firstRule } from "../../domain/rules";
 import { SpendForm } from "./SpendForm";
 import { createSplitwiseSpend, type SplitwiseInboxItem } from "../../adapters/splitwise";
+import { ComboField } from "./ComboField";
 
 interface ReviewViewProps {
   ledger: Ledger;
@@ -52,6 +53,16 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   for (const suggestion of suggestions) {
     suggestionByRow.set(suggestion.outgoing.id, suggestion);
     suggestionByRow.set(suggestion.incoming.id, suggestion);
+  }
+
+  function createCategory(name: string): string {
+    const category: Category = { id: crypto.randomUUID(), name, archived: false, updatedAt: new Date().toISOString() };
+    update({ ...ledger, categories: [...(ledger.categories ?? []), category] });
+    return category.id;
+  }
+
+  function addEntity(entity: Entity) {
+    update({ ...ledger, entities: [...ledger.entities, entity] });
   }
 
   function refundCandidates(row: BankRow) {
@@ -673,13 +684,10 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
             {ledger.entities.filter((entity) => !entity.archived || bulkEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
           </select>
         </label>}
-        <label>
-          Category
-          <select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}>
-            <option value="">Uncategorized</option>
-            {(ledger.categories ?? []).filter((category) => !category.archived || category.id === bulkCategoryId).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
-        </label>
+        <ComboField label="Category" value={bulkCategoryId} options={(ledger.categories ?? [])
+          .filter((category) => !category.archived || category.id === bulkCategoryId)
+          .map((category) => ({ id: category.id, name: category.name }))}
+          nonePlaceholder="Uncategorized" onChange={setBulkCategoryId} onCreate={createCategory} />
         <button className="secondary" disabled={!selectedRows.length} onClick={skipSelected} type="button">Skip selected</button>
         <button className="primary" disabled={!selectedRows.length || selectedRows.some((row) => row.amountCents >= 0) || !selectedBulkPreset()} onClick={spendSelected} type="button">Spend selected</button>
       </div>
@@ -768,6 +776,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
                               tags: matchedRule?.action.tags ?? [],
                             }} ledger={ledger}
                               onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
+                              onAddEntity={addEntity}
                               onCancel={() => setOpenDetail(null)} onSave={(entry, preset) => saveSpend(row, entry, preset)} />
                           </section>
                         )}
@@ -787,6 +796,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
                               portions: scaledPortions(original, Math.abs(row.amountCents)),
                             }} ledger={ledger}
                               onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
+                              onAddEntity={addEntity}
                               onCancel={() => setOpenDetail(null)} onSave={(entry) => saveRefund(row, entry)} />
                               : candidates.length === 0 ? <p className="banner">No spends are available to refund.</p> : null}
                           </section>;

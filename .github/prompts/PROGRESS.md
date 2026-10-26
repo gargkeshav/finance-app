@@ -94,4 +94,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 21: Labelled changes are logged by collection, shown in History, and the latest change can be reverted with per-record conflict skipping. `npm test` (12 files, 76 tests), `npm run typecheck`, and `git diff --check` pass.
 - Files changed: `src/domain/history.ts`, `src/adapters/file-ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/HistoryView.tsx`, `tests/history.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: History navigation and the confirm/revert interaction were not manually exercised. Next: 22.
+- Batch 22: Category and person creation from ComboField pickers implemented across spend, Activity, and Review. `npm test` (13 files, 79 tests) and `npm run typecheck` pass; synthetic browser checks created a person from a spend's For field and a category from an Activity row.
+- Files changed: `src/ui/combo.ts`, `src/ui/views/ComboField.tsx`, `src/ui/views/SpendForm.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/ReviewView.tsx`, `tests/combo.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 23.
 

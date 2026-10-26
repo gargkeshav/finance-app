@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { formatMoney, parseAud } from "../../domain/value";
-import { categoryMemoryAfterSpend, type Category, type Entry, type EntryKind, type Ledger } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, type Category, type Entity, type Entry, type EntryKind, type Ledger } from "../../domain/ledger";
 import { filterEntries, filteredTotals, type EntryFilter } from "../../domain/query";
 import {
   buildExpense,
@@ -14,6 +14,7 @@ import {
   type SplitwiseExpenseShare,
 } from "../../adapters/splitwise";
 import { SpendForm } from "./SpendForm";
+import { ComboField } from "./ComboField";
 
 interface ActivityViewProps {
   ledger: Ledger;
@@ -295,6 +296,16 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
     update({ ...ledger, categories: [...(ledger.categories ?? []), category] });
   }
 
+  function createCategory(name: string): string {
+    const category: Category = { id: crypto.randomUUID(), name, archived: false, updatedAt: new Date().toISOString() };
+    addCategory(category);
+    return category.id;
+  }
+
+  function addEntity(entity: Entity) {
+    update({ ...ledger, entities: [...ledger.entities, entity] });
+  }
+
   function deleteEntry(entry: Entry) {
     const refundCount = ledger.entries.filter((item) => item.kind === "refund" && item.refundOf === entry.id).length;
     if (entry.kind === "spend" && refundCount > 0) {
@@ -367,6 +378,7 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
           ledger={ledger}
           onSave={saveEntry}
           onAddCategory={addCategory}
+          onAddEntity={addEntity}
           onCancel={() => { setEditing(null); setShowForm(false); }}
         />
       )}
@@ -385,7 +397,9 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
       </div>
       {showAdvancedFilters && <div className="filters advanced-filters">
         <label>Account<select value={activityFilter.accountId ?? ""} onChange={(event) => openActivity({ ...activityFilter, accountId: event.target.value })}><option value="">All accounts</option>{ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-        <label>Category<select value={activityFilter.categoryId ?? ""} onChange={(event) => openActivity({ ...activityFilter, categoryId: event.target.value })}><option value="">All categories</option>{(ledger.categories ?? []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+        <ComboField label="Category" value={activityFilter.categoryId ?? ""} options={(ledger.categories ?? []).map((category) => ({ id: category.id, name: category.name }))}
+          nonePlaceholder="All categories" onChange={(categoryId) => openActivity({ ...activityFilter, categoryId })}
+          onCreate={createCategory} />
         <label>Entity<select value={activityFilter.entityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, entityId: event.target.value })}><option value="">Any entity</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
         <label>Paid by<select value={activityFilter.payerEntityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, payerEntityId: event.target.value })}><option value="">Anyone</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
         <label>Tag<input value={activityFilter.tag ?? ""} onChange={(event) => openActivity({ ...activityFilter, tag: event.target.value })} /></label>
@@ -404,7 +418,8 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
           : current.filter((id) => !filteredIds.includes(id)))} type="checkbox" />Select filtered ({filteredIds.length})</label>
         <button className="secondary" disabled={!selectedVisibleIds.length} onClick={() => updateSelectedEntries(true)} type="button">Include selected</button>
         <button className="secondary" disabled={!selectedVisibleIds.length} onClick={() => updateSelectedEntries(false)} type="button">Exclude selected</button>
-        <label>Set category<select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}><option value="">Choose category</option><option value="__none__">Uncategorised</option>{(ledger.categories ?? []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+        <ComboField label="Set category" value={bulkCategoryId} options={[{ id: "__none__", name: "Uncategorised" }, ...(ledger.categories ?? []).map((category) => ({ id: category.id, name: category.name }))]}
+          nonePlaceholder="Choose category" onChange={setBulkCategoryId} onCreate={createCategory} />
         <button className="secondary" disabled={!selectedVisibleIds.length || !bulkCategoryId} onClick={() => applyBulkEdit("category")} type="button">Apply to {selectedVisibleIds.length}</button>
         <label>Add tag<input value={bulkTag} onChange={(event) => setBulkTag(event.target.value)} /></label>
         <button className="secondary" disabled={!selectedVisibleIds.length || !bulkTag.trim()} onClick={() => applyBulkEdit("addTag")} type="button">Add to {selectedVisibleIds.length}</button>
@@ -583,12 +598,10 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
                       );
                     })}
                   </td>
-                  <td>
-                    <select aria-label={`${entry.description || entry.kind} category`} value={entry.categoryId ?? ""} onChange={(event) => updateEntryInline(entry, { categoryId: event.target.value || null })}>
-                      <option value="">Uncategorised</option>
-                      {(ledger.categories ?? []).filter((category) => !category.archived || category.id === entry.categoryId).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-                    </select>
-                  </td>
+                  <td><ComboField label={`${entry.description || entry.kind} category`} value={entry.categoryId ?? ""}
+                    options={(ledger.categories ?? []).filter((category) => !category.archived || category.id === entry.categoryId).map((category) => ({ id: category.id, name: category.name }))}
+                    nonePlaceholder="Uncategorised" onChange={(categoryId) => updateEntryInline(entry, { categoryId: categoryId || null })}
+                    onCreate={createCategory} /></td>
                   <td>{account?.name ?? <span className="muted">No account</span>}</td>
                   <td>{payer?.name ?? "Unknown"}</td>
                   <td className="amount">{formatMoney(entry.amountCents)}</td>
@@ -610,6 +623,7 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
                         initialValues={entry}
                         onSave={saveEntry}
                         onAddCategory={addCategory}
+                        onAddEntity={addEntity}
                         onCancel={() => setEditing(null)}
                       />
                     ) : <div className="entry-details">
