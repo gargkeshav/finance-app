@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { formatMoney, parseAud } from "../../domain/value";
-import { categoryMemoryAfterSpend, type Category, type Entity, type Entry, type EntryKind, type Ledger } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, merchantNameAfterSpend, type Category, type Entity, type Entry, type EntryKind, type Ledger } from "../../domain/ledger";
 import { filterEntries, filteredTotals, type EntryFilter } from "../../domain/query";
 import {
   buildExpense,
@@ -272,12 +272,14 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
     const savedEntry = existing
       ? { ...entry, bankRowIds: entry.bankRowIds ?? existing.bankRowIds, countsTowardDebt: existing.countsTowardDebt }
       : entry;
+    const now = new Date().toISOString();
     update({
       ...ledger,
       entries: existing
         ? ledger.entries.map((item) => item.id === entry.id ? savedEntry : item)
         : [...ledger.entries, savedEntry],
-      categoryMemory: categoryMemoryAfterSpend(ledger, savedEntry, new Date().toISOString()),
+      categoryMemory: categoryMemoryAfterSpend(ledger, savedEntry, now),
+      merchantNames: merchantNameAfterSpend(ledger, savedEntry, now),
     });
     setEditing(null);
     setShowForm(false);

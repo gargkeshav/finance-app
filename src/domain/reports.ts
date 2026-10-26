@@ -1,4 +1,5 @@
 import { categoryNature, HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entry, type Ledger } from "./ledger";
+import { cleanMerchantKey } from "./merchants";
 import { sumCents } from "./value";
 
 export type ReportScope = "personal" | "household";
@@ -198,7 +199,7 @@ export function byCategory(ledger: Ledger, scope: ReportScope, from: string, to:
 }
 
 function merchantName(entry: Entry): string {
-  return entry.displayName?.trim() || entry.description.toLowerCase().replace(/[0-9]/g, "").replace(/\s+/g, " ").trim();
+  return entry.displayName?.trim() || cleanMerchantKey(entry.description);
 }
 
 export function topMerchants(

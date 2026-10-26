@@ -2,6 +2,7 @@ import { centsSchema, sumCents } from "./value";
 import type { CsvMapping } from "../adapters/csv-mapping";
 import type { EntryRule } from "./rules";
 import type { HistoryMapping } from "./history-import";
+import { cleanMerchantKey } from "./merchants";
 
 export const SELF_ENTITY_ID = "self";
 export const HOUSE_ENTITY_ID = "house";
@@ -62,6 +63,13 @@ export interface CategoryMemory {
   key: string;
   categoryId: string;
   entityId: string | null;
+  updatedAt: string;
+}
+
+export interface MerchantName {
+  id: string;
+  key: string;
+  displayName: string;
   updatedAt: string;
 }
 
@@ -162,6 +170,7 @@ export interface Ledger {
   checkpoints?: BalanceCheckpoint[];
   categories?: Category[];
   categoryMemory?: CategoryMemory[];
+  merchantNames?: MerchantName[];
   rules?: EntryRule[];
   lastSplitByAccount?: Record<string, SplitPreset>;
   historyMapping?: HistoryMapping;
@@ -287,8 +296,23 @@ export function defaultSplitPreset(entity: Entity, _amountCents: number): SplitP
 }
 
 export function categoryMemoryKey(accountId: string, description: string): string {
-  const normalizedDescription = description.toLowerCase().replace(/[0-9]/g, "").replace(/\s+/g, " ").trim();
-  return `${accountId}:${normalizedDescription}`;
+  return `${accountId}:${cleanMerchantKey(description)}`;
+}
+
+export function merchantNameAfterSpend(ledger: Ledger, entry: Entry, updatedAt: string): MerchantName[] {
+  const merchantNames = ledger.merchantNames ?? [];
+  const displayName = entry.displayName?.trim();
+  if (entry.kind !== "spend" || !displayName) return merchantNames;
+
+  const key = cleanMerchantKey(entry.description);
+  const existing = merchantNames.find((merchant) => merchant.key === key);
+  const merchant: MerchantName = {
+    id: existing?.id ?? crypto.randomUUID(),
+    key,
+    displayName,
+    updatedAt,
+  };
+  return [...merchantNames.filter((candidate) => candidate.key !== key), merchant];
 }
 
 export function categoryNature(categories: readonly Category[], categoryId: string | null | undefined): CategoryNature | undefined {

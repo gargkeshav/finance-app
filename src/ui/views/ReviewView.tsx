@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, splitPreset, type BankRow, type Category, type Entity, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, merchantNameAfterSpend, SELF_ENTITY_ID, splitPreset, type BankRow, type Category, type Entity, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
 import { cardCycle, confirmTransfer, existingEntryFor, isWaitingOnOtherAccount, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatMoney } from "../../domain/value";
 import { canAutoConfirm, firstRule } from "../../domain/rules";
@@ -353,7 +353,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
       bankRowIds: [row.id],
       source: ruleFor(row) ? "rule" : memoryFor(row) ? "memory" : "bank",
       ruleId: ruleFor(row)?.id,
-      displayName: ruleFor(row)?.action.displayName ?? undefined,
+      displayName: draft.displayName,
       countsTowardDebt: importFor(row)?.countsTowardDebt ?? true,
       updatedAt: now,
     };
@@ -361,6 +361,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
       ...ledger,
       entries: [...ledger.entries, entry],
       categoryMemory: categoryMemoryAfterSpend(ledger, entry, now),
+      merchantNames: merchantNameAfterSpend(ledger, entry, now),
       lastSplitByAccount: row.accountId && preset
         ? { ...ledger.lastSplitByAccount, [row.accountId]: preset }
         : ledger.lastSplitByAccount,
@@ -850,6 +851,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
                               accountId: row.accountId,
                               bankRowIds: [row.id],
                               categoryId: matchedRule?.action.categoryId ?? memory?.categoryId ?? null,
+                              displayName: matchedRule?.action.displayName ?? undefined,
                               payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
                               portions: matchedRule?.action.split
                                 ? splitPreset(Math.abs(row.amountCents), account?.payerEntityId ?? SELF_ENTITY_ID, matchedRule.action.split)

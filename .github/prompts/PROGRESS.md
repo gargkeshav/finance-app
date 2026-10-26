@@ -124,4 +124,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 31: Card payment checks estimate owed amounts over time, link payments and charge periods to Activity, and flag payments not seen leaving a covered asset account. `npm test` (15 files, 97 tests) and `npm run typecheck` pass.
 - Files changed: `src/domain/transfers.ts`, `src/ui/views/AccountsView.tsx`, `src/domain/health.ts`, `tests/transfers.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: Payments check and Health navigation were not manually exercised. Next: 32.
+- Batch 32: Remembered display names now key from cleaned merchant descriptions, can be entered from Activity or Review, and are used as report merchant names. `npm test` (15 files, 98 tests) and `npm run typecheck` pass.
+- Files changed: `src/domain/merchants.ts`, `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/domain/reports.ts`, `src/ui/views/SpendForm.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/ReviewView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 33.
 

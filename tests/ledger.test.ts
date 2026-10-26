@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { balances, categoryNature, debtsOf, defaultSplitPreset, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
+import { balances, categoryNature, debtsOf, defaultSplitPreset, merchantNameAfterSpend, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
 import { ledgerProblem } from "../src/adapters/file-ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
 import { filterEntries } from "../src/domain/query";
@@ -24,6 +24,34 @@ function makeLedger(entry: Entry): Ledger {
 }
 
 describe("ledger spending rules", () => {
+  it("remembers merchant names by cleaned description and updates the matching entry", () => {
+    const entry: Entry = {
+      id: "merchant-spend",
+      kind: "spend",
+      date: "2026-10-20",
+      description: "SQ *BLUE BOTTLE 1234 SYDNEY NS",
+      amountCents: 1_000,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [{ entityId: "self", amountCents: 1_000 }],
+      displayName: "Blue Bottle",
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const ledger = makeLedger(entry);
+    const first = merchantNameAfterSpend(ledger, entry, "first");
+    const updated = merchantNameAfterSpend({ ...ledger, merchantNames: first }, {
+      ...entry,
+      description: "sq *blue bottle 9876 sydney ns",
+      displayName: "Blue Bottle Cafe",
+    }, "second");
+
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ key: "sq *blue bottle sydney ns", displayName: "Blue Bottle" });
+    expect(updated).toHaveLength(1);
+    expect(updated[0]).toMatchObject({ id: first[0].id, key: first[0].key, displayName: "Blue Bottle Cafe", updatedAt: "second" });
+  });
+
   it("inherits a category nature from its parent", () => {
     const categories = [
       { id: "home", name: "Home", archived: false, updatedAt: "now", nature: "essential" as const },

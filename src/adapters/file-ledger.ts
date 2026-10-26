@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Category, type CategoryMemory, type Ledger, type SplitPreset, validateSpend } from "../domain/ledger";
+import { type Category, type CategoryMemory, type Ledger, type MerchantName, type SplitPreset, validateSpend } from "../domain/ledger";
 import type { EntryRule } from "../domain/rules";
 import type { HistoryMapping } from "../domain/history-import";
 import type { ChangeSet } from "../domain/history";
@@ -252,6 +252,13 @@ const categoryMemorySchema = z.object({
   updatedAt: updatedAtSchema,
 });
 
+const merchantNameSchema = z.object({
+  id: idSchema,
+  key: z.string(),
+  displayName: z.string(),
+  updatedAt: updatedAtSchema,
+});
+
 const splitPresetSchema: z.ZodType<SplitPreset> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("payer") }),
   z.object({ kind: z.literal("halfHouse") }),
@@ -323,6 +330,7 @@ type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   checkpoints: z.infer<typeof checkpointSchema>[];
   categories: Category[];
   categoryMemory: CategoryMemory[];
+  merchantNames: MerchantName[];
 };
 
 const ledgerSchema = z.object({
@@ -341,6 +349,7 @@ const ledgerSchema = z.object({
   splitwisePosts: z.array(splitwisePostSchema).default([]),
   categories: z.array(categorySchema).default([]),
   categoryMemory: z.array(categoryMemorySchema).default([]),
+  merchantNames: z.array(merchantNameSchema).default([]),
   rules: z.array(ruleSchema).default([]),
   history: z.array(changeSetSchema).default([]),
   historyMapping: historyMappingSchema.optional(),
@@ -403,6 +412,7 @@ export function emptyLedger(): PersistedLedger {
     checkpoints: [],
     categories: [],
     categoryMemory: [],
+    merchantNames: [],
     rules: [],
     history: [],
   };

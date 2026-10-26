@@ -2,6 +2,7 @@ import { useState } from "react";
 import { categoryMemoryKey, debtsOf, defaultSplitPreset, linkedBankAmountCents, SELF_ENTITY_ID, splitPreset, validateSpend, type Category, type Entity, type Entry, type Ledger, type Portion, type SplitPreset } from "../../domain/ledger";
 import { formatAud, formatMoney, isBankDate, parseAud } from "../../domain/value";
 import { ComboField } from "./ComboField";
+import { cleanMerchantKey } from "../../domain/merchants";
 
 interface SpendFormProps {
   ledger: Ledger;
@@ -30,6 +31,8 @@ function centsText(cents: number): string {
 export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddEntity, onCancel }: SpendFormProps) {
   const [date, setDate] = useState(initialValues?.date ?? todayLocal());
   const [description, setDescription] = useState(initialValues?.description ?? "");
+  const rememberedDisplayName = ledger.merchantNames?.find((merchant) => merchant.key === cleanMerchantKey(initialValues?.description ?? ""))?.displayName;
+  const [displayName, setDisplayName] = useState(initialValues?.displayName === undefined ? rememberedDisplayName ?? "" : initialValues.displayName);
   const [amount, setAmount] = useState(initialValues?.amountCents === undefined ? "" : centsText(initialValues.amountCents));
   const [accountId, setAccountId] = useState(initialValues?.accountId ?? "");
   const [payerEntityId, setPayerEntityId] = useState(initialValues?.payerEntityId ?? SELF_ENTITY_ID);
@@ -152,6 +155,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
       id: initialValues?.id ?? crypto.randomUUID(),
       amountCents: amountCents!,
       portions: portionValues,
+      displayName: displayName.trim() || undefined,
       updatedAt: initialValues?.updatedAt ?? new Date().toISOString(),
     }, activePreset);
   }
@@ -177,6 +181,10 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
       <label>
         Description
         <input value={description} onChange={(event) => setDescription(event.target.value)} required />
+      </label>
+      <label>
+        Display name
+        <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
       </label>
       <label>
         Amount (AUD)
