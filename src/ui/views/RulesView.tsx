@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { splitPreset, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
-import { previewRuleChanges, type EntryRule, type RuleChangeSummary, type RulePreview } from "../../domain/rules";
+import { previewRuleChanges, suggestRuleFromHistory, type EntryRule, type RuleChangeSummary, type RulePreview, type RuleSuggestion } from "../../domain/rules";
 import { formatMoney } from "../../domain/value";
 
 interface RulesViewProps {
@@ -10,7 +10,7 @@ interface RulesViewProps {
   onClearInitialDescription: () => void;
 }
 
-function createRule(description: string, rules: readonly EntryRule[]): EntryRule {
+function createRule(description: string, rules: readonly EntryRule[], suggestion?: RuleSuggestion): EntryRule {
   return {
     id: crypto.randomUUID(),
     name: description.trim(),
@@ -28,7 +28,7 @@ function createRule(description: string, rules: readonly EntryRule[]): EntryRule
     },
     scope: "newRows",
     protectManualEdits: true,
-    action: { displayName: null, categoryId: null, split: null, tags: [] },
+    action: { displayName: null, categoryId: suggestion?.categoryId ?? null, split: suggestion?.split ?? null, tags: [] },
     autoConfirm: false,
     updatedAt: new Date().toISOString(),
   };
@@ -47,6 +47,9 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
   const [formError, setFormError] = useState("");
   const [preview, setPreview] = useState<RulePreview | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Set<string>>(new Set());
+  const suggestedRule = suggestRuleFromHistory(ledger.entries, rules);
+  const visibleSuggestion = suggestedRule && !dismissedSuggestionKeys.has(suggestedRule.key) ? suggestedRule : null;
 
   useEffect(() => {
     if (!initialDescription) return;
@@ -122,6 +125,17 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
 
   function startNew() {
     setDraft(createRule("", rules));
+    setEditingId(null);
+    setTagsText("");
+    setFormError("");
+    setPreview(null);
+    setSelectedItems(new Set());
+    setShowEditor(true);
+    onClearInitialDescription();
+  }
+
+  function createSuggestedRule(suggestion: RuleSuggestion) {
+    setDraft(createRule(suggestion.sampleText, rules, suggestion));
     setEditingId(null);
     setTagsText("");
     setFormError("");
@@ -308,6 +322,11 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
         <h1>Rules</h1>
         <button className="primary" onClick={startNew} type="button">New rule</button>
       </header>
+      {visibleSuggestion && <p className="banner" role="status">
+        You've set '{visibleSuggestion.sampleText}' to {ledger.categories?.find((category) => category.id === visibleSuggestion.categoryId)?.name ?? visibleSuggestion.categoryId} {visibleSuggestion.count} times. Create a rule?{" "}
+        <button className="secondary" onClick={() => createSuggestedRule(visibleSuggestion)} type="button">Create rule</button>{" "}
+        <button className="secondary" onClick={() => setDismissedSuggestionKeys((current) => new Set([...current, visibleSuggestion.key]))} type="button">Dismiss</button>
+      </p>}
       {showEditor && (
         <form className="form-grid" onSubmit={saveRule}>
           <h2>{editingId ? "Edit rule" : "New rule"}</h2>

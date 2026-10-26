@@ -130,4 +130,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 33: Rule matching now supports regexes, UTC weekdays, and existing-entry scope with manual-edit protection; rules show selectable before/after previews and apply selected changes in one labelled update. `npm test` (15 files, 99 tests), `npm run typecheck`, and `git diff --check` pass.
 - Files changed: `src/domain/rules.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/RulesView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 34.
+- Batch 34: Exact-history rule suggestions, rule form prefill, and session dismissal implemented. `npm test` (15 files, 100 tests) and `npm run typecheck` pass. Phase 3 is done.
+- Files changed: `src/domain/rules.ts`, `src/ui/views/RulesView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Ask before writing the Later prompts in `PHASE3.md`.
 

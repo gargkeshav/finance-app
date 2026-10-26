@@ -6,7 +6,7 @@ import { filterEntries } from "../src/domain/query";
 import { cashFlow, monthly } from "../src/domain/reports";
 import { addStarterCategories } from "../src/domain/taxonomy";
 import { findIssues } from "../src/domain/health";
-import { canAutoConfirm, firstRule, matchesRule, previewRuleChanges, type EntryRule } from "../src/domain/rules";
+import { canAutoConfirm, firstRule, matchesRule, previewRuleChanges, suggestRuleFromHistory, type EntryRule } from "../src/domain/rules";
 import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
 import { applyHistoryImport, planHistoryImport, suggestHistoryMapping } from "../src/domain/history-import";
 
@@ -780,6 +780,31 @@ describe("transfer suggestions", () => {
 });
 
 describe("entry rules", () => {
+  it("suggests a rule after four matching spends and rejects a conflicting category", () => {
+    const entries: Entry[] = Array.from({ length: 4 }, (_, index) => ({
+      id: `manual-spend-${index}`,
+      kind: "spend",
+      date: `2026-10-0${index + 1}`,
+      description: `Synthetic Cafe ${1000 + index}`,
+      amountCents: 2_500,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [{ entityId: "self", amountCents: 2_500 }],
+      categoryId: "food",
+      countsTowardDebt: true,
+      updatedAt: "now",
+    }));
+
+    expect(suggestRuleFromHistory(entries, [])).toMatchObject({
+      key: "synthetic cafe",
+      sampleText: "Synthetic Cafe 1003",
+      categoryId: "food",
+      split: { kind: "payer" },
+      count: 4,
+    });
+    expect(suggestRuleFromHistory([...entries, { ...entries[3], id: "conflict", categoryId: "other" }], [])).toBeNull();
+  });
+
   it("uses the lowest-order match and requires a split for auto-confirm", () => {
     const row: BankRow = {
       id: "row-rule",

@@ -1,4 +1,5 @@
 import { splitPreset, type Account, type BankRow, type Entry, type Ledger, type Portion, type SplitPreset } from "./ledger";
+import { cleanMerchantKey } from "./merchants";
 
 export interface EntryRule {
   id: string;
@@ -39,6 +40,14 @@ export interface RulePreview {
   entries: { entry: Entry; before: RuleChangeSummary; after: RuleChangeSummary }[];
 }
 
+export interface RuleSuggestion {
+  key: string;
+  sampleText: string;
+  categoryId: string;
+  split: SplitPreset;
+  count: number;
+}
+
 interface RuleMatchInput {
   description: string;
   amountCents: number;
@@ -68,6 +77,59 @@ export function matchesCore(match: EntryRule["match"], input: RuleMatchInput): b
     (match.sign === "any" || (match.sign === "out" && input.amountCents < 0) || (match.sign === "in" && input.amountCents > 0)) &&
     (match.minCents === null || amountCents >= match.minCents) &&
     (match.maxCents === null || amountCents <= match.maxCents);
+}
+
+function splitShape(entry: Entry): { key: string; split: SplitPreset } | null {
+  if (entry.portions.length === 1 && entry.portions[0].amountCents === entry.amountCents) {
+    const entityId = entry.portions[0].entityId;
+    return entityId === entry.payerEntityId
+      ? { key: "payer", split: { kind: "payer" } }
+      : { key: `entity:${entityId}`, split: { kind: "entity", entityId } };
+  }
+
+  if (entry.portions.length < 2) return null;
+  const amounts = entry.portions.map((portion) => portion.amountCents);
+  if (Math.max(...amounts) - Math.min(...amounts) > 1) return null;
+  const entityIds = entry.portions.map((portion) => portion.entityId).sort((first, second) => first.localeCompare(second));
+  return {
+    key: `equal:${entityIds.join("\u0000")}`,
+    split: { kind: "equal", entityIds },
+  };
+}
+
+export function suggestRuleFromHistory(
+  entries: readonly Entry[],
+  rules: readonly EntryRule[],
+  minOccurrences = 3,
+): RuleSuggestion | null {
+  const groups = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    if (entry.kind !== "spend" || !entry.categoryId) continue;
+    const key = cleanMerchantKey(entry.description);
+    if (!key) continue;
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+
+  const suggestions: RuleSuggestion[] = [];
+  for (const [key, group] of groups) {
+    if (group.length < minOccurrences) continue;
+    const newestFirst = [...group].sort((first, second) =>
+      second.date.localeCompare(first.date) || second.updatedAt.localeCompare(first.updatedAt) || second.id.localeCompare(first.id),
+    );
+    const newest = newestFirst[0];
+    const categoryId = newest.categoryId!;
+    const shape = splitShape(newest);
+    if (!shape || group.some((entry) => entry.categoryId !== categoryId || splitShape(entry)?.key !== shape.key)) continue;
+    if (rules.some((rule) => rule.enabled && matchesCore(rule.match, {
+      description: newest.description,
+      amountCents: -newest.amountCents,
+      date: newest.date,
+      accountId: newest.accountId,
+    }))) continue;
+    suggestions.push({ key, sampleText: newest.description, categoryId, split: shape.split, count: group.length });
+  }
+
+  return suggestions.sort((first, second) => second.count - first.count || first.key.localeCompare(second.key))[0] ?? null;
 }
 
 export function matchesRule(rule: EntryRule, row: BankRow, account: Account | undefined): boolean {
