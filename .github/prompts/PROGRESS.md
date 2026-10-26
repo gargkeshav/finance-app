@@ -97,4 +97,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 22: Category and person creation from ComboField pickers implemented across spend, Activity, and Review. `npm test` (13 files, 79 tests) and `npm run typecheck` pass; synthetic browser checks created a person from a spend's For field and a category from an Activity row.
 - Files changed: `src/ui/combo.ts`, `src/ui/views/ComboField.tsx`, `src/ui/views/SpendForm.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/ReviewView.tsx`, `tests/combo.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 23.
+- Batch 23: Entity balance timelines, balance drilldown, and Activity's settled/open filter implemented. `npm test` (13 files, 80 tests) and `npm run typecheck` pass.
+- Files changed: `src/domain/ledger.ts`, `src/domain/query.ts`, `src/ui/views/EntityView.tsx`, `src/ui/views/BalancesView.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/LocalApp.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 24.
 

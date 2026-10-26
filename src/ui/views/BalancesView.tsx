@@ -7,6 +7,7 @@ interface BalancesViewProps {
   ledger: Ledger;
   update: (next: Ledger) => void;
   openActivity: (filter: EntryFilter) => void;
+  onOpenEntity?: (entityId: string) => void;
 }
 
 function currentMonth(): string {
@@ -24,7 +25,7 @@ function centsText(cents: number): string {
   return formatAud(cents).slice(4);
 }
 
-export function BalancesView({ ledger, update, openActivity }: BalancesViewProps) {
+export function BalancesView({ ledger, update, openActivity, onOpenEntity }: BalancesViewProps) {
   const [month, setMonth] = useState(currentMonth);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [errorEntityId, setErrorEntityId] = useState<string | null>(null);
@@ -151,7 +152,7 @@ export function BalancesView({ ledger, update, openActivity }: BalancesViewProps
               return (
                 <tr key={entity.id}>
                   <td>{entity.name}</td>
-                  <td className={amount > 0 ? "amount positive" : amount < 0 ? "amount negative" : "muted"}>{amount > 0 ? `${entity.name} owes you ${formatMoney(amount)}` : amount < 0 ? `You owe ${entity.name} ${formatMoney(Math.abs(amount))}` : "Settled"}</td>
+                  <td className={amount > 0 ? "amount positive" : amount < 0 ? "amount negative" : "muted"}>{onOpenEntity ? <button className="amount drilldown-button" onClick={() => onOpenEntity(entity.id)} type="button">{amount > 0 ? `${entity.name} owes you ${formatMoney(amount)}` : amount < 0 ? `You owe ${entity.name} ${formatMoney(Math.abs(amount))}` : "Settled"}</button> : amount > 0 ? `${entity.name} owes you ${formatMoney(amount)}` : amount < 0 ? `You owe ${entity.name} ${formatMoney(Math.abs(amount))}` : "Settled"}</td>
                   {showBaselines && <td>
                     <label>
                       <span className="sr-only">Opening balance for {entity.name}</span>

@@ -9,6 +9,7 @@ import type { ChangeActor } from "../domain/history";
 import { ActivityView } from "./views/ActivityView";
 import { AccountsView } from "./views/AccountsView";
 import { BalancesView } from "./views/BalancesView";
+import { EntityView } from "./views/EntityView";
 import { DataView } from "./views/DataView";
 import { findIssues } from "../domain/health";
 import { HealthView } from "./views/HealthView";
@@ -55,6 +56,7 @@ export function LocalApp() {
   const [activityFilter, setActivityFilter] = useState<EntryFilter>({});
   const [ruleDescription, setRuleDescription] = useState("");
   const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
+  const [openEntityId, setOpenEntityId] = useState<string | null>(null);
   const [fileStore] = useState(() => new FileStore());
   const [isSaving, setIsSaving] = useState(false);
   const [autosaveFailures, setAutosaveFailures] = useState(0);
@@ -214,6 +216,7 @@ export function LocalApp() {
   }
 
   function navigate(nextView: ViewName) {
+    if (nextView !== "Balances") setOpenEntityId(null);
     setMessage("");
     setError("");
     setWarning("");
@@ -402,7 +405,15 @@ export function LocalApp() {
     Settle: <SettleView ledger={ledger} update={update} saveNow={saveNow} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
     Accounts: <AccountsView ledger={ledger} update={update} openActivity={openActivity} />,
     People: <PeopleView ledger={ledger} update={update} openActivity={openActivity} />,
-    Balances: <BalancesView ledger={ledger} update={update} openActivity={openActivity} />,
+    Balances: openEntityId
+      ? <EntityView
+        ledger={ledger}
+        entityId={openEntityId}
+        openActivity={openActivity}
+        onSettle={() => { setSettlementRow(null); navigate("Settle"); }}
+        onBack={() => setOpenEntityId(null)}
+      />
+      : <BalancesView ledger={ledger} update={update} openActivity={openActivity} onOpenEntity={setOpenEntityId} />,
     Reports: <ReportsView ledger={ledger} openActivity={openActivity} />,
     Data: <DataView
       mode={fileStore.mode}

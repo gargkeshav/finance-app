@@ -168,6 +168,42 @@ describe("ledger spending rules", () => {
       .toEqual(["entity-filter", "payer-match"]);
   });
 
+  it("filters debt entries by whether their balance is settled", () => {
+    const base: Entry = {
+      id: "debt-a",
+      kind: "spend",
+      date: "2026-10-20",
+      description: "Shared expense",
+      amountCents: 4_000,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [{ entityId: "entity-a", amountCents: 4_000 }],
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const ledger = makeLedger(base);
+    ledger.entities.push(
+      { id: "entity-a", kind: "person", name: "Alex", archived: false, updatedAt: "now" },
+      { id: "entity-b", kind: "person", name: "Blair", archived: false, updatedAt: "now" },
+    );
+    ledger.entries.push({ ...base, id: "debt-b", amountCents: 2_000, portions: [{ entityId: "entity-b", amountCents: 2_000 }] });
+    ledger.settlements = [{
+      id: "settlement-a",
+      date: "2026-10-25",
+      entityId: "entity-a",
+      direction: "theyPaidYou",
+      amountCents: 4_000,
+      bankRowIds: [],
+      note: "",
+      splitwisePaymentId: null,
+      updatedAt: "now",
+    }];
+    ledger.entries.push({ ...base, id: "no-debt", portions: [{ entityId: "self", amountCents: 4_000 }] });
+
+    expect(filterEntries(ledger, { settled: true }).map((entry) => entry.id)).toEqual(["debt-a"]);
+    expect(filterEntries(ledger, { settled: false }).map((entry) => entry.id)).toEqual(["debt-b"]);
+  });
+
   it("tracks House owing you on your card and splits the personal report", () => {
     const entry: Entry = {
       id: "spend-1",

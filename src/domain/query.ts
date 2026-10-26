@@ -4,6 +4,8 @@ import {
   type Entry,
   type EntryKind,
   type Ledger,
+  debtsOf,
+  openEntryIds,
 } from "./ledger";
 import { sumCents } from "./value";
 
@@ -22,6 +24,7 @@ export interface EntryFilter {
   tag?: string;
   counted?: boolean;
   source?: EntrySource;
+  settled?: boolean;
 }
 
 export interface FilteredTotals {
@@ -46,6 +49,7 @@ function entrySource(entry: Entry): EntrySource {
 export function filterEntries(ledger: Ledger, filter: EntryFilter): Entry[] {
   const text = filter.text?.trim().toLocaleLowerCase();
   const tag = filter.tag?.trim().toLocaleLowerCase();
+  const openIds = filter.settled === undefined ? null : openEntryIds(ledger);
 
   return ledger.entries
     .filter((entry) => {
@@ -66,6 +70,10 @@ export function filterEntries(ledger: Ledger, filter: EntryFilter): Entry[] {
       if (tag && !(entry.tags ?? []).some((entryTag) => entryTag.toLocaleLowerCase() === tag)) return false;
       if (filter.counted !== undefined && entry.countsTowardDebt !== filter.counted) return false;
       if (filter.source && entrySource(entry) !== filter.source) return false;
+      if (filter.settled !== undefined) {
+        if (!debtsOf(entry, ledger.bankRows ?? []).some((debt) => debt.amountCents !== 0)) return false;
+        if (filter.settled ? openIds?.has(entry.id) : !openIds?.has(entry.id)) return false;
+      }
       if (text && ![entry.description, entry.note ?? "", ...(entry.tags ?? [])]
         .some((value) => value.toLocaleLowerCase().includes(text))) return false;
       return true;

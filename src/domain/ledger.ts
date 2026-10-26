@@ -517,3 +517,15 @@ export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
     youOweThem: youOweThem.filter((item) => item.openAmountCents > 0),
   };
 }
+
+export function openEntryIds(ledger: Ledger): Set<string> {
+  const ids = new Set<string>();
+  for (const entity of ledger.entities) {
+    if (entity.kind === "self") continue;
+    const items = openItems(ledger, entity.id);
+    for (const item of [...items.theyOweYou, ...items.youOweThem]) {
+      if (item.source === "entry" && item.openAmountCents > 0) ids.add(item.id);
+    }
+  }
+  return ids;
+}
