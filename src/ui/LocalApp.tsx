@@ -257,9 +257,9 @@ export function LocalApp() {
     Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} activityFilter={activityFilter} openActivity={openActivity} onNavigate={navigate} />,
     Rules: <RulesView ledger={ledger} update={update} initialDescription={ruleDescription} onClearInitialDescription={() => setRuleDescription("")} />,
     Settle: <SettleView ledger={ledger} update={update} saveNow={saveNow} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
-    Accounts: <AccountsView ledger={ledger} update={update} />,
-    People: <PeopleView ledger={ledger} update={update} />,
-    Balances: <BalancesView ledger={ledger} update={update} />,
+    Accounts: <AccountsView ledger={ledger} update={update} openActivity={openActivity} />,
+    People: <PeopleView ledger={ledger} update={update} openActivity={openActivity} />,
+    Balances: <BalancesView ledger={ledger} update={update} openActivity={openActivity} />,
     Reports: <ReportsView ledger={ledger} openActivity={openActivity} />,
     Data: <DataView
       mode={fileStore.mode}
@@ -292,14 +292,18 @@ export function LocalApp() {
             </button>
           ))}
         </nav>
+        <section className="ledger-controls" aria-label="Ledger file">
+          <div className="ledger-file-name" title={fileName || "No file open"}>{fileName || "No file open"}</div>
+          <div className="ledger-file-actions">
+            <button className="secondary" onClick={openLedger} type="button">Open</button>
+            <button className="secondary" onClick={() => void saveLedger(true)} type="button">Save as</button>
+            <button className="primary" onClick={() => void saveLedger(false)} type="button">Save</button>
+          </div>
+          {hasUnsavedChanges && <span className="ledger-unsaved" role="status">Unsaved changes</span>}
+        </section>
       </aside>
       <main className="workspace">
-        <header className="topbar">
-          <span>{fileName || "No file open"}</span>
-          {hasUnsavedChanges && <span className="status-chip" role="status">Unsaved</span>}
-          <button className="secondary" onClick={openLedger} type="button">Open</button>
-          <button className="secondary" onClick={() => void saveLedger(true)} type="button">Save as</button>
-          <button className="primary" onClick={() => void saveLedger(false)} type="button">Save</button>
+        <div className="workspace-content">
           <input
             ref={uploadInput}
             accept="application/json,.json,.finance.json"
@@ -308,12 +312,12 @@ export function LocalApp() {
             style={{ display: "none" }}
             type="file"
           />
-        </header>
         {message && <p className="banner success" role="status">{message}</p>}
         {warning && <p className="banner warning" role="status">{warning}</p>}
         {undoState && <p className="banner" role="status">{undoState.label}. <button className="secondary" onClick={undoLastAction} type="button">Undo</button></p>}
         {visibleError && <p className="banner error" role="alert">{visibleError}</p>}
         {views[view]}
+        </div>
       </main>
     </div>
   );

@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { accountCoverage, checkpointDifferences, HOUSE_ENTITY_ID, type Account, type BalanceCheckpoint, type Ledger } from "../../domain/ledger";
 import { formatMoney, isBankDate, parseAud } from "../../domain/value";
+import type { EntryFilter } from "../../domain/query";
 
 interface AccountsViewProps {
   ledger: Ledger;
   update: (next: Ledger) => void;
+  openActivity: (filter: EntryFilter) => void;
 }
 
-export function AccountsView({ ledger, update }: AccountsViewProps) {
+export function AccountsView({ ledger, update, openActivity }: AccountsViewProps) {
   const [name, setName] = useState("");
   const [type, setType] = useState<Account["type"]>("asset");
   const [payerEntityId, setPayerEntityId] = useState("self");
@@ -145,7 +147,7 @@ export function AccountsView({ ledger, update }: AccountsViewProps) {
               const differences = checkpointDifferences(ledger, account.id);
               return (
                 <tr key={account.id}>
-                  <td>{account.name}</td>
+                  <td><button className="transaction-link" onClick={() => openActivity({ accountId: account.id })} type="button">{account.name}</button></td>
                   <td>{account.type === "asset" ? "Asset" : "Credit"}</td>
                   <td><span className={`allocation-tag${account.payerEntityId === HOUSE_ENTITY_ID ? " house" : ""}`}>{account.payerEntityId === HOUSE_ENTITY_ID ? "House" : payer?.name ?? "Unknown"}</span></td>
                   <td>

@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entity, type EntityKind, type Ledger } from "../../domain/ledger";
+import type { EntryFilter } from "../../domain/query";
 import { getCurrentUser, getExpenses, getFriends, getGroups, pullIntoInbox, setKey, type SplitwiseGroup, type SplitwiseUser } from "../../adapters/splitwise";
 
 interface PeopleViewProps {
   ledger: Ledger;
   update: (next: Ledger) => void;
+  openActivity: (filter: EntryFilter) => void;
 }
 
-export function PeopleView({ ledger, update }: PeopleViewProps) {
+export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"person" | "group">("person");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -155,7 +157,7 @@ export function PeopleView({ ledger, update }: PeopleViewProps) {
               const fixed = entity.id === SELF_ENTITY_ID || entity.id === HOUSE_ENTITY_ID;
               return (
                 <tr key={entity.id}>
-                  <td>{entity.name}</td>
+                  <td><button className="transaction-link" onClick={() => openActivity({ entityId: entity.id })} type="button">{entity.name}</button></td>
                   <td><span className="allocation-tag">{kindLabels[entity.kind]}</span></td>
                   <td>{entity.archived ? "Archived" : "Active"}</td>
                   <td>

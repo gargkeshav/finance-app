@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type Ledger } from "../../domain/ledger";
 import { formatAud, formatMoney, parseAud, sumCents } from "../../domain/value";
+import type { EntryFilter } from "../../domain/query";
 
 interface BalancesViewProps {
   ledger: Ledger;
   update: (next: Ledger) => void;
+  openActivity: (filter: EntryFilter) => void;
 }
 
 function currentMonth(): string {
@@ -22,7 +24,7 @@ function centsText(cents: number): string {
   return formatAud(cents).slice(4);
 }
 
-export function BalancesView({ ledger, update }: BalancesViewProps) {
+export function BalancesView({ ledger, update, openActivity }: BalancesViewProps) {
   const [month, setMonth] = useState(currentMonth);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [errorEntityId, setErrorEntityId] = useState<string | null>(null);
@@ -120,8 +122,8 @@ export function BalancesView({ ledger, update }: BalancesViewProps) {
             {categoryRows.map((category) => (
               <tr key={category.id}>
                 <td>{category.name}</td>
-                <td className="amount">{formatMoney(category.personalCents)}</td>
-                <td className="amount">{formatMoney(category.houseCents)}</td>
+                <td className="amount"><button className="amount drilldown-button" aria-label={`${category.name} personal transactions: ${formatMoney(category.personalCents)}`} onClick={() => openActivity({ from, to, categoryId: category.id || undefined, entityId: SELF_ENTITY_ID })} type="button">{formatMoney(category.personalCents)}</button></td>
+                <td className="amount"><button className="amount drilldown-button" aria-label={`${category.name} house transactions: ${formatMoney(category.houseCents)}`} onClick={() => openActivity({ from, to, categoryId: category.id || undefined, entityId: HOUSE_ENTITY_ID })} type="button">{formatMoney(category.houseCents)}</button></td>
               </tr>
             ))}
             <tr>

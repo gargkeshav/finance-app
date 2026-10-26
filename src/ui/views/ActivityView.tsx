@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { formatMoney, parseAud } from "../../domain/value";
 import { categoryMemoryAfterSpend, type Category, type Entry, type EntryKind, type Ledger } from "../../domain/ledger";
 import { filterEntries, filteredTotals, type EntryFilter } from "../../domain/query";
@@ -51,6 +51,9 @@ function inputCents(value: string): number | null {
 export function ActivityView({ ledger, update, saveNow, activityFilter, openActivity, onNavigate }: ActivityViewProps) {
   const [editing, setEditing] = useState<Entry | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [expandedEntryIds, setExpandedEntryIds] = useState<string[]>([]);
+  const [page, setPage] = useState(0);
   const [sortBy, setSortBy] = useState<"date" | "amount">("date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [selectedEntryIds, setSelectedEntryIds] = useState<string[]>([]);
@@ -64,16 +67,19 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
   currentLedger.current = ledger;
   const posts = ledger.splitwisePosts ?? [];
   const filteredEntries = filterEntries(ledger, activityFilter);
-  const visibleEntries = [...filteredEntries].sort((first, second) => {
+  const sortedEntries = [...filteredEntries].sort((first, second) => {
     const order = sortBy === "date"
       ? first.date.localeCompare(second.date) || first.updatedAt.localeCompare(second.updatedAt)
       : first.amountCents - second.amountCents || first.date.localeCompare(second.date);
     return sortDirection === "asc" ? order : -order;
   });
+  const pageSize = 50;
+  const pageCount = Math.max(1, Math.ceil(sortedEntries.length / pageSize));
+  const visibleEntries = sortedEntries.slice(page * pageSize, (page + 1) * pageSize);
   const totals = filteredTotals(filteredEntries);
-  const visibleIds = visibleEntries.map((entry) => entry.id);
-  const selectedVisibleIds = selectedEntryIds.filter((id) => visibleIds.includes(id));
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedEntryIds.includes(id));
+  const filteredIds = sortedEntries.map((entry) => entry.id);
+  const selectedVisibleIds = selectedEntryIds.filter((id) => filteredIds.includes(id));
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedEntryIds.includes(id));
   const availableTags = [...new Set(selectedVisibleIds.flatMap((id) =>
     ledger.entries.find((entry) => entry.id === id)?.tags ?? [],
   ))].sort((first, second) => first.localeCompare(second));
@@ -83,6 +89,9 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
   const waitingRows = (ledger.bankRows ?? []).filter(
     (row) => !row.entryId && !row.settlementId && !row.skipped,
   ).length;
+
+  useEffect(() => setPage(0), [activityFilter, sortBy, sortDirection]);
+  useEffect(() => setPage((current) => Math.min(current, pageCount - 1)), [pageCount]);
 
   function pairKey(entryId: string, entityId: string) {
     return `${entryId}:${entityId}`;
@@ -273,6 +282,15 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
     setShowForm(false);
   }
 
+  function updateEntryInline(entry: Entry, changes: Partial<Entry>) {
+    update({
+      ...ledger,
+      entries: ledger.entries.map((item) => item.id === entry.id
+        ? { ...item, ...changes, updatedAt: new Date().toISOString() }
+        : item),
+    });
+  }
+
   function addCategory(category: Category) {
     update({ ...ledger, categories: [...(ledger.categories ?? []), category] });
   }
@@ -337,45 +355,53 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
   return (
     <>
       <header className="page-heading">
-        <h1>Activity</h1>
+        <div>
+          <p className="eyebrow">Ledger</p>
+          <h1>Activity</h1>
+        </div>
         <button className="primary" onClick={() => { setEditing(null); setShowForm((visible) => !visible); }} type="button">New spend</button>
       </header>
-      {(showForm || editing) && (
+      {showForm && (
         <SpendForm
-          key={editing?.id ?? "new"}
+          key="new"
           ledger={ledger}
-          initialValues={editing ?? undefined}
           onSave={saveEntry}
           onAddCategory={addCategory}
           onCancel={() => { setEditing(null); setShowForm(false); }}
         />
       )}
-      <div className="filters">
-        <label>Search<input value={activityFilter.text ?? ""} onChange={(event) => openActivity({ ...activityFilter, text: event.target.value })} /></label>
+      <div className="activity-toolbar">
+        <label className="activity-search">Search<input value={activityFilter.text ?? ""} onChange={(event) => openActivity({ ...activityFilter, text: event.target.value })} placeholder="Description, tag, note" /></label>
         <label>From<input type="date" value={activityFilter.from ?? ""} onChange={(event) => openActivity({ ...activityFilter, from: event.target.value })} /></label>
         <label>To<input type="date" value={activityFilter.to ?? ""} onChange={(event) => openActivity({ ...activityFilter, to: event.target.value })} /></label>
+        <label>Kind<select value={activityFilter.kind ?? ""} onChange={(event) => openActivity({ ...activityFilter, kind: event.target.value ? event.target.value as EntryKind : undefined })}><option value="">All activity</option>{(["spend", "refund", "transfer", "income"] as const).map((kind) => <option key={kind} value={kind}>{kind}</option>)}</select></label>
+        <label>Sort<select value={`${sortBy}-${sortDirection}`} onChange={(event) => {
+          const [nextSort, nextDirection] = event.target.value.split("-");
+          setSortBy(nextSort as "date" | "amount");
+          setSortDirection(nextDirection as "asc" | "desc");
+        }}><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Highest amount</option><option value="amount-asc">Lowest amount</option></select></label>
+        <button className="filter-toggle" aria-expanded={showAdvancedFilters} onClick={() => setShowAdvancedFilters((open) => !open)} type="button">More filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</button>
+        {activeFilterCount > 0 && <button className="text-button" onClick={() => openActivity({})} type="button">Clear</button>}
+      </div>
+      {showAdvancedFilters && <div className="filters advanced-filters">
         <label>Account<select value={activityFilter.accountId ?? ""} onChange={(event) => openActivity({ ...activityFilter, accountId: event.target.value })}><option value="">All accounts</option>{ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
         <label>Category<select value={activityFilter.categoryId ?? ""} onChange={(event) => openActivity({ ...activityFilter, categoryId: event.target.value })}><option value="">All categories</option>{(ledger.categories ?? []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
         <label>Entity<select value={activityFilter.entityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, entityId: event.target.value })}><option value="">Any entity</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
         <label>Paid by<select value={activityFilter.payerEntityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, payerEntityId: event.target.value })}><option value="">Anyone</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
-        <label>Kind<select value={activityFilter.kind ?? ""} onChange={(event) => openActivity({ ...activityFilter, kind: event.target.value ? event.target.value as EntryKind : undefined })}><option value="">All kinds</option>{(["spend", "refund", "transfer", "income"] as const).map((kind) => <option key={kind} value={kind}>{kind}</option>)}</select></label>
         <label>Tag<input value={activityFilter.tag ?? ""} onChange={(event) => openActivity({ ...activityFilter, tag: event.target.value })} /></label>
         <label>Counts<select value={activityFilter.counted === undefined ? "" : String(activityFilter.counted)} onChange={(event) => openActivity({ ...activityFilter, counted: event.target.value === "" ? undefined : event.target.value === "true" })}><option value="">Any</option><option value="true">Included</option><option value="false">Excluded</option></select></label>
         <label>Source<select value={activityFilter.source ?? ""} onChange={(event) => openActivity({ ...activityFilter, source: event.target.value ? event.target.value as EntryFilter["source"] : undefined })}><option value="">All sources</option><option value="bank">Bank</option><option value="manual">Manual</option><option value="splitwise">Splitwise</option></select></label>
-        <button className="secondary" onClick={() => openActivity({})} type="button">Clear ({activeFilterCount})</button>
-      </div>
+      </div>}
       <section className="summary-strip" aria-label="Filtered totals">
         <div><span className="metric-label">Entries</span><strong>{totals.count}</strong></div>
         <div><span className="metric-label">Total</span><strong className="amount">{formatMoney(totals.totalCents)}</strong></div>
         <div><span className="metric-label">Personal</span><strong className="amount">{formatMoney(totals.personalCents)}</strong></div>
         <div><span className="metric-label">House</span><strong className="amount">{formatMoney(totals.houseCents)}</strong></div>
       </section>
-      <div className="filters">
-        <label>Sort by<select value={sortBy} onChange={(event) => setSortBy(event.target.value as "date" | "amount")}><option value="date">Date</option><option value="amount">Amount</option></select></label>
-        <label>Order<select value={sortDirection} onChange={(event) => setSortDirection(event.target.value as "asc" | "desc")}><option value="desc">Newest / highest</option><option value="asc">Oldest / lowest</option></select></label>
-        <label className="checkbox-label"><input checked={allVisibleSelected} onChange={(event) => setSelectedEntryIds((current) => event.target.checked
-          ? [...new Set([...current, ...visibleIds])]
-          : current.filter((id) => !visibleIds.includes(id)))} type="checkbox" />Select filtered ({visibleIds.length})</label>
+      {selectedVisibleIds.length > 0 && <div className="bulk-toolbar">
+        <label className="checkbox-label"><input checked={allFilteredSelected} onChange={(event) => setSelectedEntryIds((current) => event.target.checked
+          ? [...new Set([...current, ...filteredIds])]
+          : current.filter((id) => !filteredIds.includes(id)))} type="checkbox" />Select filtered ({filteredIds.length})</label>
         <button className="secondary" disabled={!selectedVisibleIds.length} onClick={() => updateSelectedEntries(true)} type="button">Include selected</button>
         <button className="secondary" disabled={!selectedVisibleIds.length} onClick={() => updateSelectedEntries(false)} type="button">Exclude selected</button>
         <label>Set category<select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}><option value="">Choose category</option><option value="__none__">Uncategorised</option>{(ledger.categories ?? []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
@@ -384,7 +410,8 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
         <button className="secondary" disabled={!selectedVisibleIds.length || !bulkTag.trim()} onClick={() => applyBulkEdit("addTag")} type="button">Add to {selectedVisibleIds.length}</button>
         <label>Remove tag<select value={removeTag} onChange={(event) => setRemoveTag(event.target.value)}><option value="">Choose tag</option>{availableTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}</select></label>
         <button className="secondary" disabled={!selectedVisibleIds.length || !removeTag} onClick={() => applyBulkEdit("removeTag")} type="button">Remove from {selectedVisibleIds.length}</button>
-      </div>
+        <button className="text-button" onClick={() => setSelectedEntryIds([])} type="button">Clear selection</button>
+      </div>}
       {ledger.accounts.length === 0 ? (
         <section className="card">
           <ol className="steps">
@@ -404,18 +431,25 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
         </section>
       ) : (
       <div className="table-scroll">
-        <table>
-          <thead><tr><th><span className="sr-only">Select</span></th><th>Date</th><th>Description</th><th>Paid by</th><th>Amount</th><th>Counts</th><th /></tr></thead>
+        <table className="activity-table">
+          <thead><tr><th><input aria-label="Select filtered entries" checked={allFilteredSelected} disabled={filteredIds.length === 0} onChange={(event) => setSelectedEntryIds((current) => event.target.checked
+            ? [...new Set([...current, ...filteredIds])]
+            : current.filter((id) => !filteredIds.includes(id)))} type="checkbox" /></th><th>Date</th><th>Description</th><th>Category</th><th>Account</th><th>Paid by</th><th>Amount</th><th>Counts</th><th /></tr></thead>
           <tbody>
             {visibleEntries.map((entry) => {
               const payer = ledger.entities.find((entity) => entity.id === entry.payerEntityId);
+              const account = ledger.accounts.find((item) => item.id === entry.accountId);
               const bankRows = (ledger.bankRows ?? []).filter((row) => entry.bankRowIds?.includes(row.id));
+              const expanded = expandedEntryIds.includes(entry.id);
+              const categoryName = ledger.categories?.find((category) => category.id === entry.categoryId)?.name ?? "Uncategorised";
               return (
-                <tr key={entry.id}>
+                <Fragment key={entry.id}>
+                <tr className="activity-row" key={entry.id}>
                   <td><input aria-label={`Select ${entry.description || entry.kind}`} type="checkbox" checked={selectedEntryIds.includes(entry.id)} onChange={(event) => setSelectedEntryIds((current) => event.target.checked ? [...current, entry.id] : current.filter((id) => id !== entry.id))} /></td>
-                  <td className="date-cell">{entry.date}</td>
+                  <td className="date-cell"><input aria-label={`${entry.description || entry.kind} date`} type="date" value={entry.date} onChange={(event) => updateEntryInline(entry, { date: event.target.value })} /></td>
                   <td>
-                    <div>{entry.description || (entry.kind === "spend" ? "Spend" : entry.kind)}{entry.kind === "refund" && <> <strong>Refund</strong></>}{entry.displayName && <span className="muted"> ({entry.displayName})</span>}</div>
+                    <input className="inline-description" aria-label={`${entry.description || entry.kind} description`} value={entry.description} onChange={(event) => updateEntryInline(entry, { description: event.target.value })} />
+                    <span className="activity-kind">{entry.kind}{entry.displayName ? ` · ${entry.displayName}` : ""}</span>
                     {entry.kind === "spend" && entry.portions.map((portion) => {
                       if (portion.entityId === entry.payerEntityId || portion.entityId === "self") return null;
                       const entity = ledger.entities.find((candidate) => candidate.id === portion.entityId);
@@ -425,7 +459,7 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
                     {bankRows.length > 0 && (
                       <div className="muted">{bankRows.map((row) => `${row.date} · ${row.description} · ${formatMoney(row.amountCents)}`).join(" · ")}</div>
                     )}
-                    {entry.kind === "spend" && entry.payerEntityId === "self" && entry.portions.map((portion) => {
+                    {expanded && entry.kind === "spend" && entry.payerEntityId === "self" && entry.portions.map((portion) => {
                       const entity = ledger.entities.find((candidate) => candidate.id === portion.entityId);
                       if (!entity?.splitwise || entity.kind === "self" || entity.kind === "house" || entry.splitwiseExpenseId) return null;
                       const key = pairKey(entry.id, entity.id);
@@ -549,19 +583,63 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
                       );
                     })}
                   </td>
+                  <td>
+                    <select aria-label={`${entry.description || entry.kind} category`} value={entry.categoryId ?? ""} onChange={(event) => updateEntryInline(entry, { categoryId: event.target.value || null })}>
+                      <option value="">Uncategorised</option>
+                      {(ledger.categories ?? []).filter((category) => !category.archived || category.id === entry.categoryId).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                    </select>
+                  </td>
+                  <td>{account?.name ?? <span className="muted">No account</span>}</td>
                   <td>{payer?.name ?? "Unknown"}</td>
                   <td className="amount">{formatMoney(entry.amountCents)}</td>
-                  <td>{entry.countsTowardDebt ? "Yes" : <span className="muted">No</span>}</td>
+                  <td><input aria-label={`Count ${entry.description || entry.kind} toward balances`} type="checkbox" checked={entry.countsTowardDebt} onChange={(event) => updateEntryInline(entry, { countsTowardDebt: event.target.checked })} /></td>
                   <td>
-                    {entry.kind === "spend" && <button className="secondary" onClick={() => { setEditing(entry); setShowForm(false); }} type="button">Edit</button>}{" "}
-                    <button className="secondary" onClick={() => deleteEntry(entry)} type="button">Delete</button>
+                    <div className="row-actions">
+                      <button className="text-button" aria-expanded={expanded} onClick={() => setExpandedEntryIds((current) => expanded ? current.filter((id) => id !== entry.id) : [...current, entry.id])} type="button">{expanded ? "Close" : "Details"}</button>
+                      {entry.kind === "spend" && <button className="text-button" onClick={() => { setEditing(entry); setShowForm(false); setExpandedEntryIds((current) => current.includes(entry.id) ? current : [...current, entry.id]); }} type="button">Edit all</button>}
+                      <button className="text-button danger-link" onClick={() => deleteEntry(entry)} type="button">Delete</button>
+                    </div>
                   </td>
                 </tr>
+                {expanded && <tr className="activity-detail-row" key={`${entry.id}-details`}>
+                  <td colSpan={9}>
+                    {editing?.id === entry.id ? (
+                      <SpendForm
+                        key={entry.id}
+                        ledger={ledger}
+                        initialValues={entry}
+                        onSave={saveEntry}
+                        onAddCategory={addCategory}
+                        onCancel={() => setEditing(null)}
+                      />
+                    ) : <div className="entry-details">
+                      <div><span className="detail-label">Category</span><strong>{categoryName}</strong></div>
+                      <div><span className="detail-label">Account</span><strong>{account?.name ?? "No account"}</strong></div>
+                      <div><span className="detail-label">Split</span>{entry.portions.length > 0 ? entry.portions.map((portion) => {
+                        const entity = ledger.entities.find((candidate) => candidate.id === portion.entityId);
+                        return <span className="detail-line" key={portion.entityId}>{entity?.name ?? "Unknown"}: {formatMoney(portion.amountCents)}</span>;
+                      }) : <strong>No split details</strong>}</div>
+                      <div><span className="detail-label">Tags</span><strong>{entry.tags?.length ? entry.tags.join(", ") : "None"}</strong></div>
+                      <div className="detail-note"><span className="detail-label">Note</span><strong>{entry.note || "No note"}</strong></div>
+                      {bankRows.length > 0 && <div className="detail-sources"><span className="detail-label">Bank source</span>{bankRows.map((row) => <span className="detail-line" key={row.id}>{row.date} · {row.description} · {formatMoney(row.amountCents)}</span>)}</div>}
+                      {entry.kind === "spend" && <button className="secondary" onClick={() => setEditing(entry)} type="button">Edit all fields</button>}
+                    </div>}
+                  </td>
+                </tr>}
+                </Fragment>
               );
             })}
           </tbody>
         </table>
         {visibleEntries.length === 0 && <p className="empty-state compact">{ledger.entries.length ? "No activity matches these filters." : "No activity yet."}</p>}
+        {visibleEntries.length > 0 && <div className="activity-pagination" aria-label="Activity pages">
+          <span>Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, sortedEntries.length)} of {sortedEntries.length}</span>
+          <div>
+            <button className="secondary" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))} type="button">Previous</button>
+            <span>Page {page + 1} of {pageCount}</span>
+            <button className="secondary" disabled={page >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} type="button">Next</button>
+          </div>
+        </div>}
       </div>
       )}
     </>
