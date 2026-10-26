@@ -10,5 +10,4 @@ playwright-report/
 *.sqlite*
 *.csv
 *.zip
-*.finance.json
 .env*
