@@ -1,6 +1,7 @@
 import {
   HOUSE_ENTITY_ID,
   SELF_ENTITY_ID,
+  accountCoverage,
   type BankRow,
   type Entry,
   type Ledger,
@@ -31,6 +32,57 @@ function withinThreeDays(first: string, second: string): boolean {
     return Date.UTC(year, month - 1, day) / 86_400_000;
   };
   return Math.abs(toDay(first) - toDay(second)) <= 3;
+}
+
+function daysBetween(first: string, second: string): number {
+  const toDay = (date: string) => {
+    const [year, month, day] = date.split("-").map(Number);
+    return Date.UTC(year, month - 1, day) / 86_400_000;
+  };
+  return Math.abs(toDay(first) - toDay(second));
+}
+
+export function existingEntryFor(ledger: Ledger, row: BankRow): Entry | null {
+  const rowAmount = Math.abs(row.amountCents);
+  const candidates = ledger.entries.filter((entry) => {
+    if (entry.kind === (row.amountCents < 0 ? "spend" : "refund")) {
+      return (entry.chargedCents ?? entry.amountCents) === rowAmount && entry.accountId === row.accountId &&
+        !entry.bankRowIds?.length && daysBetween(entry.date, row.date) <= 2;
+    }
+    if (entry.kind !== "transfer" || Math.abs(entry.amountCents) !== rowAmount ||
+      !entry.tags?.includes("card-payment") || !entry.accountId || daysBetween(entry.date, row.date) > 3) {
+      return false;
+    }
+    const card = ledger.accounts.find((account) => account.id === entry.accountId && account.type === "credit");
+    if (!card) return false;
+    const hasAccountRow = (entry.bankRowIds ?? []).some((id) =>
+      ledger.bankRows?.some((bankRow) => bankRow.id === id && bankRow.accountId === row.accountId),
+    ) || (ledger.bankRows ?? []).some((bankRow) => bankRow.entryId === entry.id && bankRow.accountId === row.accountId);
+    if (hasAccountRow) return false;
+    return row.amountCents > 0
+      ? row.accountId === card.id
+      : row.amountCents < 0 && ledger.accounts.some((account) =>
+        account.id === row.accountId && account.type === "asset" && account.payerEntityId === card.payerEntityId,
+      );
+  });
+  const sameDate = candidates.filter((entry) => entry.date === row.date);
+  if (sameDate.length === 1) return sameDate[0];
+  if (sameDate.length > 1) return null;
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+export function isWaitingOnOtherAccount(
+  ledger: Ledger,
+  row: BankRow,
+  pairedTransfers: readonly PossibleTransfer[] = suggestTransfers(ledger),
+): boolean {
+  if (pairedTransfers.some(({ outgoing, incoming }) => outgoing.id === row.id || incoming.id === row.id)) return false;
+  const [year, month, day] = row.date.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1, day));
+  target.setUTCDate(target.getUTCDate() + 3);
+  const targetDate = target.toISOString().slice(0, 10);
+  return !ledger.accounts.some((account) => account.id !== row.accountId &&
+    accountCoverage(ledger, account.id).ranges.some((range) => range.to >= targetDate));
 }
 
 export function suggestTransfers(ledger: Ledger): PossibleTransfer[] {

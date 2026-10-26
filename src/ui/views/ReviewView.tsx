@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, SELF_ENTITY_ID, splitPreset, type BankRow, type Category, type Entity, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
-import { cardCycle, confirmTransfer, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
+import { cardCycle, confirmTransfer, existingEntryFor, isWaitingOnOtherAccount, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatMoney } from "../../domain/value";
 import { canAutoConfirm, firstRule } from "../../domain/rules";
 import { SpendForm } from "./SpendForm";
@@ -9,7 +9,7 @@ import { ComboField } from "./ComboField";
 
 interface ReviewViewProps {
   ledger: Ledger;
-  update: (next: Ledger, undoLabel?: string) => void;
+  update: (next: Ledger, undoLabel?: string, actor?: "matcher") => void;
   onSettle: (row: BankRow) => void;
   onCreateRule: (description: string) => void;
 }
@@ -26,18 +26,31 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   const [bulkEntityId, setBulkEntityId] = useState(SELF_ENTITY_ID);
   const [bulkEntityIds, setBulkEntityIds] = useState<string[]>([SELF_ENTITY_ID]);
   const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [shownWaitingIds, setShownWaitingIds] = useState<Set<string>>(new Set());
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const actionRefs = useRef(new Map<string, HTMLButtonElement>());
   const shortcutRefs = useRef(new Map<string, HTMLButtonElement>());
   const headingRef = useRef<HTMLHeadingElement>(null);
   const bankRows = ledger.bankRows ?? [];
   const imports = ledger.imports ?? [];
-  const pendingRows = bankRows
+  const allPendingRows = bankRows
     .filter((row) => !row.entryId && !row.settlementId && !row.skipped)
     .sort((first, second) => second.date.localeCompare(first.date) || second.line - first.line);
-  const selectedRows = pendingRows.filter((row) => selectedRowIds.has(row.id));
   const memoryFor = (row: BankRow) => ledger.categoryMemory?.find((memory) => memory.key === categoryMemoryKey(row.accountId, row.description));
   const ruleFor = (row: BankRow) => firstRule(ledger.rules ?? [], row, ledger.accounts.find((account) => account.id === row.accountId));
+  const suggestions = suggestTransfers(ledger);
+  const recordedRows = allPendingRows.flatMap((row) => {
+    const entry = existingEntryFor(ledger, row);
+    return entry ? [{ row, entry }] : [];
+  });
+  const recordedRowIds = new Set(recordedRows.map(({ row }) => row.id));
+  const waitingRowIds = new Set(allPendingRows
+    .filter((row) => !recordedRowIds.has(row.id) && !ruleFor(row) && !memoryFor(row) && isWaitingOnOtherAccount(ledger, row, suggestions))
+    .map((row) => row.id));
+  const waitingRows = allPendingRows.filter((row) => waitingRowIds.has(row.id) && !shownWaitingIds.has(row.id));
+  const pendingRows = allPendingRows.filter((row) => !recordedRowIds.has(row.id) &&
+    (!waitingRowIds.has(row.id) || shownWaitingIds.has(row.id)));
+  const selectedRows = pendingRows.filter((row) => selectedRowIds.has(row.id));
   const suggestedSpends = pendingRows.filter((row) => {
     const memory = memoryFor(row);
     return !ruleFor(row) && row.amountCents < 0 && Boolean(memory?.entityId && memory.categoryId && ledger.entities.some((entity) => entity.id === memory.entityId));
@@ -48,7 +61,6 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   });
   const spendingRow = openDetail?.kind === "spend" ? pendingRows.find((row) => row.id === openDetail.rowId) : undefined;
   const refundRow = openDetail?.kind === "refund" ? pendingRows.find((row) => row.id === openDetail.rowId) : undefined;
-  const suggestions = suggestTransfers(ledger);
   const suggestionByRow = new Map<string, PossibleTransfer>();
   for (const suggestion of suggestions) {
     suggestionByRow.set(suggestion.outgoing.id, suggestion);
@@ -112,6 +124,31 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
 
   function importFor(row: BankRow) {
     return imports.find((item) => item.id === row.importId);
+  }
+
+  function linkRecordedRows(records: typeof recordedRows) {
+    if (!records.length) return;
+    const rowEntryIds = new Map(records.map(({ row, entry }) => [row.id, entry.id]));
+    const rowIdsByEntry = new Map<string, string[]>();
+    for (const { row, entry } of records) {
+      rowIdsByEntry.set(entry.id, [...(rowIdsByEntry.get(entry.id) ?? []), row.id]);
+    }
+    const now = new Date().toISOString();
+    update({
+      ...ledger,
+      entries: ledger.entries.map((entry) => {
+        const rowIds = rowIdsByEntry.get(entry.id);
+        return rowIds ? { ...entry, bankRowIds: [...new Set([...(entry.bankRowIds ?? []), ...rowIds])] } : entry;
+      }),
+      bankRows: bankRows.map((row) => {
+        const entryId = rowEntryIds.get(row.id);
+        return entryId ? { ...row, entryId, updatedAt: now } : row;
+      }),
+    }, "Link bank rows to existing entries", "matcher");
+  }
+
+  function showWaitingRow(rowId: string) {
+    setShownWaitingIds((current) => new Set([...current, rowId]));
   }
 
   function shortcutRef(rowId: string, key: string) {
@@ -596,11 +633,55 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   return (
     <>
       <header className="page-heading">
-        <h1 ref={headingRef} tabIndex={-1}>Review <span className="muted">{pendingRows.length} to review</span></h1>
+        <h1 ref={headingRef} tabIndex={-1}>
+          Review <span className="muted">{pendingRows.length} need you</span>
+          {recordedRows.length > 0 && <span className="muted"> +{recordedRows.length} recorded</span>}
+          {waitingRows.length > 0 && <span className="muted"> +{waitingRows.length} waiting</span>}
+        </h1>
         {autoRuleRows.length > 0
           ? <button className="primary" onClick={applyAutoRules} type="button">Apply {autoRuleRows.length} auto rules</button>
           : suggestedSpends.length > 0 && <button className="primary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
       </header>
+      {recordedRows.length > 0 && <section aria-label="Already recorded">
+        <h2>Already recorded</h2>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th>Status</th><th /></tr></thead>
+            <tbody>{recordedRows.map((record) => {
+              const { row, entry } = record;
+              const account = ledger.accounts.find((item) => item.id === row.accountId);
+              const cardPayment = entry.kind === "transfer" && entry.tags?.includes("card-payment");
+              return <tr key={row.id}>
+                <td className="date-cell">{row.date}</td>
+                <td>{row.description || "Bank transaction"}</td>
+                <td>{account?.name ?? "Unknown"}</td>
+                <td className="amount">{formatMoney(row.amountCents)}</td>
+                <td>{cardPayment ? "Card payment from history" : "Already recorded"}</td>
+                <td><button className="secondary" onClick={() => linkRecordedRows([record])} type="button">Link</button></td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
+        <button className="primary" onClick={() => linkRecordedRows(recordedRows)} type="button">Link all {recordedRows.length}</button>
+      </section>}
+      {waitingRows.length > 0 && <details aria-label="Waiting on another account">
+        <summary>Waiting on another account <span className="muted">{waitingRows.length}</span></summary>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th /></tr></thead>
+            <tbody>{waitingRows.map((row) => {
+              const account = ledger.accounts.find((item) => item.id === row.accountId);
+              return <tr key={row.id}>
+                <td className="date-cell">{row.date}</td>
+                <td>{row.description || "Bank transaction"}</td>
+                <td>{account?.name ?? "Unknown"}</td>
+                <td className="amount">{formatMoney(row.amountCents)}</td>
+                <td><button className="secondary" onClick={() => showWaitingRow(row.id)} type="button">Show anyway</button></td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
+      </details>}
       {autoRuleRows.length > 0 && suggestedSpends.length > 0 && <button className="secondary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} memory suggestions</button>}
       {transferMessage && <p className="banner error" role="status">{transferMessage}</p>}
       <p className="hint">Up/Down or j/k move; s spend, i income, x skip, t transfer, e settlement, r refund.</p>
@@ -831,7 +912,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
             })}
           </tbody>
         </table>
-        {!pendingRows.length && <p className="empty-state compact">All caught up.</p>}
+        {!pendingRows.length && !recordedRows.length && !waitingRows.length && <p className="empty-state compact">All caught up.</p>}
       </div>
     </>
   );

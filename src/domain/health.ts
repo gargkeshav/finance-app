@@ -154,5 +154,26 @@ export function findIssues(ledger: Ledger, today: string): HealthIssue[] {
     }
   }
 
+  const unlinkedHistoryEntries = ledger.entries.filter((entry) =>
+    entry.source === "history" && !entry.bankRowIds?.length && entry.accountId,
+  );
+  const linkedEntries = ledger.entries.filter((entry) => entry.bankRowIds?.length && entry.accountId);
+  for (const history of unlinkedHistoryEntries) {
+    for (const linked of linkedEntries) {
+      if (
+        history.id !== linked.id && history.accountId === linked.accountId &&
+        history.date === linked.date && history.amountCents === linked.amountCents
+      ) {
+        const account = ledger.accounts.find((item) => item.id === history.accountId);
+        issues.push({
+          kind: "Possible double entries",
+          count: 1,
+          detail: `${account?.name ?? "Account"}: ${history.date}, ${formatMoney(history.amountCents)}, ${history.description} / ${linked.description}.`,
+          view: "Activity",
+        });
+      }
+    }
+  }
+
   return issues;
 }

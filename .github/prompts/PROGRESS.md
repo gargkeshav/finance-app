@@ -118,4 +118,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 29: Mapped history re-import, replace preview and cleanup, card-payment transfers, share handling, notes/tags, cash-flow filtering, and needs-share Health issue implemented. `npm test` (14 files, 93 tests) and `npm run typecheck` pass.
 - Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/domain/history-import.ts`, `src/domain/reports.ts`, `src/domain/health.ts`, `src/ui/views/HistoryImportView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: The re-import, Balances, Health, and Save as workflow was not exercised against the user's ledger. Next: 30.
+- Batch 30: Review now separates already-recorded, waiting, and needs-you bank rows, links history entries and card payments, and detects history duplicates. Transfer matching and coverage tests added; full tests and typecheck pass.
+- Files changed: `src/domain/transfers.ts`, `src/ui/views/ReviewView.tsx`, `src/domain/health.ts`, `src/ui/LocalApp.tsx`, `tests/transfers.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: The new Review sections and link actions were not manually exercised. Next: 31.
 

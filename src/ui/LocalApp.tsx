@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { FileStore, isPickerCancellation, nextAutosaveDelayMs } from "../adapters/file-store";
 import { emptyLedger, ledgerProblem, parseLedger, stringifyLedger } from "../adapters/file-ledger";
-import type { Account, BankRow, Baseline, Entry, Entity, Ledger, Settlement } from "../domain/ledger";
+import { categoryMemoryKey, type Account, type BankRow, type Baseline, type Entry, type Entity, type Ledger, type Settlement } from "../domain/ledger";
 import type { EntryRule } from "../domain/rules";
+import { firstRule } from "../domain/rules";
+import { existingEntryFor, isWaitingOnOtherAccount, suggestTransfers } from "../domain/transfers";
 import type { EntryFilter } from "../domain/query";
 import { buildChangeSet, revertChangeSet } from "../domain/history";
 import type { ChangeActor } from "../domain/history";
@@ -80,9 +82,16 @@ export function LocalApp() {
   }
   const hasUnsavedChanges = Boolean(serializationError) || currentContent !== savedContent;
   const visibleError = serializationError || error;
-  const reviewCount = (ledger.bankRows ?? []).filter(
+  const pendingReviewRows = (ledger.bankRows ?? []).filter(
     (row) => !row.entryId && !row.settlementId && !row.skipped,
-  ).length;
+  );
+  const pairedReviewTransfers = suggestTransfers(ledger);
+  const reviewCount = pendingReviewRows.filter((row) => {
+    if (existingEntryFor(ledger, row)) return false;
+    const rule = firstRule(ledger.rules ?? [], row, ledger.accounts.find((account) => account.id === row.accountId));
+    const memoryApplies = ledger.categoryMemory?.some((memory) => memory.key === categoryMemoryKey(row.accountId, row.description));
+    return Boolean(rule || memoryApplies || !isWaitingOnOtherAccount(ledger, row, pairedReviewTransfers));
+  }).length;
   const today = new Date();
   const healthIssues = findIssues(ledger, `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
   const healthCount = healthIssues.reduce((total, issue) => total + issue.count, 0);
