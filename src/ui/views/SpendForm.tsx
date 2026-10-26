@@ -133,7 +133,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
     if (event.key === "Escape") {
       event.preventDefault();
       onCancel?.();
-    } else if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
+    } else if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement) && !(event.target instanceof HTMLTextAreaElement)) {
       event.preventDefault();
       event.currentTarget.requestSubmit();
     }
@@ -194,7 +194,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
       </label>
       <label>
         Note
-        <input value={note} onChange={(event) => setNote(event.target.value)} required={amountAmended} />
+        <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional details" required={amountAmended} />
       </label>
       {amountAmended && linkedBankAmount !== null && (
         <>

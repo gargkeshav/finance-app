@@ -112,4 +112,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 27: Nested categories, inherited nature, starter categories, editable category taxonomy, and by-nature reports implemented. `npm test` (14 files, 89 tests) and `npm run typecheck` pass.
 - Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/domain/taxonomy.ts`, `src/domain/reports.ts`, `src/ui/views/ReportsView.tsx`, `src/ui/views/BalancesView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 28.
+- Batch 28: Activity notes are editable on blur for every entry kind, and spend-form notes are multiline. `npm test` (14 files, 89 tests) and `npm run typecheck` pass.
+- Files changed: `src/ui/views/ActivityView.tsx`, `src/ui/views/SpendForm.tsx`, `.github/prompts/PROGRESS.md`.
+- Left: Browser interaction was not completed; the synthetic preview showed recovered unsaved work with no entries, and the isolated empty preview's click action timed out. Next: 29.
 

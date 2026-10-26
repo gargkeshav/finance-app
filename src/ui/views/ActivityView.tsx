@@ -640,7 +640,21 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
                         return <span className="detail-line" key={portion.entityId}>{entity?.name ?? "Unknown"}: {formatMoney(portion.amountCents)}</span>;
                       }) : <strong>No split details</strong>}</div>
                       <div><span className="detail-label">Tags</span><strong>{entry.tags?.length ? entry.tags.join(", ") : "None"}</strong></div>
-                      <div className="detail-note"><span className="detail-label">Note</span><strong>{entry.note || "No note"}</strong></div>
+                      <div className="detail-note">
+                        <label className="detail-label">
+                          Note
+                          <textarea
+                            aria-label={`${entry.description || entry.kind} note`}
+                            defaultValue={entry.note ?? ""}
+                            placeholder="Optional details"
+                            onBlur={(event) => {
+                              const note = event.currentTarget.value.trim();
+                              event.currentTarget.value = note;
+                              if (note !== (entry.note ?? "")) updateEntryInline(entry, { note });
+                            }}
+                          />
+                        </label>
+                      </div>
                       {bankRows.length > 0 && <div className="detail-sources"><span className="detail-label">Bank source</span>{bankRows.map((row) => <span className="detail-line" key={row.id}>{row.date} · {row.description} · {formatMoney(row.amountCents)}</span>)}</div>}
                       {entry.kind === "spend" && <button className="secondary" onClick={() => setEditing(entry)} type="button">Edit all fields</button>}
                     </div>}
