@@ -14,6 +14,7 @@ export interface HealthIssue {
   count: number;
   detail: string;
   view: HealthViewName;
+  filter?: { tag: string };
 }
 
 function addDays(date: string, days: number): string {
@@ -106,6 +107,17 @@ export function findIssues(ledger: Ledger, today: string): HealthIssue[] {
       count: uncategorizedSpending.length,
       detail: `${uncategorizedSpending.length} spend or refund entr${uncategorizedSpending.length === 1 ? "y has" : "ies have"} no category.`,
       view: "Activity",
+    });
+  }
+
+  const needsShare = ledger.entries.filter((entry) => entry.tags?.includes("needs-share"));
+  if (needsShare.length) {
+    issues.push({
+      kind: "History rows with no share",
+      count: needsShare.length,
+      detail: `${needsShare.length} history row${needsShare.length === 1 ? " has" : "s have"} no share recorded.`,
+      view: "Activity",
+      filter: { tag: "needs-share" },
     });
   }
 

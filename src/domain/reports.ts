@@ -249,6 +249,7 @@ export function cashFlow(ledger: Ledger, from: string, to: string): CashFlowRepo
     if (entry.kind !== "income" && entry.kind !== "transfer") continue;
     const direction = entry.kind === "income" ? result.income : result.transfers;
     const linkedRows = bankRows.filter((row) => entry.bankRowIds?.includes(row.id));
+    if (entry.kind === "transfer" && linkedRows.length === 0) continue;
     if (linkedRows.length) {
       for (const row of linkedRows) addCashFlow(direction, row.amountCents, entry.id);
     } else {

@@ -1,6 +1,7 @@
 import { centsSchema, sumCents } from "./value";
 import type { CsvMapping } from "../adapters/csv-mapping";
 import type { EntryRule } from "./rules";
+import type { HistoryMapping } from "./history-import";
 
 export const SELF_ENTITY_ID = "self";
 export const HOUSE_ENTITY_ID = "house";
@@ -82,6 +83,7 @@ export interface Entry {
   tags?: string[];
   note?: string;
   extraReimbursable?: boolean;
+  chargedCents?: number;
   historyKey?: string;
   countsTowardDebt: boolean;
   updatedAt: string;
@@ -162,6 +164,7 @@ export interface Ledger {
   categoryMemory?: CategoryMemory[];
   rules?: EntryRule[];
   lastSplitByAccount?: Record<string, SplitPreset>;
+  historyMapping?: HistoryMapping;
 }
 
 export interface Debt {

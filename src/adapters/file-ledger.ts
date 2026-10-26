@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type Category, type CategoryMemory, type Ledger, type SplitPreset, validateSpend } from "../domain/ledger";
 import type { EntryRule } from "../domain/rules";
+import type { HistoryMapping } from "../domain/history-import";
 import type { ChangeSet } from "../domain/history";
 import { bankDateSchema, centsSchema } from "../domain/value";
 import { csvMappingSchema, type CsvMapping } from "./csv-mapping";
@@ -22,6 +23,7 @@ declare module "../domain/ledger" {
     splitwiseInbox?: SplitwiseInbox[];
     splitwisePosts?: SplitwisePost[];
     history?: ChangeSet[];
+    historyMapping?: HistoryMapping;
   }
 
 }
@@ -153,6 +155,7 @@ const entrySchema = z
     tags: z.array(z.string()).default([]),
     note: z.string().default(""),
     extraReimbursable: z.boolean().default(false),
+    chargedCents: centsSchema.positive().optional(),
     historyKey: z.string().optional(),
     countsTowardDebt: z.boolean(),
     updatedAt: updatedAtSchema,
@@ -281,6 +284,22 @@ const ruleSchema: z.ZodType<EntryRule> = z.object({
   autoConfirm: z.boolean().default(false),
   updatedAt: updatedAtSchema,
 });
+const historyMappingSchema = z.object({
+  groups: z.record(z.string(), z.union([
+    z.object({
+      to: z.enum(["person", "group"]),
+      name: z.string().min(1),
+      groupType: z.enum(["household", "trip", "friends", "project", "other"]).optional(),
+    }),
+    z.object({ to: z.literal("self"), tag: z.string().optional() }),
+  ])),
+  subtypes: z.record(z.string(), z.union([
+    z.object({ to: z.literal("category"), name: z.string().nullable() }),
+    z.object({ to: z.literal("merchant"), displayName: z.string(), category: z.string().nullable() }),
+    z.object({ to: z.literal("tag"), tag: z.string(), category: z.string().nullable() }),
+  ])),
+  blankShare: z.enum(["theyOweAll", "splitEqual", "groupDefault"]),
+});
 const changeSetSchema: z.ZodType<ChangeSet> = z.object({
   id: idSchema,
   at: updatedAtSchema,
@@ -324,6 +343,7 @@ const ledgerSchema = z.object({
   categoryMemory: z.array(categoryMemorySchema).default([]),
   rules: z.array(ruleSchema).default([]),
   history: z.array(changeSetSchema).default([]),
+  historyMapping: historyMappingSchema.optional(),
   lastSplitByAccount: z.record(z.string(), splitPresetSchema).optional(),
 }).superRefine((ledger, context) => {
   const categoriesById = new Map(ledger.categories.map((category) => [category.id, category]));

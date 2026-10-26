@@ -3,12 +3,12 @@ import { balances, categoryNature, debtsOf, defaultSplitPreset, openItems, repor
 import { ledgerProblem } from "../src/adapters/file-ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
 import { filterEntries } from "../src/domain/query";
-import { monthly } from "../src/domain/reports";
+import { cashFlow, monthly } from "../src/domain/reports";
 import { addStarterCategories } from "../src/domain/taxonomy";
 import { findIssues } from "../src/domain/health";
 import { canAutoConfirm, firstRule, type EntryRule } from "../src/domain/rules";
 import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
-import { applyHistoryImport, planHistoryImport } from "../src/domain/history-import";
+import { applyHistoryImport, planHistoryImport, suggestHistoryMapping } from "../src/domain/history-import";
 
 function makeLedger(entry: Entry): Ledger {
   return {
@@ -149,6 +149,134 @@ describe("ledger spending rules", () => {
     const open = applyHistoryImport(openPlan, ledger);
     expect(open.entries[0].countsTowardDebt).toBe(true);
     expect(balances(open).byEntity.house).toBe(1_000);
+  });
+
+  it("imports card payments as transfers without changing report totals", async () => {
+    const seed: Entry = {
+      id: "history-payment-seed",
+      kind: "spend",
+      date: "2026-05-20",
+      description: "Synthetic shared meal",
+      amountCents: 3_000,
+      payerEntityId: "self",
+      accountId: "anz-credit",
+      portions: [{ entityId: "self", amountCents: 3_000 }],
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const ledger = makeLedger(seed);
+    ledger.accounts = [{ id: "anz-credit", name: "Synthetic Card", type: "credit", payerEntityId: "self", updatedAt: "now" }];
+    const text = [
+      "Date,Description,Debit($AUD),Status,SubType,Group,Our share,Share,My share,Tags,Notes",
+      "25/5/2026,Synthetic card payment,30.00,Settled,Card,,0.00,Payment,,bill,",
+    ].join("\n");
+    const before = report(ledger.entries, "2026-05-01", "2026-05-31");
+
+    const plan = await planHistoryImport(text, ledger, "anz-credit");
+    const updated = applyHistoryImport(plan, ledger);
+    const payment = updated.entries.find((entry) => entry.source === "history");
+
+    expect(payment).toMatchObject({ kind: "transfer", portions: [], accountId: "anz-credit", countsTowardDebt: false, tags: ["history", "bill", "card-payment"] });
+    expect(report(updated.entries, "2026-05-01", "2026-05-31")).toEqual(before);
+    expect(cashFlow(updated, "2026-05-01", "2026-05-31").transfers).toMatchObject({ inCents: 0, outCents: 0 });
+  });
+
+  it("splits a $30 friend row equally when Our share is blank and the mapping requests it", async () => {
+    const ledger = makeLedger({
+      id: "blank-share-seed",
+      kind: "income",
+      date: "2026-05-01",
+      description: "Seed",
+      amountCents: 1,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.entries = [];
+    ledger.accounts = [{ id: "anz-credit", name: "Synthetic Card", type: "credit", payerEntityId: "self", updatedAt: "now" }];
+    const text = [
+      "Date,Description,Debit($AUD),Status,SubType,Group,Our share,Share,My share,Tags,Notes",
+      "25/5/2026,Synthetic dinner,30.00,,Food,Alex,,Friend,,,",
+      "26/5/2026,Synthetic pending,12.00,,,,,,,,",
+    ].join("\n");
+    const plan = await planHistoryImport(text, ledger, "anz-credit");
+    const mapping = { ...suggestHistoryMapping(plan, ledger), blankShare: "splitEqual" as const };
+
+    const updated = applyHistoryImport(plan, ledger, mapping);
+    const friend = updated.entities.find((entity) => entity.name === "Alex")!;
+
+    expect(updated.entries[0].portions).toEqual([
+      { entityId: "self", amountCents: 1_500 },
+      { entityId: friend.id, amountCents: 1_500 },
+    ]);
+    expect(findIssues(updated, "2026-05-30")).toContainEqual(expect.objectContaining({
+      kind: "History rows with no share",
+      count: 1,
+      view: "Activity",
+      filter: { tag: "needs-share" },
+    }));
+  });
+
+  it("replaces a prior history import without duplicating its entries", async () => {
+    const ledger = makeLedger({
+      id: "replace-history-seed",
+      kind: "income",
+      date: "2026-05-01",
+      description: "Seed",
+      amountCents: 1,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.entries = [];
+    ledger.accounts = [{ id: "anz-credit", name: "Synthetic Card", type: "credit", payerEntityId: "self", updatedAt: "now" }];
+    const text = [
+      "Date,Description,Debit($AUD),Status,SubType,Group,Our share,Share,My share,Tags,Notes",
+      "25/5/2026,Synthetic dinner,30.00,,Food,Alex,,Friend,,,",
+    ].join("\n");
+    const firstPlan = await planHistoryImport(text, ledger, "anz-credit");
+    const first = applyHistoryImport(firstPlan, ledger);
+    const secondPlan = await planHistoryImport(text, first, "anz-credit");
+
+    const replaced = applyHistoryImport(secondPlan, first, first.historyMapping, { replace: true });
+
+    expect(replaced.entries.filter((entry) => entry.source === "history")).toHaveLength(1);
+  });
+
+  it("keeps Notes and explains a debit topped up by a gift card or points", async () => {
+    const ledger = makeLedger({
+      id: "history-notes-seed",
+      kind: "income",
+      date: "2026-05-01",
+      description: "Seed",
+      amountCents: 1,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.entries = [];
+    ledger.accounts = [{ id: "anz-credit", name: "Synthetic Card", type: "credit", payerEntityId: "self", updatedAt: "now" }];
+    const text = [
+      "Date,Description,Debit($AUD),Status,SubType,Group,Our share,Share,My share,Tags,Notes",
+      "25/5/2026,Synthetic dinner,20.00,,Food,,5.00,Personal,,birthday; friends,birthday dinner",
+      "26/5/2026,Synthetic gift purchase,10.00,,Card,,15.00,Personal,,,",
+    ].join("\n");
+    const plan = await planHistoryImport(text, ledger, "anz-credit");
+
+    const updated = applyHistoryImport(plan, ledger);
+    const noted = updated.entries.find((entry) => entry.description === "Synthetic dinner")!;
+    const gift = updated.entries.find((entry) => entry.description === "Synthetic gift purchase")!;
+
+    expect(noted.note).toBe("birthday dinner");
+    expect(noted.tags).toContain("friends");
+    expect(gift).toMatchObject({ amountCents: 1_500, chargedCents: 1_000, note: "Gift card or points" });
+    expect(gift.tags).toContain("gift-card");
   });
 
   it("reports a review row and a checkpoint difference", () => {
