@@ -34,6 +34,7 @@ export interface Account {
 export interface Portion {
   entityId: string;
   amountCents: number;
+  treatment?: "claim" | "writeOff" | "gift" | "reportOnly";
 }
 
 export type SplitPreset =
@@ -334,7 +335,7 @@ export function debtsOf(entry: Entry, bankRows: readonly BankRow[] = []): Debt[]
   if ((entry.kind !== "spend" && entry.kind !== "refund") || !entry.countsTowardDebt) return [];
 
   const debts = entry.portions
-    .filter((portion) => portion.entityId !== entry.payerEntityId)
+    .filter((portion) => (portion.treatment ?? "claim") === "claim" && portion.entityId !== entry.payerEntityId)
     .map((portion) => ({
       debtorId: portion.entityId,
       creditorId: entry.payerEntityId,

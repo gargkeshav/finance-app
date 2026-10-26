@@ -430,6 +430,7 @@ export function LocalApp() {
     Balances: openEntityId
       ? <EntityView
         ledger={ledger}
+        update={update}
         entityId={openEntityId}
         openActivity={openActivity}
         onSettle={() => { setSettlementRow(null); navigate("Settle"); }}

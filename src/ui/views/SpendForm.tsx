@@ -15,6 +15,7 @@ interface SpendFormProps {
 interface PortionDraft {
   entityId: string;
   amount: string;
+  treatment?: Portion["treatment"];
 }
 
 function todayLocal(): string {
@@ -41,7 +42,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
   const [note, setNote] = useState(initialValues?.note ?? "");
   const [extraReimbursable, setExtraReimbursable] = useState(initialValues?.extraReimbursable ?? false);
   const [portions, setPortions] = useState<PortionDraft[]>(
-    initialValues?.portions?.map((portion) => ({ entityId: portion.entityId, amount: centsText(portion.amountCents) })) ?? [],
+    initialValues?.portions?.map((portion) => ({ entityId: portion.entityId, amount: centsText(portion.amountCents), treatment: portion.treatment })) ?? [],
   );
   const [presetEntityId, setPresetEntityId] = useState(initialValues?.portions?.[0]?.entityId ?? initialValues?.payerEntityId ?? SELF_ENTITY_ID);
   const [equalEntityIds, setEqualEntityIds] = useState(initialValues?.portions?.map((portion) => portion.entityId) ?? []);
@@ -62,6 +63,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
     portionValues = portions.map((portion) => ({
       entityId: portion.entityId,
       amountCents: parseAud(portion.amount),
+      ...(portion.treatment && portion.treatment !== "claim" ? { treatment: portion.treatment } : {}),
     }));
     remainingCents = amountCents - portionValues.reduce((total, portion) => total + portion.amountCents, 0);
   } catch {
@@ -105,6 +107,13 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
   function setPortion(index: number, key: keyof PortionDraft, value: string) {
     setActivePreset(undefined);
     setPortions((current) => current.map((portion, row) => row === index ? { ...portion, [key]: value } : portion));
+  }
+
+  function setPortionTreatment(index: number, value: NonNullable<Portion["treatment"]>) {
+    setActivePreset(undefined);
+    setPortions((current) => current.map((portion, row) => row === index
+      ? { ...portion, treatment: value === "claim" ? undefined : value }
+      : portion));
   }
 
   function applyPreset(preset: SplitPreset) {
@@ -255,6 +264,15 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
             <label>
               Amount
               <input inputMode="decimal" value={portion.amount} onChange={(event) => setPortion(index, "amount", event.target.value)} placeholder="0.00" />
+            </label>
+            <label>
+              Treatment
+              <select value={portion.treatment ?? "claim"} onChange={(event) => setPortionTreatment(index, event.target.value as NonNullable<Portion["treatment"]>)}>
+                <option value="claim">Claim</option>
+                <option value="writeOff">Write off</option>
+                <option value="gift">Gift</option>
+                <option value="reportOnly">Report only</option>
+              </select>
             </label>
             <button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} className="icon-button" onClick={() => { setActivePreset(undefined); setPortions((current) => current.filter((_, row) => row !== index)); }} type="button">×</button>
           </div>

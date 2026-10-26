@@ -106,4 +106,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 25: Group types, weighted members, percentage/equal-share defaults, weighted split presets, and one-time new-spend defaults implemented. `npm test` (14 files, 85 tests) and `npm run typecheck` pass.
 - Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/PeopleView.tsx`, `src/ui/views/SpendForm.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 26.
+- Batch 26: Optional portion treatments, claim-only debt calculation, per-portion treatment selection, and entity-level write-off/gift review with "Start claiming" implemented. `npm test` (14 files, 86 tests) and `npm run typecheck` pass. The `LocalApp.tsx` caller was read and wired after the user authorized continuing from the handoff.
+- Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/SpendForm.tsx`, `src/ui/views/EntityView.tsx`, `src/ui/LocalApp.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 27.
 

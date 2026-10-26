@@ -134,6 +134,7 @@ const accountSchema = z.object({
 const portionSchema = z.object({
   entityId: idSchema,
   amountCents: centsSchema.positive(),
+  treatment: z.enum(["claim", "writeOff", "gift", "reportOnly"]).optional(),
 });
 
 const entrySchema = z

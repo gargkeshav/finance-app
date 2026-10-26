@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { balances, defaultSplitPreset, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
+import { balances, debtsOf, defaultSplitPreset, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
 import { filterEntries } from "../src/domain/query";
 import { monthly } from "../src/domain/reports";
@@ -22,6 +22,41 @@ function makeLedger(entry: Entry): Ledger {
 }
 
 describe("ledger spending rules", () => {
+  it("excludes written-off portions from debt without changing report totals", () => {
+    const writeOff: Entry = {
+      id: "write-off-spend",
+      kind: "spend",
+      date: "2026-10-20",
+      description: "Shared dinner",
+      amountCents: 3_000,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [
+        { entityId: "friend", amountCents: 1_000, treatment: "writeOff" },
+        { entityId: "self", amountCents: 2_000 },
+      ],
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const claim: Entry = {
+      ...writeOff,
+      id: "claim-spend",
+      portions: writeOff.portions.map((portion) => portion.entityId === "friend"
+        ? { ...portion, treatment: undefined }
+        : portion),
+    };
+    const ledger = makeLedger(writeOff);
+    ledger.entities.push({ id: "friend", kind: "person", name: "Alex", archived: false, updatedAt: "now" });
+
+    expect(debtsOf(writeOff)).toEqual([]);
+    expect(debtsOf(claim)).toEqual([{ debtorId: "friend", creditorId: "self", amountCents: 1_000 }]);
+    expect(report([writeOff], "2026-10-01", "2026-10-31")).toMatchObject({ personalCents: 2_000, houseCents: 0 });
+    expect(report([writeOff], "2026-10-01", "2026-10-31").personalCents)
+      .toBe(report([claim], "2026-10-01", "2026-10-31").personalCents);
+    expect(report([writeOff], "2026-10-01", "2026-10-31").houseCents)
+      .toBe(report([claim], "2026-10-01", "2026-10-31").houseCents);
+  });
+
   it("imports history splits with settled debt and skips duplicate history keys", async () => {
     const ledger = makeLedger({
       id: "history-seed",

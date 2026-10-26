@@ -4,6 +4,7 @@ import type { EntryFilter } from "../../domain/query";
 
 interface EntityViewProps {
   ledger: Ledger;
+  update: (next: Ledger, undoLabel?: string) => void;
   entityId: string;
   openActivity: (filter: EntryFilter) => void;
   onSettle: () => void;
@@ -19,7 +20,7 @@ interface TimelineItem {
   settled?: boolean;
 }
 
-export function EntityView({ ledger, entityId, openActivity, onSettle, onBack }: EntityViewProps) {
+export function EntityView({ ledger, update, entityId, openActivity, onSettle, onBack }: EntityViewProps) {
   const entity = ledger.entities.find((item) => item.id === entityId);
   if (!entity) {
     return <>
@@ -68,6 +69,31 @@ export function EntityView({ ledger, entityId, openActivity, onSettle, onBack }:
     runningBalanceCents += item.amountCents;
     return { ...item, runningBalanceCents };
   });
+  const treatedPortions = ledger.entries.flatMap((entry) => entry.portions.flatMap((portion, portionIndex) => {
+    if (portion.entityId !== entityId || (portion.treatment !== "writeOff" && portion.treatment !== "gift")) return [];
+    const asClaim: Entry = {
+      ...entry,
+      portions: entry.portions.map((candidate, index) => index === portionIndex
+        ? { ...candidate, treatment: "claim" }
+        : candidate),
+    };
+    const debt = debtsOf(asClaim, ledger.bankRows ?? []).find((candidate) =>
+      candidate.debtorId === portion.entityId && candidate.creditorId === entry.payerEntityId,
+    );
+    return [{ entry, portionIndex, portion, debt }];
+  }));
+
+  function startClaiming(entryId: string, portionIndex: number) {
+    update({
+      ...ledger,
+      entries: ledger.entries.map((entry) => entry.id !== entryId ? entry : {
+        ...entry,
+        portions: entry.portions.map((portion, index) => index === portionIndex
+          ? { ...portion, treatment: undefined }
+          : portion),
+      }),
+    }, "Start claiming write-off");
+  }
   const balanceText = balanceCents > 0
     ? `${entity.name} owes you ${formatMoney(balanceCents)}`
     : balanceCents < 0
@@ -102,5 +128,32 @@ export function EntityView({ ledger, entityId, openActivity, onSettle, onBack }:
         </tbody>
       </table>
     </div>
+    <section>
+      <h2>Written off and gifted</h2>
+      {treatedPortions.length === 0
+        ? <p className="empty-state compact">No written-off or gifted portions.</p>
+        : <div className="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Activity</th><th>Treatment</th><th>Would-be debt</th><th>Action</th></tr></thead>
+            <tbody>
+              {treatedPortions.map(({ entry, portionIndex, portion, debt }) => {
+                const debtorId = debt && (debt.amountCents < 0 ? debt.creditorId : debt.debtorId);
+                const creditorId = debt && (debt.amountCents < 0 ? debt.debtorId : debt.creditorId);
+                const debtorName = ledger.entities.find((item) => item.id === debtorId)?.name ?? "Unknown";
+                const creditorName = ledger.entities.find((item) => item.id === creditorId)?.name ?? "Unknown";
+                return <tr key={`${entry.id}-${portionIndex}`}>
+                  <td className="date-cell">{entry.date}</td>
+                  <td><button className="transaction-link" onClick={() => openActivity({ entryIds: [entry.id] })} type="button">{entry.description || entry.kind}</button></td>
+                  <td>{portion.treatment === "writeOff" ? "Write off" : "Gift"}</td>
+                  <td>{debt
+                    ? `${debtorName} owes ${creditorName} ${formatMoney(Math.abs(debt.amountCents))}`
+                    : "No debt would be created"}</td>
+                  <td>{portion.treatment === "writeOff" && <button className="text-button" onClick={() => startClaiming(entry.id, portionIndex)} type="button">Start claiming</button>}</td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>}
+    </section>
   </>;
 }
