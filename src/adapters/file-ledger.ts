@@ -277,11 +277,15 @@ const ruleSchema: z.ZodType<EntryRule> = z.object({
   match: z.object({
     text: z.string(),
     mode: z.enum(["contains", "startsWith"]),
+    descriptionRegex: z.string().optional(),
+    weekday: z.array(z.number().int().min(0).max(6)).default([]),
     accountId: idSchema.nullable(),
     sign: z.enum(["out", "in", "any"]),
     minCents: centsSchema.nonnegative().nullable(),
     maxCents: centsSchema.nonnegative().nullable(),
   }),
+  scope: z.enum(["newRows", "existingEntries", "both"]).default("newRows"),
+  protectManualEdits: z.boolean().default(true),
   action: z.object({
     displayName: z.string().nullable(),
     categoryId: idSchema.nullable(),

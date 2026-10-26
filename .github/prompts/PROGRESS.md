@@ -127,4 +127,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 32: Remembered display names now key from cleaned merchant descriptions, can be entered from Activity or Review, and are used as report merchant names. `npm test` (15 files, 98 tests) and `npm run typecheck` pass.
 - Files changed: `src/domain/merchants.ts`, `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/domain/reports.ts`, `src/ui/views/SpendForm.tsx`, `src/ui/views/ActivityView.tsx`, `src/ui/views/ReviewView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 33.
+- Batch 33: Rule matching now supports regexes, UTC weekdays, and existing-entry scope with manual-edit protection; rules show selectable before/after previews and apply selected changes in one labelled update. `npm test` (15 files, 99 tests), `npm run typecheck`, and `git diff --check` pass.
+- Files changed: `src/domain/rules.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/RulesView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 34.
 

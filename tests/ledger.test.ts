@@ -6,7 +6,7 @@ import { filterEntries } from "../src/domain/query";
 import { cashFlow, monthly } from "../src/domain/reports";
 import { addStarterCategories } from "../src/domain/taxonomy";
 import { findIssues } from "../src/domain/health";
-import { canAutoConfirm, firstRule, type EntryRule } from "../src/domain/rules";
+import { canAutoConfirm, firstRule, matchesRule, previewRuleChanges, type EntryRule } from "../src/domain/rules";
 import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
 import { applyHistoryImport, planHistoryImport, suggestHistoryMapping } from "../src/domain/history-import";
 
@@ -814,6 +814,66 @@ describe("entry rules", () => {
       .toBe("lower");
     expect(canAutoConfirm(lowerOrder)).toBe(false);
     expect(canAutoConfirm(higherOrder)).toBe(true);
+  });
+
+  it("previews existing bank entries but protects entries without a source", () => {
+    const bankEntry: Entry = {
+      id: "bank-entry",
+      kind: "spend",
+      date: "2026-10-25",
+      description: "WOOLWORTHS 123",
+      amountCents: 2_500,
+      payerEntityId: "self",
+      accountId: "checking",
+      portions: [{ entityId: "self", amountCents: 2_500 }],
+      source: "bank",
+      countsTowardDebt: true,
+      updatedAt: "now",
+    };
+    const manualEntry: Entry = { ...bankEntry, id: "manual-entry", source: undefined };
+    const ledger = makeLedger(bankEntry);
+    ledger.entries.push(manualEntry);
+    ledger.accounts.push({ id: "checking", name: "Checking", type: "asset", payerEntityId: "self", updatedAt: "now" });
+    const rule: EntryRule = {
+      id: "woolworths",
+      name: "Groceries",
+      order: 1,
+      enabled: true,
+      match: {
+        text: "does not match",
+        mode: "contains",
+        descriptionRegex: "^WOOL",
+        accountId: null,
+        sign: "out",
+        minCents: null,
+        maxCents: null,
+      },
+      scope: "existingEntries",
+      protectManualEdits: true,
+      action: { displayName: null, categoryId: "groceries", split: null, tags: [] },
+      autoConfirm: false,
+      updatedAt: "now",
+    };
+
+    const preview = previewRuleChanges(rule, ledger);
+
+    expect(matchesRule(rule, {
+      id: "regex-row",
+      accountId: "checking",
+      importId: "import",
+      line: 1,
+      date: "2026-10-25",
+      description: "WOOLWORTHS 123",
+      amountCents: -2_500,
+      balanceCents: null,
+      raw: [],
+      entryId: null,
+      settlementId: null,
+      skipped: false,
+      dismissedTransferIds: [],
+      updatedAt: "now",
+    }, ledger.accounts[0])).toBe(true);
+    expect(preview.entries.map(({ entry }) => entry.id)).toEqual(["bank-entry"]);
   });
 });
 
