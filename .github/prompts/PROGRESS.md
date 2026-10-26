@@ -121,4 +121,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 30: Review now separates already-recorded, waiting, and needs-you bank rows, links history entries and card payments, and detects history duplicates. Transfer matching and coverage tests added; full tests and typecheck pass.
 - Files changed: `src/domain/transfers.ts`, `src/ui/views/ReviewView.tsx`, `src/domain/health.ts`, `src/ui/LocalApp.tsx`, `tests/transfers.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: The new Review sections and link actions were not manually exercised. Next: 31.
+- Batch 31: Card payment checks estimate owed amounts over time, link payments and charge periods to Activity, and flag payments not seen leaving a covered asset account. `npm test` (15 files, 97 tests) and `npm run typecheck` pass.
+- Files changed: `src/domain/transfers.ts`, `src/ui/views/AccountsView.tsx`, `src/domain/health.ts`, `tests/transfers.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: Payments check and Health navigation were not manually exercised. Next: 32.
 

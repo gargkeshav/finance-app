@@ -2,6 +2,7 @@ import {
   HOUSE_ENTITY_ID,
   SELF_ENTITY_ID,
   accountCoverage,
+  linkedBankAmountCents,
   type BankRow,
   type Entry,
   type Ledger,
@@ -18,6 +19,18 @@ export interface PossibleTransfer {
 export interface CardCycle {
   sumCents: number;
   differenceCents: number;
+}
+
+export interface CardPaymentCheckRow {
+  payment: Entry;
+  chargesSinceCents: number;
+  owedAfterCents: number;
+  fundedFrom: string | null;
+}
+
+export interface CardPaymentCheck {
+  rows: CardPaymentCheckRow[];
+  owedNowCents: number;
 }
 
 export type TransferChoice = "contribution" | "settlement";
@@ -40,6 +53,58 @@ function daysBetween(first: string, second: string): number {
     return Date.UTC(year, month - 1, day) / 86_400_000;
   };
   return Math.abs(toDay(first) - toDay(second));
+}
+
+function linkedRows(ledger: Ledger, entry: Entry): BankRow[] {
+  return (ledger.bankRows ?? []).filter((row) =>
+    row.entryId === entry.id || entry.bankRowIds?.includes(row.id),
+  );
+}
+
+export function cardPaymentCheck(ledger: Ledger, accountId: string): CardPaymentCheck {
+  const bankRows = ledger.bankRows ?? [];
+  const payments = ledger.entries
+    .filter((entry) => entry.kind === "transfer" && (
+      entry.accountId === accountId || linkedRows(ledger, entry).some((row) =>
+        row.accountId === accountId && row.amountCents > 0,
+      )
+    ))
+    .sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
+  const charges = ledger.entries
+    .filter((entry) => entry.accountId === accountId && (entry.kind === "spend" || entry.kind === "refund"))
+    .map((entry) => ({
+      date: entry.date,
+      amountCents: (linkedBankAmountCents(entry, bankRows) ?? entry.chargedCents ?? entry.amountCents) *
+        (entry.kind === "refund" ? -1 : 1),
+    }))
+    .sort((first, second) => first.date.localeCompare(second.date));
+
+  let previousPaymentDate = "";
+  let chargeIndex = 0;
+  let owedAfterCents = 0;
+  const rows = payments.map((payment) => {
+    let chargesSinceCents = 0;
+    while (chargeIndex < charges.length && charges[chargeIndex].date <= payment.date) {
+      const charge = charges[chargeIndex++];
+      owedAfterCents += charge.amountCents;
+      if (charge.date > previousPaymentDate) chargesSinceCents += charge.amountCents;
+    }
+    owedAfterCents -= payment.amountCents;
+    const fundedFrom = linkedRows(ledger, payment)
+      .find((row) => row.amountCents < 0 && ledger.accounts.some((account) =>
+        account.id === row.accountId && account.type === "asset",
+      ));
+    previousPaymentDate = payment.date;
+    return {
+      payment,
+      chargesSinceCents,
+      owedAfterCents,
+      fundedFrom: fundedFrom ? ledger.accounts.find((account) => account.id === fundedFrom.accountId)?.name ?? null : null,
+    };
+  });
+
+  for (; chargeIndex < charges.length; chargeIndex += 1) owedAfterCents += charges[chargeIndex].amountCents;
+  return { rows, owedNowCents: owedAfterCents };
 }
 
 export function existingEntryFor(ledger: Ledger, row: BankRow): Entry | null {

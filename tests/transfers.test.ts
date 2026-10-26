@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BankRow, Ledger } from "../src/domain/ledger";
-import { existingEntryFor, isWaitingOnOtherAccount } from "../src/domain/transfers";
+import { cardPaymentCheck, existingEntryFor, isWaitingOnOtherAccount } from "../src/domain/transfers";
 
 function bankRow(id: string, accountId: string, date: string, amountCents: number): BankRow {
   return {
@@ -107,5 +107,22 @@ describe("review status helpers", () => {
 
     ledger.imports[0].dateTo = "2024-01-10";
     expect(isWaitingOnOtherAccount(ledger, row)).toBe(false);
+  });
+});
+
+describe("card payment check", () => {
+  it("tracks charges and payments over time", () => {
+    const ledger = baseLedger();
+    ledger.entries = [
+      { id: "charge-1", kind: "spend", date: "2024-01-01", description: "Charge", amountCents: 10000, payerEntityId: "self", accountId: "C", portions: [], countsTowardDebt: false, updatedAt: "" },
+      { id: "charge-2", kind: "spend", date: "2024-01-02", description: "Charge", amountCents: 5000, payerEntityId: "self", accountId: "C", portions: [], countsTowardDebt: false, updatedAt: "" },
+      { id: "payment-1", kind: "transfer", date: "2024-01-03", description: "Payment", amountCents: 15000, payerEntityId: "self", accountId: "C", portions: [], countsTowardDebt: false, updatedAt: "" },
+      { id: "charge-3", kind: "spend", date: "2024-01-04", description: "Charge", amountCents: 2000, payerEntityId: "self", accountId: "C", portions: [], countsTowardDebt: false, updatedAt: "" },
+      { id: "payment-2", kind: "transfer", date: "2024-01-05", description: "Payment", amountCents: 1000, payerEntityId: "self", accountId: "C", portions: [], countsTowardDebt: false, updatedAt: "" },
+    ];
+
+    const check = cardPaymentCheck(ledger, "C");
+    expect(check.rows.map((row) => row.owedAfterCents)).toEqual([0, 1000]);
+    expect(check.owedNowCents).toBe(1000);
   });
 });

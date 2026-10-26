@@ -1,12 +1,18 @@
 import { useState } from "react";
 import { accountCoverage, checkpointDifferences, HOUSE_ENTITY_ID, type Account, type BalanceCheckpoint, type Ledger } from "../../domain/ledger";
 import { formatMoney, isBankDate, parseAud } from "../../domain/value";
+import { cardPaymentCheck } from "../../domain/transfers";
 import type { EntryFilter } from "../../domain/query";
 
 interface AccountsViewProps {
   ledger: Ledger;
   update: (next: Ledger) => void;
   openActivity: (filter: EntryFilter) => void;
+}
+
+function nextDate(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
 }
 
 export function AccountsView({ ledger, update, openActivity }: AccountsViewProps) {
@@ -145,9 +151,39 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
               const payer = ledger.entities.find((entity) => entity.id === account.payerEntityId);
               const coverage = accountCoverage(ledger, account.id);
               const differences = checkpointDifferences(ledger, account.id);
+              const paymentCheck = account.type === "credit" ? cardPaymentCheck(ledger, account.id) : null;
               return (
                 <tr key={account.id}>
-                  <td><button className="transaction-link" onClick={() => openActivity({ accountId: account.id })} type="button">{account.name}</button></td>
+                  <td>
+                    <button className="transaction-link" onClick={() => openActivity({ accountId: account.id })} type="button">{account.name}</button>
+                    {paymentCheck && (
+                      <details>
+                        <summary>Payments check</summary>
+                        <p>Estimated amount owed now: <span className="amount">{formatMoney(paymentCheck.owedNowCents)}</span></p>
+                        <p>A sudden jump means a row may be missing or doubled near that date.</p>
+                        <div className="table-scroll">
+                          <table>
+                            <thead><tr><th>Date</th><th>Payment</th><th>Charges since previous payment</th><th>Estimated owed after</th><th>Paid from</th></tr></thead>
+                            <tbody>
+                              {paymentCheck.rows.map((row, index) => {
+                                const previousPaymentDate = paymentCheck.rows[index - 1]?.payment.date;
+                                return (
+                                  <tr key={row.payment.id}>
+                                    <td>{row.payment.date}</td>
+                                    <td><button className="transaction-link amount" onClick={() => openActivity({ accountId: account.id, kind: "transfer" })} type="button">{formatMoney(row.payment.amountCents)}</button></td>
+                                    <td><button className="transaction-link amount" onClick={() => openActivity({ accountId: account.id, from: previousPaymentDate ? nextDate(previousPaymentDate) : undefined, to: row.payment.date })} type="button">{formatMoney(row.chargesSinceCents)}</button></td>
+                                    <td className="amount">{formatMoney(row.owedAfterCents)}</td>
+                                    <td>{row.fundedFrom ?? "Not seen yet"}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                          {paymentCheck.rows.length === 0 && <p className="empty-state compact">No card payments found.</p>}
+                        </div>
+                      </details>
+                    )}
+                  </td>
                   <td>{account.type === "asset" ? "Asset" : "Credit"}</td>
                   <td><span className={`allocation-tag${account.payerEntityId === HOUSE_ENTITY_ID ? " house" : ""}`}>{account.payerEntityId === HOUSE_ENTITY_ID ? "House" : payer?.name ?? "Unknown"}</span></td>
                   <td>

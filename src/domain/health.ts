@@ -6,6 +6,7 @@ import {
   type Ledger,
 } from "./ledger";
 import { formatMoney } from "./value";
+import { cardPaymentCheck } from "./transfers";
 
 export type HealthViewName = "Review" | "Accounts" | "Balances" | "Activity" | "People";
 
@@ -118,6 +119,25 @@ export function findIssues(ledger: Ledger, today: string): HealthIssue[] {
       detail: `${needsShare.length} history row${needsShare.length === 1 ? " has" : "s have"} no share recorded.`,
       view: "Activity",
       filter: { tag: "needs-share" },
+    });
+  }
+
+  const unseenCardPayments = ledger.accounts
+    .filter((account) => account.type === "credit")
+    .flatMap((card) => cardPaymentCheck(ledger, card.id).rows
+      .filter((row) => row.fundedFrom === null && ledger.accounts.some((asset) =>
+        asset.type === "asset" && asset.payerEntityId === card.payerEntityId &&
+        accountCoverage(ledger, asset.id).ranges.some((range) => row.payment.date >= range.from && row.payment.date <= range.to),
+      ))
+      .map((row) => ({ card, payment: row.payment })),
+    );
+  if (unseenCardPayments.length) {
+    issues.push({
+      kind: "Card payments not seen leaving an account",
+      count: unseenCardPayments.length,
+      detail: `${unseenCardPayments.length} card payment${unseenCardPayments.length === 1 ? " is" : "s are"} not linked to an outgoing row in covered account history.`,
+      view: "Activity",
+      filter: { tag: "card-payment" },
     });
   }
 
