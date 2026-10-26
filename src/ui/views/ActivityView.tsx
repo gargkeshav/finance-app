@@ -397,8 +397,13 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
       </div>
       {showAdvancedFilters && <div className="filters advanced-filters">
         <label>Account<select value={activityFilter.accountId ?? ""} onChange={(event) => openActivity({ ...activityFilter, accountId: event.target.value })}><option value="">All accounts</option>{ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-        <ComboField label="Category" value={activityFilter.categoryId ?? ""} options={(ledger.categories ?? []).map((category) => ({ id: category.id, name: category.name }))}
-          nonePlaceholder="All categories" onChange={(categoryId) => openActivity({ ...activityFilter, categoryId })}
+        <ComboField label="Category" value={activityFilter.uncategorized && !activityFilter.categoryId ? "__uncategorized__" : activityFilter.categoryId ?? ""}
+          options={[{ id: "__uncategorized__", name: "Uncategorised" }, ...(ledger.categories ?? []).map((category) => ({ id: category.id, name: category.name }))]}
+          nonePlaceholder="All categories" onChange={(categoryId) => openActivity({
+            ...activityFilter,
+            categoryId: categoryId === "__uncategorized__" ? undefined : categoryId,
+            uncategorized: categoryId === "__uncategorized__" ? true : undefined,
+          })}
           onCreate={createCategory} />
         <label>Entity<select value={activityFilter.entityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, entityId: event.target.value })}><option value="">Any entity</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
         <label>Paid by<select value={activityFilter.payerEntityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, payerEntityId: event.target.value })}><option value="">Anyone</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>

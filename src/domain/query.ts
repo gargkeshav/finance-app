@@ -18,6 +18,7 @@ export interface EntryFilter {
   to?: string;
   accountId?: string;
   categoryId?: string;
+  uncategorized?: boolean;
   entityId?: string;
   payerEntityId?: string;
   kind?: EntryKind;
@@ -63,6 +64,7 @@ export function filterEntries(ledger: Ledger, filter: EntryFilter): Entry[] {
         if (!linkedAccount) return false;
       }
       if (filter.categoryId && entry.categoryId !== filter.categoryId) return false;
+      if (!filter.categoryId && filter.uncategorized && entry.categoryId) return false;
       if (filter.entityId && entry.payerEntityId !== filter.entityId &&
         !entry.portions.some((portion) => portion.entityId === filter.entityId)) return false;
       if (filter.payerEntityId && entry.payerEntityId !== filter.payerEntityId) return false;

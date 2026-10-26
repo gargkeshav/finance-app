@@ -97,6 +97,18 @@ export function findIssues(ledger: Ledger, today: string): HealthIssue[] {
     });
   }
 
+  const uncategorizedSpending = ledger.entries.filter((entry) =>
+    (entry.kind === "spend" || entry.kind === "refund") && !entry.categoryId,
+  );
+  if (uncategorizedSpending.length) {
+    issues.push({
+      kind: "Uncategorised spending",
+      count: uncategorizedSpending.length,
+      detail: `${uncategorizedSpending.length} spend or refund entr${uncategorizedSpending.length === 1 ? "y has" : "ies have"} no category.`,
+      view: "Activity",
+    });
+  }
+
   const amended = ledger.entries.filter((entry) => {
     if (!entry.bankRowIds?.length || entry.note?.trim()) return false;
     const bankAmount = linkedBankAmountCents(entry, ledger.bankRows ?? []);

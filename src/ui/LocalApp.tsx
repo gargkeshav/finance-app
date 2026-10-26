@@ -7,6 +7,7 @@ import type { EntryFilter } from "../domain/query";
 import { buildChangeSet, revertChangeSet } from "../domain/history";
 import type { ChangeActor } from "../domain/history";
 import { ActivityView } from "./views/ActivityView";
+import { HomeView } from "./views/HomeView";
 import { AccountsView } from "./views/AccountsView";
 import { BalancesView } from "./views/BalancesView";
 import { EntityView } from "./views/EntityView";
@@ -20,8 +21,10 @@ import { ReportsView } from "./views/ReportsView";
 import { ReviewView } from "./views/ReviewView";
 import { RulesView } from "./views/RulesView";
 import { SettleView } from "./views/SettleView";
+import { decodeRoute, encodeRoute } from "./route";
 
-type ViewName = "Activity" | "Import" | "Review" | "Settle" | "Accounts" | "People" | "Balances" | "Reports" | "Data" | "Rules" | "Health" | "History";
+type ViewName = "Home" | "Activity" | "Import" | "Review" | "Settle" | "Accounts" | "People" | "Balances" | "Reports" | "Data" | "Rules" | "Health" | "History";
+const knownViews: ViewName[] = ["Home", "Activity", "Import", "Review", "Settle", "Accounts", "People", "Balances", "Reports", "Data", "Rules", "Health", "History"];
 type RecordWithTimestamp = { id: string; updatedAt: string };
 
 function updateRecords<T extends RecordWithTimestamp>(
@@ -52,7 +55,7 @@ export function LocalApp() {
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const [undoState, setUndoState] = useState<{ ledger: Ledger; label: string } | null>(null);
-  const [view, setView] = useState<ViewName>("Activity");
+  const [view, setView] = useState<ViewName>("Home");
   const [activityFilter, setActivityFilter] = useState<EntryFilter>({});
   const [ruleDescription, setRuleDescription] = useState("");
   const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
@@ -83,6 +86,17 @@ export function LocalApp() {
   const today = new Date();
   const healthIssues = findIssues(ledger, `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
   const healthCount = healthIssues.reduce((total, issue) => total + issue.count, 0);
+
+  useEffect(() => {
+    function applyRoute() {
+      const route = decodeRoute(window.location.hash, knownViews);
+      setView(route.view as ViewName);
+      if (route.view === "Activity") setActivityFilter(route.filter ?? {});
+    }
+    applyRoute();
+    window.addEventListener("hashchange", applyRoute);
+    return () => window.removeEventListener("hashchange", applyRoute);
+  }, []);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -215,17 +229,24 @@ export function LocalApp() {
     setMessage("");
   }
 
-  function navigate(nextView: ViewName) {
+  function navigate(nextView: ViewName, filter?: EntryFilter) {
     if (nextView !== "Balances") setOpenEntityId(null);
     setMessage("");
     setError("");
     setWarning("");
     setView(nextView);
+    const nextHash = encodeRoute({ view: nextView, filter: nextView === "Activity" ? filter ?? activityFilter : undefined });
+    if (window.location.hash !== nextHash) window.location.hash = nextHash;
   }
 
   function openActivity(filter: EntryFilter = {}) {
     setActivityFilter(filter);
-    navigate("Activity");
+    navigate("Activity", filter);
+  }
+
+  function openEntity(entityId: string) {
+    setOpenEntityId(entityId);
+    navigate("Balances");
   }
 
   function canReplaceLedger(): boolean {
@@ -248,7 +269,7 @@ export function LocalApp() {
     autosaveFailureCount.current = 0;
     setAutosaveFailures(0);
     setAutosaveDelayMs(1000);
-    setView(waitingRows > 0 ? "Review" : "Activity");
+    navigate(waitingRows > 0 ? "Review" : "Home");
     setMessage("Ledger opened.");
     setError("");
     setWarning("");
@@ -398,6 +419,7 @@ export function LocalApp() {
   }
 
   const views = {
+    Home: <HomeView ledger={ledger} healthIssues={healthIssues} reviewCount={reviewCount} openActivity={openActivity} onOpenEntity={openEntity} onNavigate={navigate} />,
     Import: <ImportView ledger={ledger} update={update} />,
     Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); navigate("Settle"); }} onCreateRule={(description) => { setRuleDescription(description); navigate("Rules"); }} />,
     Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} activityFilter={activityFilter} openActivity={openActivity} onNavigate={navigate} />,
@@ -432,14 +454,25 @@ export function LocalApp() {
       <aside className="sidebar" aria-label="Main navigation">
         <div className="sidebar-brand">Finance</div>
         <nav>
+          {(["Home"] as const).map((name) => (
+            <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">{name}</button>
+          ))}
           <div className="nav-group">Daily</div>
-          {(["Review", "Activity", "Settle", "Balances", "Reports", "Import", "Health"] as const).map((name) => (
+          {(["Review", "Activity", "Settle", "Reports"] as const).map((name) => (
             <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
               {name}
               {name === "Review" && reviewCount > 0 && <span className="nav-count">{reviewCount}</span>}
-              {name === "Health" && healthCount > 0 && <span className="nav-count">{healthCount}</span>}
             </button>
           ))}
+          <details open={(["Balances", "Import", "Health"] as const).includes(view as "Balances" | "Import" | "Health")}>
+            <summary className="nav-group">More</summary>
+            {(["Balances", "Import", "Health"] as const).map((name) => (
+              <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
+                {name}
+                {name === "Health" && healthCount > 0 && <span className="nav-count">{healthCount}</span>}
+              </button>
+            ))}
+          </details>
           <div className="nav-group">Setup</div>
           {(["Accounts", "People", "Rules", "Data", "History"] as const).map((name) => (
             <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
