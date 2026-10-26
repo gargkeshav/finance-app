@@ -1,4 +1,4 @@
-import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entry, type Ledger } from "./ledger";
+import { categoryNature, HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entry, type Ledger } from "./ledger";
 import { sumCents } from "./value";
 
 export type ReportScope = "personal" | "household";
@@ -68,7 +68,7 @@ function monthKeys(from: string, to: string): string[] {
   });
 }
 
-function scopeAmount(entry: Entry, scope: ReportScope): number {
+export function scopeAmount(entry: Entry, scope: ReportScope): number {
   if (entry.kind !== "spend" && entry.kind !== "refund") return 0;
   const sign = entry.kind === "refund" ? -1 : 1;
   const amounts: number[] = [];
@@ -84,6 +84,26 @@ function scopeAmount(entry: Entry, scope: ReportScope): number {
   }
 
   return sumCents(amounts);
+}
+
+export interface NatureReportRow {
+  nature: string;
+  totalCents: number;
+  entryIds: string[];
+}
+
+export function byNature(ledger: Ledger, scope: ReportScope, from: string, to: string): NatureReportRow[] {
+  const rows = new Map<string, NatureReportRow>();
+  for (const entry of entriesInRange(ledger, from, to)) {
+    const amount = scopeAmount(entry, scope);
+    if (!amount) continue;
+    const nature = categoryNature(ledger.categories ?? [], entry.categoryId) ?? "unspecified";
+    const row = rows.get(nature) ?? { nature, totalCents: 0, entryIds: [] };
+    row.totalCents += amount;
+    row.entryIds.push(entry.id);
+    rows.set(nature, row);
+  }
+  return [...rows.values()].sort((first, second) => second.totalCents - first.totalCents || first.nature.localeCompare(second.nature));
 }
 
 function entriesInRange(ledger: Ledger, from: string, to: string): Entry[] {

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type Ledger } from "../../domain/ledger";
+import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type CategoryNature, type Ledger } from "../../domain/ledger";
+import { addStarterCategories, STARTER_CATEGORIES } from "../../domain/taxonomy";
 import { formatAud, formatMoney, parseAud, sumCents } from "../../domain/value";
 import type { EntryFilter } from "../../domain/query";
 
 interface BalancesViewProps {
   ledger: Ledger;
-  update: (next: Ledger) => void;
+  update: (next: Ledger, undoLabel?: string) => void;
   openActivity: (filter: EntryFilter) => void;
   onOpenEntity?: (entityId: string) => void;
 }
@@ -25,12 +26,15 @@ function centsText(cents: number): string {
   return formatAud(cents).slice(4);
 }
 
+const CATEGORY_NATURES: CategoryNature[] = ["essential", "discretionary", "oneOff", "reimbursable", "business", "savings"];
+
 export function BalancesView({ ledger, update, openActivity, onOpenEntity }: BalancesViewProps) {
   const [month, setMonth] = useState(currentMonth);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [errorEntityId, setErrorEntityId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [showBaselines, setShowBaselines] = useState(false);
+  const [categoryDrafts, setCategoryDrafts] = useState<Record<string, { parentId: string; nature: CategoryNature | "" }>>({});
   const [from, to] = monthBounds(month);
   const monthly = report(ledger.entries, from, to);
   const overall = balances(ledger);
@@ -64,6 +68,11 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
       houseCents: sumCents(category.house),
     }))
     .sort((first, second) => first.name.localeCompare(second.name));
+  const categories = ledger.categories ?? [];
+  const categoryNames = new Set(categories.map((category) => category.name.trim().toLowerCase()));
+  const hasMissingStarterCategories = STARTER_CATEGORIES.some((starter) =>
+    !categoryNames.has(starter.name.toLowerCase()) || starter.children.some((child) => !categoryNames.has(child.toLowerCase())),
+  );
 
   function baselineFor(entityId: string): Baseline | undefined {
     return ledger.baselines.find((baseline) => baseline.entityId === entityId);
@@ -98,6 +107,35 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
     setError("");
   }
 
+  function isDescendant(candidateId: string, categoryId: string): boolean {
+    let current = categories.find((category) => category.id === candidateId);
+    for (let steps = 0; current && steps < categories.length; steps += 1) {
+      if (current.parentId === categoryId) return true;
+      current = current.parentId ? categories.find((category) => category.id === current?.parentId) : undefined;
+    }
+    return false;
+  }
+
+  function updateCategoryDraft(categoryId: string, defaults: { parentId: string; nature: CategoryNature | "" }, changes: Partial<{ parentId: string; nature: CategoryNature | "" }>) {
+    setCategoryDrafts((current) => ({
+      ...current,
+      [categoryId]: { ...(current[categoryId] ?? defaults), ...changes },
+    }));
+  }
+
+  function saveCategory(categoryId: string) {
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category) return;
+    const draft = categoryDrafts[categoryId] ?? { parentId: category.parentId ?? "", nature: category.nature ?? "" };
+    const updated = {
+      ...category,
+      parentId: draft.parentId || undefined,
+      nature: draft.nature || undefined,
+    };
+    update({ ...ledger, categories: categories.map((item) => item.id === categoryId ? updated : item) });
+    setCategoryDrafts((current) => { const next = { ...current }; delete next[categoryId]; return next; });
+  }
+
   return (
     <>
       <header className="page-heading">
@@ -115,14 +153,47 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
         <div><span className="metric-label">House spend</span><strong className="amount">{formatMoney(monthly.houseCents)}</strong></div>
       </section>
 
-      <h2>By category</h2>
+      <section className="section-heading">
+        <h2>By category</h2>
+        {hasMissingStarterCategories && <button className="secondary" onClick={() => update(addStarterCategories(ledger, new Date().toISOString()), "Add suggested categories")} type="button">Add suggested categories</button>}
+      </section>
       <div className="table-scroll">
         <table>
           <thead><tr><th>Category</th><th>Personal</th><th>House</th></tr></thead>
           <tbody>
             {categoryRows.map((category) => (
               <tr key={category.id}>
-                <td>{category.name}</td>
+                <td>
+                  {category.name}
+                  {category.id && (() => {
+                    const record = categories.find((item) => item.id === category.id);
+                    if (!record) return null;
+                    const defaults = { parentId: record.parentId ?? "", nature: record.nature ?? "" as const };
+                    const draft = categoryDrafts[record.id] ?? defaults;
+                    return (
+                      <details>
+                        <summary>Edit</summary>
+                        <div className="form-grid">
+                          <label>Parent
+                            <select value={draft.parentId} onChange={(event) => updateCategoryDraft(record.id, defaults, { parentId: event.target.value })}>
+                              <option value="">None</option>
+                              {categories.filter((candidate) => candidate.id !== record.id && !isDescendant(candidate.id, record.id)).map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>Nature
+                            <select value={draft.nature} onChange={(event) => updateCategoryDraft(record.id, defaults, { nature: event.target.value as CategoryNature | "" })}>
+                              <option value="">Unspecified</option>
+                              {CATEGORY_NATURES.map((nature) => <option key={nature} value={nature}>{nature}</option>)}
+                            </select>
+                          </label>
+                          <button className="secondary" onClick={() => saveCategory(record.id)} type="button">Save</button>
+                        </div>
+                      </details>
+                    );
+                  })()}
+                </td>
                 <td className="amount"><button className="amount drilldown-button" aria-label={`${category.name} personal transactions: ${formatMoney(category.personalCents)}`} onClick={() => openActivity({ from, to, categoryId: category.id || undefined, entityId: SELF_ENTITY_ID })} type="button">{formatMoney(category.personalCents)}</button></td>
                 <td className="amount"><button className="amount drilldown-button" aria-label={`${category.name} house transactions: ${formatMoney(category.houseCents)}`} onClick={() => openActivity({ from, to, categoryId: category.id || undefined, entityId: HOUSE_ENTITY_ID })} type="button">{formatMoney(category.houseCents)}</button></td>
               </tr>

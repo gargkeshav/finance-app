@@ -10,6 +10,7 @@ export type GroupType = "household" | "trip" | "friends" | "project" | "other";
 export type AccountType = "asset" | "credit";
 export type EntryKind = "spend" | "transfer" | "income" | "refund";
 export type EntryOrigin = "manual" | "bank" | "splitwise" | "rule" | "memory" | "history";
+export type CategoryNature = "essential" | "discretionary" | "oneOff" | "reimbursable" | "business" | "savings";
 
 export interface Entity {
   id: string;
@@ -51,6 +52,8 @@ export interface Category {
   name: string;
   archived: boolean;
   updatedAt: string;
+  parentId?: string;
+  nature?: CategoryNature;
 }
 
 export interface CategoryMemory {
@@ -283,6 +286,16 @@ export function defaultSplitPreset(entity: Entity, _amountCents: number): SplitP
 export function categoryMemoryKey(accountId: string, description: string): string {
   const normalizedDescription = description.toLowerCase().replace(/[0-9]/g, "").replace(/\s+/g, " ").trim();
   return `${accountId}:${normalizedDescription}`;
+}
+
+export function categoryNature(categories: readonly Category[], categoryId: string | null | undefined): CategoryNature | undefined {
+  const categoriesById = new Map(categories.map((category) => [category.id, category]));
+  let category = categoryId ? categoriesById.get(categoryId) : undefined;
+  for (let steps = 0; category && steps < categories.length; steps += 1) {
+    if (category.nature) return category.nature;
+    category = category.parentId ? categoriesById.get(category.parentId) : undefined;
+  }
+  return undefined;
 }
 
 export function linkedBankAmountCents(entry: Pick<Entry, "bankRowIds">, bankRows: readonly BankRow[]): number | null {

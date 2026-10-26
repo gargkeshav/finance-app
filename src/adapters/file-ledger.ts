@@ -237,6 +237,8 @@ const categorySchema = z.object({
   name: z.string().min(1, "must not be empty"),
   archived: z.boolean(),
   updatedAt: updatedAtSchema,
+  parentId: idSchema.optional(),
+  nature: z.enum(["essential", "discretionary", "oneOff", "reimbursable", "business", "savings"]).optional(),
 });
 
 const categoryMemorySchema = z.object({
@@ -324,6 +326,30 @@ const ledgerSchema = z.object({
   history: z.array(changeSetSchema).default([]),
   lastSplitByAccount: z.record(z.string(), splitPresetSchema).optional(),
 }).superRefine((ledger, context) => {
+  const categoriesById = new Map(ledger.categories.map((category) => [category.id, category]));
+  let hasCycle = false;
+  for (const category of ledger.categories) {
+    if (!category.parentId) continue;
+    if (category.parentId === category.id || !categoriesById.has(category.parentId)) {
+      context.addIssue({ code: "custom", message: "A category parent must reference another category.", path: ["categories"] });
+      continue;
+    }
+    const visited = new Set<string>();
+    let current: typeof category | undefined = category;
+    while (current?.parentId) {
+      if (visited.has(current.id)) {
+        hasCycle = true;
+        break;
+      }
+      visited.add(current.id);
+      current = categoriesById.get(current.parentId);
+    }
+    if (hasCycle) break;
+  }
+  if (hasCycle) {
+    context.addIssue({ code: "custom", message: "Category parents must not form a cycle.", path: ["categories"] });
+  }
+
   for (const entry of ledger.entries) {
     if (entry.kind === "refund" && entry.source !== "history" && entry.refundOf) {
       const original = ledger.entries.find((candidate) => candidate.id === entry.refundOf);

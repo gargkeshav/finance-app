@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { balances, debtsOf, defaultSplitPreset, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
+import { balances, categoryNature, debtsOf, defaultSplitPreset, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
+import { ledgerProblem } from "../src/adapters/file-ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
 import { filterEntries } from "../src/domain/query";
 import { monthly } from "../src/domain/reports";
+import { addStarterCategories } from "../src/domain/taxonomy";
 import { findIssues } from "../src/domain/health";
 import { canAutoConfirm, firstRule, type EntryRule } from "../src/domain/rules";
 import { createSplitwiseSpend, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
@@ -22,6 +24,56 @@ function makeLedger(entry: Entry): Ledger {
 }
 
 describe("ledger spending rules", () => {
+  it("inherits a category nature from its parent", () => {
+    const categories = [
+      { id: "home", name: "Home", archived: false, updatedAt: "now", nature: "essential" as const },
+      { id: "groceries", name: "Groceries", archived: false, updatedAt: "now", parentId: "home" },
+    ];
+
+    expect(categoryNature(categories, "groceries")).toBe("essential");
+  });
+
+  it("rejects cyclic category parents", () => {
+    const ledger = makeLedger({
+      id: "category-cycle-entry",
+      kind: "income",
+      date: "2026-10-20",
+      description: "Income",
+      amountCents: 1_000,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.categories = [
+      { id: "category-a", name: "A", archived: false, updatedAt: "now", parentId: "category-b" },
+      { id: "category-b", name: "B", archived: false, updatedAt: "now", parentId: "category-a" },
+    ];
+
+    expect(ledgerProblem(ledger)).toContain("categories: Category parents must not form a cycle.");
+  });
+
+  it("does not duplicate a starter category with different casing", () => {
+    const ledger = makeLedger({
+      id: "starter-category-entry",
+      kind: "income",
+      date: "2026-10-20",
+      description: "Income",
+      amountCents: 1_000,
+      payerEntityId: "self",
+      accountId: null,
+      portions: [],
+      countsTowardDebt: false,
+      updatedAt: "now",
+    });
+    ledger.categories = [{ id: "existing-groceries", name: "groceries", archived: false, updatedAt: "old" }];
+
+    const updated = addStarterCategories(ledger, "new");
+    expect(updated.categories?.filter((category) => category.name.toLowerCase() === "groceries")).toHaveLength(1);
+    expect(updated.categories?.find((category) => category.id === "existing-groceries")).toMatchObject({ name: "groceries", updatedAt: "old" });
+  });
+
   it("excludes written-off portions from debt without changing report totals", () => {
     const writeOff: Entry = {
       id: "write-off-spend",

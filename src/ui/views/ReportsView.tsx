@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { accountCoverage, type Ledger } from "../../domain/ledger";
 import type { EntryFilter } from "../../domain/query";
-import { byCategory, cashFlow, monthly, topMerchants, type ReportScope } from "../../domain/reports";
+import { byCategory, byNature, cashFlow, monthly, topMerchants, type ReportScope } from "../../domain/reports";
 import { formatAud } from "../../domain/value";
 
-type ReportTable = "Monthly" | "Categories" | "Merchants" | "Cash flow";
+type ReportTable = "Monthly" | "Categories" | "By nature" | "Merchants" | "Cash flow";
 
 interface ReportsViewProps {
   ledger: Ledger;
@@ -70,6 +70,7 @@ export function ReportsView({ ledger, openActivity }: ReportsViewProps) {
     ? monthly(ledger, scope, monthCountToCurrent(from)).filter((row) => row.month >= monthFrom && row.month <= monthTo)
     : [];
   const categoryReport = rangeIsValid ? byCategory(ledger, scope, from, to) : { months: [], rows: [], columnTotals: {}, totalCents: 0 };
+  const natureRows = rangeIsValid ? byNature(ledger, scope, from, to) : [];
   const merchantRows = rangeIsValid ? topMerchants(ledger, scope, from, to, 10) : [];
   const cashFlowReport = rangeIsValid
     ? cashFlow(ledger, from, to)
@@ -108,6 +109,8 @@ export function ReportsView({ ledger, openActivity }: ReportsViewProps) {
       ]);
     } else if (table === "Merchants") {
       downloadCsv(table, [["Merchant", "Net"], ...merchantRows.map((row) => [row.merchant, formatAud(row.totalCents)])]);
+    } else if (table === "By nature") {
+      downloadCsv(table, [["Nature", "Total"], ...natureRows.map((row) => [row.nature, formatAud(row.totalCents)])]);
     } else {
       downloadCsv(table, [
         ["Type", "In", "Out"],
@@ -137,7 +140,7 @@ export function ReportsView({ ledger, openActivity }: ReportsViewProps) {
       </div>
       {!rangeIsValid && <p className="banner error" role="status">Start date must be on or before end date.</p>}
       <nav aria-label="Report tables" className="filters">
-        {(["Monthly", "Categories", "Merchants", "Cash flow"] as const).map((name) => (
+        {(["Monthly", "Categories", "By nature", "Merchants", "Cash flow"] as const).map((name) => (
           <button aria-pressed={table === name} className={table === name ? "primary" : "secondary"} key={name} onClick={() => setTable(name)} type="button">
             {name}
           </button>
@@ -196,6 +199,26 @@ export function ReportsView({ ledger, openActivity }: ReportsViewProps) {
             <tbody>
               {merchantRows.map((row) => <tr key={row.merchant}><th scope="row">{row.merchant}</th><td>{amountButton(row.totalCents, `${row.merchant} total`, { ...rangeFilter(from, to), entryIds: row.entryIds })}</td></tr>)}
               {!merchantRows.length && <tr><td colSpan={2}>No report data for this range.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {table === "By nature" && (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Nature</th><th>Total</th></tr></thead>
+            <tbody>
+              {natureRows.map((row) => (
+                <tr key={row.nature}>
+                  <th scope="row">
+                    {row.entryIds.length
+                      ? <button className="text-button" onClick={() => openActivity({ ...rangeFilter(from, to), entryIds: row.entryIds })} type="button">{row.nature === "unspecified" ? "Unspecified" : row.nature}</button>
+                      : row.nature === "unspecified" ? "Unspecified" : row.nature}
+                  </th>
+                  <td className="amount">{formatAud(row.totalCents)}</td>
+                </tr>
+              ))}
+              {!natureRows.length && <tr><td colSpan={2}>No report data for this range.</td></tr>}
             </tbody>
           </table>
         </div>

@@ -109,4 +109,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 26: Optional portion treatments, claim-only debt calculation, per-portion treatment selection, and entity-level write-off/gift review with "Start claiming" implemented. `npm test` (14 files, 86 tests) and `npm run typecheck` pass. The `LocalApp.tsx` caller was read and wired after the user authorized continuing from the handoff.
 - Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/SpendForm.tsx`, `src/ui/views/EntityView.tsx`, `src/ui/LocalApp.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 27.
+- Batch 27: Nested categories, inherited nature, starter categories, editable category taxonomy, and by-nature reports implemented. `npm test` (14 files, 89 tests) and `npm run typecheck` pass.
+- Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/domain/taxonomy.ts`, `src/domain/reports.ts`, `src/ui/views/ReportsView.tsx`, `src/ui/views/BalancesView.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 28.
 
