@@ -103,4 +103,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 24: Home overview, uncategorized spending health/filter, and URL-based navigation with persistent Activity filters implemented. `npm test` (14 files, 83 tests) and `npm run typecheck` pass; browser smoke confirmed Home on load and filtered Activity after reload.
 - Files changed: `src/domain/query.ts`, `src/domain/health.ts`, `src/ui/views/ActivityView.tsx`, `src/ui/route.ts`, `src/ui/views/HomeView.tsx`, `src/ui/LocalApp.tsx`, `tests/route.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: none. Next: 25.
+- Batch 25: Group types, weighted members, percentage/equal-share defaults, weighted split presets, and one-time new-spend defaults implemented. `npm test` (14 files, 85 tests) and `npm run typecheck` pass.
+- Files changed: `src/domain/ledger.ts`, `src/adapters/file-ledger.ts`, `src/ui/views/PeopleView.tsx`, `src/ui/views/SpendForm.tsx`, `tests/ledger.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: none. Next: 26.
 

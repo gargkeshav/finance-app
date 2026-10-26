@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { categoryMemoryKey, debtsOf, linkedBankAmountCents, SELF_ENTITY_ID, splitPreset, validateSpend, type Category, type Entity, type Entry, type Ledger, type Portion, type SplitPreset } from "../../domain/ledger";
+import { categoryMemoryKey, debtsOf, defaultSplitPreset, linkedBankAmountCents, SELF_ENTITY_ID, splitPreset, validateSpend, type Category, type Entity, type Entry, type Ledger, type Portion, type SplitPreset } from "../../domain/ledger";
 import { formatAud, formatMoney, isBankDate, parseAud } from "../../domain/value";
 import { ComboField } from "./ComboField";
 
@@ -227,7 +227,14 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
           <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "allHouse" })} type="button">All House</button>
           {ledger.entities.some((entity) => !entity.archived) && <>
             <ComboField label="Entity" value={presetEntityId} options={entityOptions}
-              nonePlaceholder="Choose entity" onChange={setPresetEntityId}
+              nonePlaceholder="Choose entity" onChange={(entityId) => {
+                setPresetEntityId(entityId);
+                if (initialValues?.id || portions.length > 0 || amountCents === null || amountCents <= 0) return;
+                const entity = ledger.entities.find((candidate) => candidate.id === entityId);
+                if (entity?.kind !== "group" && entity?.kind !== "house") return;
+                const preset = defaultSplitPreset(entity, amountCents);
+                if (preset) applyPreset(preset);
+              }}
               onCreate={onAddEntity ? createEntity : undefined} />
             <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "entity", entityId: presetEntityId })} type="button">All to entity</button>
           </>}

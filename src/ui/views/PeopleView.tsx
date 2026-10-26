@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entity, type EntityKind, type Ledger } from "../../domain/ledger";
+import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entity, type EntityKind, type GroupType, type Ledger } from "../../domain/ledger";
 import type { EntryFilter } from "../../domain/query";
 import { getCurrentUser, getExpenses, getFriends, getGroups, pullIntoInbox, setKey, type SplitwiseGroup, type SplitwiseUser } from "../../adapters/splitwise";
 
@@ -12,6 +12,10 @@ interface PeopleViewProps {
 export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"person" | "group">("person");
+  const [groupType, setGroupType] = useState<GroupType>("other");
+  const [members, setMembers] = useState<{ entityId: string; weight: string }[]>([]);
+  const [defaultMode, setDefaultMode] = useState<"none" | "shares" | "percent">("none");
+  const [yourPercent, setYourPercent] = useState("50");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [connectedName, setConnectedName] = useState("");
@@ -98,11 +102,32 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
       setError("Enter a name.");
       return;
     }
+    const parsedMembers = members.map((member) => ({ entityId: member.entityId, weight: Number(member.weight) }));
+    if (kind === "group" && parsedMembers.some((member) => !Number.isSafeInteger(member.weight) || member.weight <= 0)) {
+      setError("Member weights must be positive whole numbers.");
+      return;
+    }
+    const percent = Number(yourPercent);
+    if (kind === "group" && defaultMode === "percent" && (!Number.isInteger(percent) || percent < 0 || percent > 100)) {
+      setError("Your percentage must be a whole number from 0 to 100.");
+      return;
+    }
+    const groupFields = kind === "group" ? {
+      groupType,
+      members: parsedMembers,
+      defaultAllocation: defaultMode === "shares"
+        ? { mode: "shares" as const }
+        : defaultMode === "percent"
+          ? { mode: "percent" as const, yourPercent: percent }
+          : undefined,
+    } : {};
     if (editingId) {
       update({
         ...ledger,
         entities: ledger.entities.map((entity) =>
-          entity.id === editingId ? { ...entity, name: trimmedName } : entity,
+          entity.id === editingId
+            ? { ...entity, ...groupFields, name: trimmedName, updatedAt: new Date().toISOString() }
+            : entity,
         ),
       });
     } else {
@@ -112,17 +137,35 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
         name: trimmedName,
         archived: false,
         updatedAt: new Date().toISOString(),
+        ...groupFields,
       };
       update({ ...ledger, entities: [...ledger.entities, entity] });
     }
     setName("");
     setEditingId(null);
+    setMembers([]);
     setError("");
   }
 
   function editEntity(entity: Entity) {
     setEditingId(entity.id);
     setName(entity.name);
+    setKind(entity.kind === "group" ? "group" : "person");
+    setGroupType(entity.groupType ?? "other");
+    setMembers((entity.members ?? []).map((member) => ({ entityId: member.entityId, weight: String(member.weight) })));
+    setDefaultMode(entity.defaultAllocation?.mode ?? "none");
+    setYourPercent(entity.defaultAllocation?.mode === "percent" ? String(entity.defaultAllocation.yourPercent) : "50");
+    setError("");
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setName("");
+    setKind("person");
+    setGroupType("other");
+    setMembers([]);
+    setDefaultMode("none");
+    setYourPercent("50");
     setError("");
   }
 
@@ -195,15 +238,42 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
       </div>
 
       <section className="card" aria-label="Add person or group">
-        <div className="section-heading"><h2>{editingId ? "Rename person or group" : "Add person or group"}</h2></div>
+        <div className="section-heading"><h2>{editingId ? "Edit person or group" : "Add person or group"}</h2></div>
         <form className="form-grid" onSubmit={saveEntity}>
           <label>Name<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
           {!editingId && <label>Kind<select value={kind} onChange={(event) => setKind(event.target.value as "person" | "group")}>
             <option value="person">Person</option><option value="group">Group</option>
           </select></label>}
+          {kind === "group" && <>
+            <label>Type<select value={groupType} onChange={(event) => setGroupType(event.target.value as GroupType)}>
+              <option value="household">Household</option><option value="trip">Trip</option><option value="friends">Friends</option><option value="project">Project</option><option value="other">Other</option>
+            </select></label>
+            <fieldset>
+              <legend>Members</legend>
+              {ledger.entities.filter((entity) => entity.kind === "person" && (!entity.archived || members.some((member) => member.entityId === entity.id))).map((person) => {
+                const member = members.find((item) => item.entityId === person.id);
+                return (
+                  <div className="form-grid" key={person.id}>
+                    <label className="checkbox-label">
+                      <input type="checkbox" checked={Boolean(member)} onChange={(event) => setMembers((current) => event.target.checked
+                        ? [...current, { entityId: person.id, weight: "1" }]
+                        : current.filter((item) => item.entityId !== person.id))} />
+                      {person.name}
+                    </label>
+                    {member && <label>Weight<input min="1" step="1" type="number" value={member.weight} onChange={(event) => setMembers((current) => current.map((item) => item.entityId === person.id ? { ...item, weight: event.target.value } : item))} required /></label>}
+                  </div>
+                );
+              })}
+              {ledger.entities.every((entity) => entity.kind !== "person") && <p className="muted">Add a person to set group members.</p>}
+            </fieldset>
+            <label>Default split<select value={defaultMode} onChange={(event) => setDefaultMode(event.target.value as "none" | "shares" | "percent")}>
+              <option value="none">No default</option><option value="shares">Equal shares</option><option value="percent">Percent to you</option>
+            </select></label>
+            {defaultMode === "percent" && <label>Percent to you<input max="100" min="0" step="1" type="number" value={yourPercent} onChange={(event) => setYourPercent(event.target.value)} required /></label>}
+          </>}
           <div className="dialog-actions">
-            <button className="primary" type="submit">{editingId ? "Save name" : "Add"}</button>
-            {editingId && <button className="secondary" onClick={() => setEditingId(null)} type="button">Cancel</button>}
+            <button className="primary" type="submit">{editingId ? "Save" : "Add"}</button>
+            {editingId && <button className="secondary" onClick={cancelEditing} type="button">Cancel</button>}
           </div>
         </form>
       </section>

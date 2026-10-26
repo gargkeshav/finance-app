@@ -6,6 +6,7 @@ export const SELF_ENTITY_ID = "self";
 export const HOUSE_ENTITY_ID = "house";
 
 export type EntityKind = "self" | "house" | "person" | "group";
+export type GroupType = "household" | "trip" | "friends" | "project" | "other";
 export type AccountType = "asset" | "credit";
 export type EntryKind = "spend" | "transfer" | "income" | "refund";
 export type EntryOrigin = "manual" | "bank" | "splitwise" | "rule" | "memory" | "history";
@@ -16,6 +17,9 @@ export interface Entity {
   name: string;
   archived: boolean;
   updatedAt: string;
+  groupType?: GroupType;
+  members?: { entityId: string; weight: number }[];
+  defaultAllocation?: { mode: "shares" } | { mode: "percent"; yourPercent: number };
 }
 
 export interface Account {
@@ -37,7 +41,9 @@ export type SplitPreset =
   | { kind: "halfHouse" }
   | { kind: "allHouse" }
   | { kind: "entity"; entityId: string }
-  | { kind: "equal"; entityIds: string[] };
+  | { kind: "equal"; entityIds: string[] }
+  | { kind: "shares"; shares: { entityId: string; weight: number }[] }
+  | { kind: "percentEntity"; entityId: string; yourPercent: number };
 
 export interface Category {
   id: string;
@@ -212,6 +218,42 @@ export function splitPreset(amountCents: number, payerEntityId: string, preset: 
   }
   if (preset.kind === "allHouse") return [{ entityId: HOUSE_ENTITY_ID, amountCents }];
   if (preset.kind === "entity") return [{ entityId: preset.entityId, amountCents }];
+  if (preset.kind === "percentEntity") {
+    if (!Number.isInteger(preset.yourPercent) || preset.yourPercent < 0 || preset.yourPercent > 100) {
+      throw new RangeError("Your percentage must be a whole number from 0 to 100.");
+    }
+    const selfCents = Number((BigInt(amountCents) * BigInt(preset.yourPercent) + 99n) / 100n);
+    const entityCents = amountCents - selfCents;
+    return [
+      ...(selfCents > 0 ? [{ entityId: SELF_ENTITY_ID, amountCents: selfCents }] : []),
+      ...(entityCents > 0 ? [{ entityId: preset.entityId, amountCents: entityCents }] : []),
+    ];
+  }
+  if (preset.kind === "shares") {
+    if (
+      !preset.shares.length ||
+      preset.shares.some((share) => !Number.isSafeInteger(share.weight) || share.weight <= 0) ||
+      new Set(preset.shares.map((share) => share.entityId)).size !== preset.shares.length
+    ) {
+      throw new RangeError("Weighted split requires distinct entities with positive whole-number weights.");
+    }
+    const totalWeight = preset.shares.reduce((total, share) => total + BigInt(share.weight), 0n);
+    const allocations = preset.shares.map((share) => ({
+      entityId: share.entityId,
+      weight: share.weight,
+      amount: BigInt(amountCents) * BigInt(share.weight) / totalWeight,
+    }));
+    let remainder = BigInt(amountCents) - allocations.reduce((total, share) => total + share.amount, 0n);
+    const remainderOrder = [...allocations].sort((first, second) =>
+      second.weight - first.weight || first.entityId.localeCompare(second.entityId),
+    );
+    for (let index = 0; remainder > 0n; index += 1, remainder -= 1n) {
+      remainderOrder[index % remainderOrder.length].amount += 1n;
+    }
+    return allocations
+      .map((share) => ({ entityId: share.entityId, amountCents: Number(share.amount) }))
+      .filter((share) => share.amountCents > 0);
+  }
 
   if (!preset.entityIds.length || new Set(preset.entityIds).size !== preset.entityIds.length) {
     throw new RangeError("Equal split requires distinct entities.");
@@ -221,6 +263,20 @@ export function splitPreset(amountCents: number, payerEntityId: string, preset: 
   return preset.entityIds
     .map((entityId, index) => ({ entityId, amountCents: baseCents + (index < leftoverCents ? 1 : 0) }))
     .filter((portion) => portion.amountCents > 0);
+}
+
+export function defaultSplitPreset(entity: Entity, _amountCents: number): SplitPreset | null {
+  if (entity.kind === "house" && !entity.defaultAllocation) return { kind: "halfHouse" };
+  if (entity.kind !== "group" || !entity.defaultAllocation) return null;
+  if (entity.defaultAllocation.mode === "percent") {
+    return { kind: "percentEntity", entityId: entity.id, yourPercent: entity.defaultAllocation.yourPercent };
+  }
+  if (!entity.members?.length) return null;
+  const shares = [...entity.members];
+  if (!shares.some((share) => share.entityId === SELF_ENTITY_ID)) {
+    shares.push({ entityId: SELF_ENTITY_ID, weight: 1 });
+  }
+  return { kind: "shares", shares };
 }
 
 export function categoryMemoryKey(accountId: string, description: string): string {

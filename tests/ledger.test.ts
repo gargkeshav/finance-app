@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { balances, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
+import { balances, defaultSplitPreset, openItems, report, splitPreset, type BankRow, type Entry, type Ledger } from "../src/domain/ledger";
 import { confirmTransfer, suggestTransfers } from "../src/domain/transfers";
 import { filterEntries } from "../src/domain/query";
 import { monthly } from "../src/domain/reports";
@@ -139,6 +139,34 @@ describe("ledger spending rules", () => {
       { entityId: "house", amountCents: 333 },
       { entityId: "alex", amountCents: 333 },
     ]);
+  });
+
+  it("splits weighted shares and assigns leftover cents by weight", () => {
+    const shares = [
+      { entityId: "alex", weight: 2 },
+      { entityId: "blair", weight: 1 },
+      { entityId: "casey", weight: 1 },
+    ];
+    expect(splitPreset(10_000, "self", { kind: "shares", shares })).toEqual([
+      { entityId: "alex", amountCents: 5_000 },
+      { entityId: "blair", amountCents: 2_500 },
+      { entityId: "casey", amountCents: 2_500 },
+    ]);
+    expect(splitPreset(101, "self", { kind: "shares", shares })).toEqual([
+      { entityId: "alex", amountCents: 51 },
+      { entityId: "blair", amountCents: 25 },
+      { entityId: "casey", amountCents: 25 },
+    ]);
+  });
+
+  it("uses the half-House default when House has no allocation", () => {
+    expect(defaultSplitPreset({
+      id: "house",
+      kind: "house",
+      name: "House",
+      archived: false,
+      updatedAt: "now",
+    }, 1_000)).toEqual({ kind: "halfHouse" });
   });
 
   it("filters entries by an entity and date range", () => {

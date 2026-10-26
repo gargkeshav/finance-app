@@ -113,6 +113,12 @@ const entitySchema = z.object({
   name: z.string().min(1, "must not be empty"),
   archived: z.boolean(),
   updatedAt: updatedAtSchema,
+  groupType: z.enum(["household", "trip", "friends", "project", "other"]).optional(),
+  members: z.array(z.object({ entityId: idSchema, weight: z.number().int().positive() })).optional(),
+  defaultAllocation: z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("shares") }),
+    z.object({ mode: z.literal("percent"), yourPercent: z.number().int().min(0).max(100) }),
+  ]).optional(),
   splitwise: splitwiseLinkSchema.optional(),
 });
 
@@ -246,6 +252,8 @@ const splitPresetSchema: z.ZodType<SplitPreset> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("allHouse") }),
   z.object({ kind: z.literal("entity"), entityId: idSchema }),
   z.object({ kind: z.literal("equal"), entityIds: z.array(idSchema).min(1) }),
+  z.object({ kind: z.literal("shares"), shares: z.array(z.object({ entityId: idSchema, weight: z.number().int().positive() })).min(1) }),
+  z.object({ kind: z.literal("percentEntity"), entityId: idSchema, yourPercent: z.number().int().min(0).max(100) }),
 ]);
 
 const ruleSchema: z.ZodType<EntryRule> = z.object({
