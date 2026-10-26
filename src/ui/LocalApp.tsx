@@ -4,12 +4,15 @@ import { emptyLedger, ledgerProblem, parseLedger, stringifyLedger } from "../ada
 import type { Account, BankRow, Baseline, Entry, Entity, Ledger, Settlement } from "../domain/ledger";
 import type { EntryRule } from "../domain/rules";
 import type { EntryFilter } from "../domain/query";
+import { buildChangeSet, revertChangeSet } from "../domain/history";
+import type { ChangeActor } from "../domain/history";
 import { ActivityView } from "./views/ActivityView";
 import { AccountsView } from "./views/AccountsView";
 import { BalancesView } from "./views/BalancesView";
 import { DataView } from "./views/DataView";
 import { findIssues } from "../domain/health";
 import { HealthView } from "./views/HealthView";
+import { HistoryView } from "./views/HistoryView";
 import { ImportView } from "./views/ImportView";
 import { PeopleView } from "./views/PeopleView";
 import { ReportsView } from "./views/ReportsView";
@@ -17,7 +20,7 @@ import { ReviewView } from "./views/ReviewView";
 import { RulesView } from "./views/RulesView";
 import { SettleView } from "./views/SettleView";
 
-type ViewName = "Activity" | "Import" | "Review" | "Settle" | "Accounts" | "People" | "Balances" | "Reports" | "Data" | "Rules" | "Health";
+type ViewName = "Activity" | "Import" | "Review" | "Settle" | "Accounts" | "People" | "Balances" | "Reports" | "Data" | "Rules" | "Health" | "History";
 type RecordWithTimestamp = { id: string; updatedAt: string };
 
 function updateRecords<T extends RecordWithTimestamp>(
@@ -147,7 +150,7 @@ export function LocalApp() {
     return () => window.removeEventListener("keydown", saveOnShortcut);
   }, [fileStore, ledger]);
 
-  function update(next: Ledger, undoLabel?: string) {
+  function update(next: Ledger, undoLabel?: string, actor: ChangeActor = "you") {
     const problem = ledgerProblem(next);
     if (problem) {
       setError(problem);
@@ -169,8 +172,9 @@ export function LocalApp() {
     setError("");
     setLedger((previous) => {
       const updatedAt = new Date().toISOString();
-      return {
+      const stamped: Ledger = {
         ...next,
+        history: previous.history ?? [],
         entities: updateRecords<Entity>(previous.entities, next.entities, updatedAt),
         accounts: updateRecords<Account>(previous.accounts, next.accounts, updatedAt),
         entries: updateRecords<Entry>(previous.entries, next.entries, updatedAt),
@@ -178,7 +182,25 @@ export function LocalApp() {
         settlements: updateRecords<Settlement>(previous.settlements ?? [], next.settlements ?? [], updatedAt),
         rules: updateRecords<EntryRule>(previous.rules ?? [], next.rules ?? [], updatedAt),
       };
+      if (!undoLabel) return stamped;
+      const changeSet = buildChangeSet(previous, stamped, undoLabel, actor);
+      return changeSet
+        ? { ...stamped, history: [...(previous.history ?? []), changeSet].slice(-200) }
+        : stamped;
     });
+  }
+
+  function revertLatestChange() {
+    const history = ledger.history ?? [];
+    const latest = history[history.length - 1];
+    if (!latest) return;
+    const result = revertChangeSet(ledger, latest);
+    setLedger({ ...result.ledger, history: history.slice(0, -1) });
+    setWarning(result.skipped > 0
+      ? `${result.skipped} record(s) changed again since and were left as they are.`
+      : "");
+    setError("");
+    setMessage("");
   }
 
   function undoLastAction() {
@@ -391,6 +413,7 @@ export function LocalApp() {
       update={update}
     />,
     Health: <HealthView issues={healthIssues} onNavigate={navigate} />,
+    History: <HistoryView history={ledger.history ?? []} onRevert={revertLatestChange} />,
   };
 
   return (
@@ -407,7 +430,7 @@ export function LocalApp() {
             </button>
           ))}
           <div className="nav-group">Setup</div>
-          {(["Accounts", "People", "Rules", "Data"] as const).map((name) => (
+          {(["Accounts", "People", "Rules", "Data", "History"] as const).map((name) => (
             <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
               {name}
             </button>

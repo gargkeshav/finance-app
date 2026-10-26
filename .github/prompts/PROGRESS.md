@@ -91,4 +91,7 @@ Append entries newest last. A handoff note lists steps done, files changed, and 
 - Batch 20: Remembered in-place file reopening, unsaved recovery copies, and debounced autosave with capped retry backoff implemented. `npm test` (11 files, 75 tests) and `npm run typecheck` pass.
 - Files changed: `src/adapters/file-store.ts`, `src/ui/LocalApp.tsx`, `tests/file-store.test.ts`, `.github/prompts/PROGRESS.md`.
 - Left: Chrome reopen, recovery, and autosave interactions were not manually exercised. Next: 21.
+- Batch 21: Labelled changes are logged by collection, shown in History, and the latest change can be reverted with per-record conflict skipping. `npm test` (12 files, 76 tests), `npm run typecheck`, and `git diff --check` pass.
+- Files changed: `src/domain/history.ts`, `src/adapters/file-ledger.ts`, `src/ui/LocalApp.tsx`, `src/ui/views/HistoryView.tsx`, `tests/history.test.ts`, `.github/prompts/PROGRESS.md`.
+- Left: History navigation and the confirm/revert interaction were not manually exercised. Next: 22.
 

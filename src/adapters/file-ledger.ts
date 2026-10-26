@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type Category, type CategoryMemory, type Ledger, type SplitPreset, validateSpend } from "../domain/ledger";
 import type { EntryRule } from "../domain/rules";
+import type { ChangeSet } from "../domain/history";
 import { bankDateSchema, centsSchema } from "../domain/value";
 import { csvMappingSchema, type CsvMapping } from "./csv-mapping";
 
@@ -20,6 +21,7 @@ declare module "../domain/ledger" {
     splitwiseSync?: SplitwiseSync[];
     splitwiseInbox?: SplitwiseInbox[];
     splitwisePosts?: SplitwisePost[];
+    history?: ChangeSet[];
   }
 
 }
@@ -268,6 +270,18 @@ const ruleSchema: z.ZodType<EntryRule> = z.object({
   autoConfirm: z.boolean().default(false),
   updatedAt: updatedAtSchema,
 });
+const changeSetSchema: z.ZodType<ChangeSet> = z.object({
+  id: idSchema,
+  at: updatedAtSchema,
+  actor: z.enum(["you", "rule", "import", "splitwise", "matcher", "system"]),
+  reason: z.string(),
+  records: z.array(z.object({
+    collection: z.string(),
+    id: idSchema,
+    before: z.any().nullable(),
+    after: z.any().nullable(),
+  })),
+});
 
 type PersistedLedger = Omit<Ledger, "accounts" | "entries"> & {
   accounts: (Ledger["accounts"][number] & { mappingId?: string })[];
@@ -298,6 +312,7 @@ const ledgerSchema = z.object({
   categories: z.array(categorySchema).default([]),
   categoryMemory: z.array(categoryMemorySchema).default([]),
   rules: z.array(ruleSchema).default([]),
+  history: z.array(changeSetSchema).default([]),
   lastSplitByAccount: z.record(z.string(), splitPresetSchema).optional(),
 }).superRefine((ledger, context) => {
   for (const entry of ledger.entries) {
@@ -334,6 +349,7 @@ export function emptyLedger(): PersistedLedger {
     categories: [],
     categoryMemory: [],
     rules: [],
+    history: [],
   };
 }
 
