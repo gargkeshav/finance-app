@@ -6,7 +6,7 @@ A local, single-user AUD ledger that runs in your browser. One JSON file is the 
 
 ## Status
 
-Phases 1 to 3 are done. Phase 4 is in progress. See [the progress log](.github/prompts/PROGRESS.md).
+Phases 1 to 4 are done. See [the progress log](.github/prompts/PROGRESS.md).
 
 ## Setup
 
@@ -59,6 +59,8 @@ npm run test:e2e
 
 Run one Playwright spec with `npm run test:e2e -- tests/e2e/home.spec.ts`. Use `npm run test:e2e:ui` for the Playwright UI. The HTML report is in `playwright-report/`; traces and other failure results are in `test-results/`. Open a trace with `npx playwright show-trace test-results/<test-folder>/trace.zip`.
 
+Screens: [tests/e2e/visual.spec.ts](tests/e2e/visual.spec.ts) saves desktop and mobile, light and dark screenshots under `test-results/views/`.
+
 ## Project layout
 
 - `src/domain/` contains ledger rules and calculations.
@@ -73,7 +75,7 @@ Work follows one prompt per session, in the order in `CONTEXT.md`. Handoffs and 
 
 ## Plan
 
-Phase 4: cleanup and Playwright; Splitwise session; UI foundation; shell and Activity; Review, Home, and Reports; Settle through Health; setup views and stylesheet. Later: recurring payments, month close, settle-up helpers, and local receipt photos. Eventually: a phone app with OCR and a backend.
+Phase 4 is done: cleanup and Playwright; Splitwise session; UI foundation; shell and Activity; Review, Home, and Reports; Settle through Health; setup views and stylesheet. Later: recurring payments, month close, settle-up helpers, and local receipt photos. Eventually: a phone app with OCR and a backend.
 
 ## Privacy
 

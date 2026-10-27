@@ -9,6 +9,30 @@ import {
 import type { BankRow, Ledger, LedgerImport } from "../../domain/ledger";
 import { formatMoney } from "../../domain/value";
 import { MappingEditor } from "./MappingEditor";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface ImportViewProps {
   ledger: Ledger;
@@ -78,9 +102,7 @@ export function ImportView({ ledger, update }: ImportViewProps) {
     setError("");
   }
 
-  async function loadFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
+  async function processFile(file: File | undefined) {
     if (!file) return;
     setMessage("");
     setError("");
@@ -96,6 +118,17 @@ export function ImportView({ ledger, update }: ImportViewProps) {
       setContentHash("");
       setError(reason instanceof Error ? reason.message : "The CSV could not be read.");
     }
+  }
+
+  async function loadFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    await processFile(file);
+  }
+
+  function dropFile(event: React.DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    void processFile(event.dataTransfer.files[0]);
   }
 
   function changeAccount(nextAccountId: string) {
@@ -172,69 +205,102 @@ export function ImportView({ ledger, update }: ImportViewProps) {
   ];
 
   return (
-    <>
-      <header className="page-heading">
-        <h1>Import CSV</h1>
-        <button className="primary" disabled={!stepFourComplete} onClick={commit} type="button">Import {rowsToAdd.length} rows</button>
+    <div className="grid min-w-0 gap-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Import CSV</h1>
+        <Button disabled={!stepFourComplete} onClick={commit} type="button">Import {rowsToAdd.length} rows</Button>
       </header>
-      {message && <p className="banner success" role="status">{message}</p>}
-      {error && <p className="banner error" role="alert">{error}</p>}
-      <section className="card" aria-label="Import steps">
-        <ol className="steps">
-          <li className={accountId && account ? "done" : ""}>
-            <strong>Choose the account</strong>
-            <label>Account<select value={accountId} onChange={(event) => changeAccount(event.target.value)} required>
+      {message && <p className="text-sm text-positive" role="status">{message}</p>}
+      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+      <Card>
+        <CardHeader>
+          <CardTitle>Choose a CSV file</CardTitle>
+          <CardDescription>Select an account, then drop a CSV here or browse for it.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <label className="grid gap-2 text-sm font-medium">
+            Account
+            <select className="h-10 rounded-md border bg-background px-3 text-sm" value={accountId} onChange={(event) => changeAccount(event.target.value)} required>
               <option value="">Choose an account</option>
               {ledger.accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select></label>
-          </li>
-          <li className={text ? "done" : ""}>
-            <strong>Choose the CSV file</strong>
-            <label>CSV file<input accept=".csv,text/csv" onChange={(event) => void loadFile(event)} type="file" /></label>
-          </li>
-          <li className={selectedMapping && text ? "done" : ""}>
-            <strong>Check the format</strong>
-            {text && <>
-              <label>Format<select value={mappingId} onChange={(event) => chooseMapping(event.target.value)}>
-                <option value="">Choose a format</option>
-                {mappingOptions.map((option) => <option key={option.id} value={option.id}>{option.name}{option.suggested ? " · Suggested" : ""}</option>)}
-              </select></label>
-              <button className="text-button" onClick={() => setShowMappingEditor(true)} type="button">New format</button>
-              {showMappingEditor && <MappingEditor initialMapping={selectedMapping} onCancel={() => setShowMappingEditor(false)} onSave={saveMappingChoice} text={text} />}
-            </>}
-          </li>
-          <li className={stepFourComplete ? "done" : ""}>
-            <strong>Check the rows</strong>
-            {sameFile && <p className="banner warning">This file has already been imported for this account. No rows were added.</p>}
-            {parsed && <>
-              <p>{newRows.length} new, {duplicateCount} already imported</p>
-              <label className="checkbox-label">
-                <input checked={olderHistory} onChange={(event) => setOlderHistory(event.target.checked)} type="checkbox" />
-                Older history: keep out of balances
-              </label>
-              <p className="hint">Use this for old statements. The rows appear in reports but do not change who owes what.</p>
-              {duplicateCount > 0 && <div className="banner warning">
-                <p>{duplicateCount} already imported. Choose whether to skip or add these rows again.</p>
-                <label className="checkbox-label"><input checked={duplicateChoice === "skip"} onChange={() => setDuplicateChoice("skip")} type="radio" />Skip existing rows</label>
-                <label className="checkbox-label"><input checked={duplicateChoice === "add"} onChange={() => setDuplicateChoice("add")} type="radio" />Add them anyway</label>
-              </div>}
-              {parsed.errors.length > 0 && <div className="banner error" role="alert">
-                <strong>Errors ({parsed.errors.length})</strong>
-                <ul>{parsed.errors.map((rowError, index) => <li key={`${rowError.line}-${index}`}>Line {rowError.line}: {rowError.message}</li>)}</ul>
-              </div>}
-              <div className="table-scroll">
-                <table>
-                  <thead><tr><th>Line</th><th>Date</th><th>Description</th><th>Amount</th></tr></thead>
-                  <tbody>{parsed.rows.slice(0, 20).map((row) => <tr key={`${row.line}-${row.date}`}>
-                    <td>{row.line}</td><td className="date-cell">{row.date}</td><td>{row.description}</td><td className="amount">{formatMoney(row.amountCents)}</td>
-                  </tr>)}</tbody>
-                </table>
-                {!parsed.rows.length && <p className="empty-state compact">No valid rows to preview.</p>}
+            </select>
+          </label>
+          <label
+            className="flex min-h-24 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed p-4 text-center text-sm hover:bg-muted/50 focus-within:ring-2 focus-within:ring-ring"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={dropFile}
+          >
+            <span className="font-medium">Drop a CSV file here or choose a file</span>
+            <input accept=".csv,text/csv" className="sr-only" onChange={(event) => void loadFile(event)} type="file" />
+            {fileName && <span className="mt-1 text-muted-foreground">{fileName}</span>}
+          </label>
+        </CardContent>
+      </Card>
+      {text && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle>Column mapping</CardTitle>
+                <CardDescription>Choose how this file's columns map to bank rows.</CardDescription>
               </div>
-            </>}
-          </li>
-        </ol>
-      </section>
-    </>
+              <Button onClick={() => setShowMappingEditor(true)} type="button" variant="outline">New format</Button>
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <label className="grid max-w-md gap-2 text-sm font-medium">
+              Format
+              <Select value={mappingId} onValueChange={(value) => value && chooseMapping(value)}>
+                <SelectTrigger aria-label="Format"><SelectValue placeholder="Choose a format" /></SelectTrigger>
+                <SelectContent>
+                  {mappingOptions.map((option) => <SelectItem key={option.id} value={option.id}>{option.name}{option.suggested ? " · Suggested" : ""}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </label>
+            {selectedMapping && <Badge variant="secondary">Ready to preview</Badge>}
+          </CardContent>
+        </Card>
+      )}
+      <Sheet open={showMappingEditor} onOpenChange={setShowMappingEditor}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
+          <SheetHeader><SheetTitle>New format</SheetTitle></SheetHeader>
+          {text && <MappingEditor initialMapping={selectedMapping} onCancel={() => setShowMappingEditor(false)} onSave={saveMappingChoice} text={text} />}
+        </SheetContent>
+      </Sheet>
+      {parsed && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Preview rows</CardTitle>
+            <CardDescription>{newRows.length} new, {duplicateCount} already imported.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {sameFile && <p className="text-sm text-warning">This file has already been imported for this account. No rows were added.</p>}
+            <label className="flex items-center gap-2 text-sm">
+              <input checked={olderHistory} onChange={(event) => setOlderHistory(event.target.checked)} type="checkbox" />
+              Older history: keep out of balances
+            </label>
+            <p className="text-sm text-muted-foreground">Use this for old statements. The rows appear in reports but do not change who owes what.</p>
+            {duplicateCount > 0 && <fieldset className="grid gap-2 rounded-md border p-4">
+              <legend className="px-1 text-sm font-medium">{duplicateCount} already imported. Choose whether to skip or add these rows again.</legend>
+              <label className="flex items-center gap-2 text-sm"><input checked={duplicateChoice === "skip"} onChange={() => setDuplicateChoice("skip")} type="radio" />Skip existing rows</label>
+              <label className="flex items-center gap-2 text-sm"><input checked={duplicateChoice === "add"} onChange={() => setDuplicateChoice("add")} type="radio" />Add them anyway</label>
+            </fieldset>}
+            {parsed.errors.length > 0 && <div className="rounded-md border border-destructive/50 p-4 text-sm text-destructive" role="alert">
+              <strong>Errors ({parsed.errors.length})</strong>
+              <ul className="mt-2 list-disc pl-5">{parsed.errors.map((rowError, index) => <li key={`${rowError.line}-${index}`}>Line {rowError.line}: {rowError.message}</li>)}</ul>
+            </div>}
+            <div className="w-full min-w-0 overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader><TableRow><TableHead>Line</TableHead><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+                <TableBody>{parsed.rows.slice(0, 20).map((row) => <TableRow key={`${row.line}-${row.date}`}>
+                  <TableCell>{row.line}</TableCell><TableCell className="whitespace-nowrap">{row.date}</TableCell><TableCell>{row.description}</TableCell><TableCell className="text-right tabular-nums">{formatMoney(row.amountCents)}</TableCell>
+                </TableRow>)}</TableBody>
+              </Table>
+              {!parsed.rows.length && <p className="p-4 text-sm text-muted-foreground">No valid rows to preview.</p>}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

@@ -1,4 +1,14 @@
 import { useEffect, useState } from "react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entity, type EntityKind, type GroupType, type Ledger } from "../../domain/ledger";
 import type { EntryFilter } from "../../domain/query";
 import {
@@ -29,6 +39,8 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
   const [defaultMode, setDefaultMode] = useState<"none" | "shares" | "percent">("none");
   const [yourPercent, setYourPercent] = useState("50");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<Entity | null>(null);
   const [error, setError] = useState("");
   const [connectedName, setConnectedName] = useState("");
   const [curlText, setCurlText] = useState("");
@@ -198,6 +210,7 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
     setEditingId(null);
     setMembers([]);
     setError("");
+    setDialogOpen(false);
   }
 
   function editEntity(entity: Entity) {
@@ -209,6 +222,7 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
     setDefaultMode(entity.defaultAllocation?.mode ?? "none");
     setYourPercent(entity.defaultAllocation?.mode === "percent" ? String(entity.defaultAllocation.yourPercent) : "50");
     setError("");
+    setDialogOpen(true);
   }
 
   function cancelEditing() {
@@ -220,6 +234,7 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
     setDefaultMode("none");
     setYourPercent("50");
     setError("");
+    setDialogOpen(false);
   }
 
   function toggleArchived(entity: Entity) {
@@ -240,112 +255,130 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
 
   return (
     <>
-      <header className="page-heading">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1>People</h1>
+        <Button onClick={() => { cancelEditing(); setDialogOpen(true); }} type="button">Add person</Button>
       </header>
 
-      {error && <p className="banner error" role="alert">{error}</p>}
-      <div className="table-scroll">
-        <table>
-          <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Splitwise</th><th /></tr></thead>
-          <tbody>
+      {error && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{error}</p>}
+      <div className="min-w-0 max-w-full overflow-x-auto">
+        <Table>
+          <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Kind</TableHead><TableHead>Status</TableHead><TableHead>Splitwise</TableHead><TableHead /></TableRow></TableHeader>
+          <TableBody>
             {ledger.entities.map((entity) => {
               const fixed = entity.id === SELF_ENTITY_ID || entity.id === HOUSE_ENTITY_ID;
               return (
-                <tr key={entity.id}>
-                  <td><button className="transaction-link" onClick={() => openActivity({ entityId: entity.id })} type="button">{entity.name}</button></td>
-                  <td><span className="allocation-tag">{kindLabels[entity.kind]}</span></td>
-                  <td>{entity.archived ? "Archived" : "Active"}</td>
-                  <td>
+                <TableRow key={entity.id}>
+                  <TableCell><Button variant="link" className="h-auto p-0" onClick={() => openActivity({ entityId: entity.id })} type="button">{entity.name}</Button></TableCell>
+                  <TableCell><span className="rounded-full border px-2 py-0.5 text-xs">{kindLabels[entity.kind]}</span></TableCell>
+                  <TableCell>{entity.archived ? "Archived" : "Active"}</TableCell>
+                  <TableCell>
                     {(entity.kind === "person" || entity.kind === "group") && connected && (
-                      <div>
-                        <label>
-                          {entity.kind === "person" ? "Splitwise friend" : "Splitwise group"}
-                          <select value={links[entity.id] ?? entity.splitwise?.id ?? ""} onChange={(event) => setLinks({ ...links, [entity.id]: event.target.value })}>
-                            <option value="">Choose</option>
+                      <div className="grid gap-2">
+                        <Label>{entity.kind === "person" ? "Splitwise friend" : "Splitwise group"}</Label>
+                        <Select value={links[entity.id] ?? entity.splitwise?.id ?? ""} onValueChange={(value) => setLinks({ ...links, [entity.id]: value ?? "" })}>
+                          <SelectTrigger aria-label={entity.kind === "person" ? "Splitwise friend" : "Splitwise group"}><SelectValue placeholder="Choose" /></SelectTrigger>
+                          <SelectContent>
                             {(entity.kind === "person" ? friends : groups).map((remote) => (
-                              <option key={remote.id} value={remote.id}>{entity.kind === "person" ? `${(remote as SplitwiseUser).first_name} ${(remote as SplitwiseUser).last_name}` : (remote as SplitwiseGroup).name}</option>
+                              <SelectItem key={remote.id} value={remote.id}>{entity.kind === "person" ? `${(remote as SplitwiseUser).first_name} ${(remote as SplitwiseUser).last_name}` : (remote as SplitwiseGroup).name}</SelectItem>
                             ))}
-                          </select>
-                        </label>
-                        <button className="secondary" onClick={() => linkSplitwise(entity)} type="button">Link</button>{" "}
-                        {entity.splitwise && <button className="secondary" disabled={busyEntityId === entity.id} onClick={() => void pullSplitwise(entity)} type="button">{busyEntityId === entity.id ? "Pulling..." : "Pull"}</button>}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex gap-2">
+                          <Button variant="outline" onClick={() => linkSplitwise(entity)} type="button">Link</Button>
+                          {entity.splitwise && <Button variant="outline" disabled={busyEntityId === entity.id} onClick={() => void pullSplitwise(entity)} type="button">{busyEntityId === entity.id ? "Pulling..." : "Pull"}</Button>}
+                        </div>
                       </div>
                     )}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {!fixed && (
-                      <>
-                        <button className="secondary" onClick={() => editEntity(entity)} type="button">Rename</button>{" "}
-                        <button className="secondary" onClick={() => toggleArchived(entity)} type="button">
-                          {entity.archived ? "Restore" : "Archive"}
-                        </button>
-                      </>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => editEntity(entity)} type="button">Edit person</Button>
+                        <Button variant="outline" onClick={() => setArchiveTarget(entity)} type="button">{entity.archived ? "Restore" : "Archive"}</Button>
+                      </div>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
-      <section className="card" aria-label="Add person or group">
-        <div className="section-heading"><h2>{editingId ? "Edit person or group" : "Add person or group"}</h2></div>
-        <form className="form-grid" onSubmit={saveEntity}>
-          <label>Name<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-          {!editingId && <label>Kind<select value={kind} onChange={(event) => setKind(event.target.value as "person" | "group")}>
-            <option value="person">Person</option><option value="group">Group</option>
-          </select></label>}
+      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) cancelEditing(); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingId ? "Edit person" : "Add person"}</DialogTitle>
+            <DialogDescription>Add or update a person or group in your ledger.</DialogDescription>
+          </DialogHeader>
+        <form className="grid gap-4" onSubmit={saveEntity}>
+          <div className="grid gap-2"><Label htmlFor="person-name">Name</Label><Input id="person-name" value={name} onChange={(event) => setName(event.target.value)} required /></div>
+          {!editingId && <div className="grid gap-2"><Label>Kind</Label><Select value={kind} onValueChange={(value) => setKind(value as "person" | "group")}>
+            <SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="person">Person</SelectItem><SelectItem value="group">Group</SelectItem></SelectContent>
+          </Select></div>}
           {kind === "group" && <>
-            <label>Type<select value={groupType} onChange={(event) => setGroupType(event.target.value as GroupType)}>
-              <option value="household">Household</option><option value="trip">Trip</option><option value="friends">Friends</option><option value="project">Project</option><option value="other">Other</option>
-            </select></label>
+            <div className="grid gap-2"><Label>Type</Label><Select value={groupType} onValueChange={(value) => setGroupType(value as GroupType)}>
+              <SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="household">Household</SelectItem><SelectItem value="trip">Trip</SelectItem><SelectItem value="friends">Friends</SelectItem><SelectItem value="project">Project</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent>
+            </Select></div>
             <fieldset>
               <legend>Members</legend>
               {ledger.entities.filter((entity) => entity.kind === "person" && (!entity.archived || members.some((member) => member.entityId === entity.id))).map((person) => {
                 const member = members.find((item) => item.entityId === person.id);
                 return (
-                  <div className="form-grid" key={person.id}>
-                    <label className="checkbox-label">
-                      <input type="checkbox" checked={Boolean(member)} onChange={(event) => setMembers((current) => event.target.checked
+                  <div className="grid gap-2" key={person.id}>
+                    <Label className="flex items-center gap-2">
+                      <Checkbox checked={Boolean(member)} onCheckedChange={(checked) => setMembers((current) => checked
                         ? [...current, { entityId: person.id, weight: "1" }]
                         : current.filter((item) => item.entityId !== person.id))} />
                       {person.name}
-                    </label>
-                    {member && <label>Weight<input min="1" step="1" type="number" value={member.weight} onChange={(event) => setMembers((current) => current.map((item) => item.entityId === person.id ? { ...item, weight: event.target.value } : item))} required /></label>}
+                    </Label>
+                    {member && <div className="grid gap-2"><Label>Weight</Label><Input min="1" step="1" type="number" value={member.weight} onChange={(event) => setMembers((current) => current.map((item) => item.entityId === person.id ? { ...item, weight: event.target.value } : item))} required /></div>}
                   </div>
                 );
               })}
-              {ledger.entities.every((entity) => entity.kind !== "person") && <p className="muted">Add a person to set group members.</p>}
+              {ledger.entities.every((entity) => entity.kind !== "person") && <p className="text-muted-foreground">Add a person to set group members.</p>}
             </fieldset>
-            <label>Default split<select value={defaultMode} onChange={(event) => setDefaultMode(event.target.value as "none" | "shares" | "percent")}>
-              <option value="none">No default</option><option value="shares">Equal shares</option><option value="percent">Percent to you</option>
-            </select></label>
-            {defaultMode === "percent" && <label>Percent to you<input max="100" min="0" step="1" type="number" value={yourPercent} onChange={(event) => setYourPercent(event.target.value)} required /></label>}
+            <div className="grid gap-2"><Label>Default split</Label><Select value={defaultMode} onValueChange={(value) => setDefaultMode(value as "none" | "shares" | "percent")}>
+              <SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No default</SelectItem><SelectItem value="shares">Equal shares</SelectItem><SelectItem value="percent">Percent to you</SelectItem></SelectContent>
+            </Select></div>
+            {defaultMode === "percent" && <div className="grid gap-2"><Label>Percent to you</Label><Input max="100" min="0" step="1" type="number" value={yourPercent} onChange={(event) => setYourPercent(event.target.value)} required /></div>}
           </>}
-          <div className="dialog-actions">
-            <button className="primary" type="submit">{editingId ? "Save" : "Add"}</button>
-            {editingId && <button className="secondary" onClick={cancelEditing} type="button">Cancel</button>}
-          </div>
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <DialogFooter><Button type="submit">{editingId ? "Edit person" : "Add person"}</Button></DialogFooter>
         </form>
-      </section>
+        </DialogContent>
+      </Dialog>
 
-      <section className="card" aria-label="Splitwise">
-        <div className="section-heading"><h2>Splitwise</h2></div>
-        <p className="muted">{connected ? `Connected as ${connectedName}` : "Not connected"}</p>
-        {!connected && <form className="form-grid" onSubmit={connectSplitwise}>
-          <label>Paste a request copied as cURL from splitwise.com<textarea autoComplete="off" value={curlText} onChange={(event) => setCurlText(event.target.value)} required rows={5} /></label>
-          <div className="dialog-actions"><button className="primary" type="submit">{sessionExpired ? "Reconnect" : "Connect"}</button></div>
+      <Card aria-label="Splitwise">
+        <CardHeader><CardTitle>Splitwise</CardTitle></CardHeader>
+        <CardContent className="grid gap-4">
+        <p className="text-muted-foreground">{connected ? `Connected as ${connectedName}` : "Not connected"}</p>
+        {!connected && <form className="grid gap-4" onSubmit={connectSplitwise}>
+          <div className="grid gap-2"><Label htmlFor="splitwise-curl">Paste a request copied as cURL from splitwise.com</Label><Textarea id="splitwise-curl" autoComplete="off" value={curlText} onChange={(event) => setCurlText(event.target.value)} required rows={5} /></div>
+          <div className="flex justify-end"><Button type="submit">{sessionExpired ? "Reconnect" : "Connect"}</Button></div>
         </form>}
         {connected && <>
           <p>Request headers: {headerNames.join(", ")}</p>
-          <div className="form-grid">
-            <label>First pull since<input type="date" value={sinceDate} onChange={(event) => setSinceDate(event.target.value)} /></label>
-            <div className="dialog-actions"><button className="secondary" onClick={disconnectSplitwise} type="button">Disconnect</button></div>
+          <div className="grid gap-4">
+            <div className="grid gap-2"><Label htmlFor="splitwise-since">First pull since</Label><Input id="splitwise-since" type="date" value={sinceDate} onChange={(event) => setSinceDate(event.target.value)} /></div>
+            <div><Button variant="outline" onClick={disconnectSplitwise} type="button">Disconnect</Button></div>
           </div>
         </>}
-      </section>
+        </CardContent>
+      </Card>
+      <AlertDialog open={Boolean(archiveTarget)} onOpenChange={(open) => { if (!open) setArchiveTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{archiveTarget?.archived ? "Restore this entity?" : "Archive this entity?"}</AlertDialogTitle>
+            <AlertDialogDescription>{archiveTarget?.archived ? `Restore ${archiveTarget.name} to the active list.` : `Archive ${archiveTarget?.name}. Its history will be kept.`}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (archiveTarget) { toggleArchived(archiveTarget); setArchiveTarget(null); } }}>{archiveTarget?.archived ? "Restore" : "Archive"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

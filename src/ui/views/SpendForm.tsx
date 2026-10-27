@@ -210,7 +210,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
       {amountAmended && linkedBankAmount !== null && (
         <>
           <p>Entry amount: <span className="tabular-nums">{amountCents === null ? "" : formatMoney(amountCents)}</span>; bank amount: <span className="tabular-nums">{formatMoney(linkedBankAmount)}</span></p>
-          <label className="checkbox-label">
+          <label className="flex items-center gap-2 text-sm">
             <Input type="checkbox" checked={extraReimbursable} onChange={(event) => setExtraReimbursable(event.target.checked)} />
             Extra is reimbursable
           </label>
@@ -240,7 +240,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
 
       <fieldset>
         <legend>Split</legend>
-        <div className="dialog-actions" aria-label="Split presets">
+        <div className="flex flex-wrap justify-end gap-2" aria-label="Split presets">
           <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "payer" })} type="button">Payer</Button>
           <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "halfHouse" })} type="button">Half House</Button>
           <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "allHouse" })} type="button">All House</Button>
@@ -287,8 +287,8 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
             <Button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} onClick={() => { setActivePreset(undefined); setPortions((current) => current.filter((_, row) => row !== index)); }} type="button" variant="outline">×</Button>
           </div>
         ))}
-        {remainingCents !== null && <p className={remainingCents === 0 ? "amount positive" : "banner warning"}>Left to split: {formatMoney(remainingCents)}</p>}
-        <div className="dialog-actions">
+        {remainingCents !== null && <p className={remainingCents === 0 ? "text-right tabular-nums text-positive" : "rounded-md border p-3 text-sm border-warning/40 text-warning"}>Left to split: {formatMoney(remainingCents)}</p>}
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" onClick={() => {
             const used = new Set(portions.map((portion) => portion.entityId));
             const next = ledger.entities.find((entity) => !entity.archived && entity.kind !== "self" && entity.kind !== "house" && !used.has(entity.id));
@@ -304,13 +304,13 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
       </fieldset>
       <p aria-live="polite">
         {effect.kind === "debt" ? <>
-          {effect.debtor.id === "self" ? "You owe " : <><span className={`allocation-tag${effect.debtor.kind === "house" ? " house" : ""}`}>{effect.debtor.name}</span> owes </>}
-          {effect.creditor.id === "self" ? "you" : <span className={`allocation-tag${effect.creditor.kind === "house" ? " house" : ""}`}>{effect.creditor.name}</span>} {effect.amount}
+          {effect.debtor.id === "self" ? "You owe " : <><span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs${effect.debtor.kind === "house" ? " border-warning/30 bg-warning/10 text-warning" : ""}`}>{effect.debtor.name}</span> owes </>}
+          {effect.creditor.id === "self" ? "you" : <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs${effect.creditor.kind === "house" ? " border-warning/30 bg-warning/10 text-warning" : ""}`}>{effect.creditor.name}</span>} {effect.amount}
           {effect.more > 0 && ` and ${effect.more} other debt${effect.more === 1 ? "" : "s"}`}
         </> : effect.kind === "none" ? "No debts are created by this spend." : `${effectivePayerId === "self" ? "You paid" : `Paid by ${payerName}`}. Split the full amount.`}
       </p>
-      {error && <p className="banner error" role="alert">{error}</p>}
-      <div className="dialog-actions">
+      {error && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{error}</p>}
+      <div className="flex flex-wrap justify-end gap-2">
         <Button disabled={!valid} type="submit">{draft.kind === "refund" ? "Save refund" : "Save spend"}</Button>
         {onCancel && <Button variant="outline" onClick={onCancel} type="button">Cancel</Button>}
       </div>

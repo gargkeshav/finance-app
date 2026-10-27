@@ -326,6 +326,31 @@ export const scenario = {
     ],
     checkpointDifference: { accountId: "everyday", differenceCents: 2500 },
   }),
+  ruleSuggestion: () => {
+    const ledger = scenario.full();
+    const categoryId = "suggested-cafe";
+    ledger.categories = [{
+      id: categoryId,
+      name: "Cafe",
+      archived: false,
+      updatedAt: baseTimestamp(),
+    }];
+    const template = ledger.entries.find((entry) => entry.kind === "spend");
+    if (!categoryId || !template) throw new Error("The synthetic rule-suggestion data is incomplete.");
+    const repeatedEntries = Array.from({ length: 3 }, (_, index): Entry => ({
+      ...template,
+      id: `suggested-rule-${index + 1}`,
+      date: relativeDate(-index - 1),
+      description: "Synthetic cafe",
+      categoryId,
+      bankRowIds: [],
+      updatedAt: baseTimestamp(),
+    }));
+    ledger.entries.push(...repeatedEntries);
+    const problem = ledgerProblem(ledger);
+    if (problem) throw new Error(problem);
+    return ledger;
+  },
   amended: () => buildLedger({
     entries: [
       {

@@ -150,6 +150,14 @@ export function isWaitingOnOtherAccount(
     accountCoverage(ledger, account.id).ranges.some((range) => range.to >= targetDate));
 }
 
+export function waitingReason(ledger: Ledger, row: BankRow): string | null {
+  if (!isWaitingOnOtherAccount(ledger, row)) return null;
+  const [year, month, day] = row.date.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1, day));
+  target.setUTCDate(target.getUTCDate() + 3);
+  return `Waiting for another account's import to reach ${target.toISOString().slice(0, 10)}`;
+}
+
 export function suggestTransfers(ledger: Ledger): PossibleTransfer[] {
   const rows = (ledger.bankRows ?? []).filter(isPending);
   const candidateCount = new Map<string, number>();

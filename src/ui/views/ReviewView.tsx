@@ -1,11 +1,15 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { categoryMemoryAfterSpend, categoryMemoryKey, HOUSE_ENTITY_ID, merchantNameAfterSpend, SELF_ENTITY_ID, splitPreset, type BankRow, type Category, type Entity, type Entry, type Ledger, type SplitPreset } from "../../domain/ledger";
-import { cardCycle, confirmTransfer, existingEntryFor, isWaitingOnOtherAccount, suggestTransfers, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
+import { cardCycle, confirmTransfer, existingEntryFor, isWaitingOnOtherAccount, suggestTransfers, waitingReason, type PossibleTransfer, type TransferChoice } from "../../domain/transfers";
 import { formatMoney } from "../../domain/value";
 import { canAutoConfirm, firstRule } from "../../domain/rules";
 import { SpendForm } from "./SpendForm";
 import { createSplitwiseSpend, type SplitwiseInboxItem } from "../../adapters/splitwise";
 import { ComboField } from "./ComboField";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Kbd } from "@/components/ui/kbd";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface ReviewViewProps {
   ledger: Ledger;
@@ -15,6 +19,8 @@ interface ReviewViewProps {
 }
 
 export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewViewProps) {
+  const [queueTab, setQueueTab] = useState("needs");
+  const [confirmation, setConfirmation] = useState<{ title: string; description: string; confirmLabel: string; action?: () => void } | null>(null);
   const [openDetail, setOpenDetail] = useState<{ rowId: string; kind: "spend" | "refund" | "transfer" | "suggestion" } | null>(null);
   const [refundOfId, setRefundOfId] = useState("");
   const [focusNextId, setFocusNextId] = useState<string | null>(null);
@@ -47,7 +53,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   const waitingRowIds = new Set(allPendingRows
     .filter((row) => !recordedRowIds.has(row.id) && !ruleFor(row) && !memoryFor(row) && isWaitingOnOtherAccount(ledger, row, suggestions))
     .map((row) => row.id));
-  const waitingRows = allPendingRows.filter((row) => waitingRowIds.has(row.id) && !shownWaitingIds.has(row.id));
+  const waitingRows = allPendingRows.filter((row) => waitingRowIds.has(row.id));
   const pendingRows = allPendingRows.filter((row) => !recordedRowIds.has(row.id) &&
     (!waitingRowIds.has(row.id) || shownWaitingIds.has(row.id)));
   const selectedRows = pendingRows.filter((row) => selectedRowIds.has(row.id));
@@ -65,6 +71,10 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   for (const suggestion of suggestions) {
     suggestionByRow.set(suggestion.outgoing.id, suggestion);
     suggestionByRow.set(suggestion.incoming.id, suggestion);
+  }
+
+  function askConfirmation(title: string, description: string, confirmLabel: string, action?: () => void) {
+    setConfirmation({ title, description, confirmLabel, action });
   }
 
   function createCategory(name: string): string {
@@ -213,7 +223,17 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   }
 
   function skipSelected() {
-    if (!selectedRows.length || !window.confirm(`Skip ${selectedRows.length} selected bank rows?`)) return;
+    if (!selectedRows.length) return;
+    askConfirmation(
+      "Skip selected bank rows?",
+      `Skip ${selectedRows.length} selected bank rows?`,
+      "Skip rows",
+      performSkipSelected,
+    );
+  }
+
+  function performSkipSelected() {
+    if (!selectedRows.length) return;
     const selectedIds = new Set(selectedRows.map((row) => row.id));
     const now = new Date().toISOString();
     update({
@@ -226,7 +246,16 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   function spendSelected() {
     const preset = selectedBulkPreset();
     if (!preset || !selectedRows.length || selectedRows.some((row) => row.amountCents >= 0)) return;
-    if (!window.confirm(`Create spends for ${selectedRows.length} selected bank rows?`)) return;
+    askConfirmation(
+      "Create spends?",
+      `Create spends for ${selectedRows.length} selected bank rows?`,
+      "Create spends",
+      () => performSpendSelected(preset),
+    );
+  }
+
+  function performSpendSelected(preset: SplitPreset) {
+    if (!selectedRows.length || selectedRows.some((row) => row.amountCents >= 0)) return;
     const now = new Date().toISOString();
     const entries = selectedRows.map((row): Entry => {
       const account = ledger.accounts.find((item) => item.id === row.accountId);
@@ -271,7 +300,17 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   }
 
   function acceptSuggestedSpends() {
-    if (!suggestedSpends.length || !window.confirm(`Accept ${suggestedSpends.length} suggested spends?`)) return;
+    if (!suggestedSpends.length) return;
+    askConfirmation(
+      "Accept suggested spends?",
+      `Accept ${suggestedSpends.length} suggested spends?`,
+      "Accept spends",
+      performSuggestedSpends,
+    );
+  }
+
+  function performSuggestedSpends() {
+    if (!suggestedSpends.length) return;
     const now = new Date().toISOString();
     const entries = suggestedSpends.map((row): Entry => {
       const memory = memoryFor(row)!;
@@ -308,7 +347,17 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   }
 
   function applyAutoRules() {
-    if (!autoRuleRows.length || !window.confirm(`Create ${autoRuleRows.length} spends from auto rules?`)) return;
+    if (!autoRuleRows.length) return;
+    askConfirmation(
+      "Apply auto rules?",
+      `Create ${autoRuleRows.length} spends from auto rules?`,
+      "Apply rules",
+      performAutoRules,
+    );
+  }
+
+  function performAutoRules() {
+    if (!autoRuleRows.length) return;
     const now = new Date().toISOString();
     const entries = autoRuleRows.map(({ row, rule }): Entry => {
       const amountCents = Math.abs(row.amountCents);
@@ -571,11 +620,19 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   }
 
   function deleteDeletedSplitwiseEntry(item: SplitwiseInboxItem, entry: Entry) {
-    if (!window.confirm(`Delete “${entry.description || "this entry"}”? This cannot be undone.`)) return;
     if (ledger.entries.some((candidate) => candidate.kind === "refund" && candidate.refundOf === entry.id)) {
-      window.alert("Delete its refunds first.");
+      askConfirmation("Entry cannot be deleted", "Delete its refunds first.", "Close");
       return;
     }
+    askConfirmation(
+      "Delete this entry?",
+      `Delete “${entry.description || "this entry"}”? This cannot be undone.`,
+      "Delete entry",
+      () => performDeleteDeletedSplitwiseEntry(item, entry),
+    );
+  }
+
+  function performDeleteDeletedSplitwiseEntry(item: SplitwiseInboxItem, entry: Entry) {
     const now = new Date().toISOString();
     update({
       ...ledger,
@@ -615,14 +672,10 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
     return (
       <>
         <p>Choose how this transfer should be recorded.</p>
-        <button className="secondary" onClick={() => confirmPair(outgoing, incoming, "contribution")} type="button">Contribution (no one owes anything)</button>{" "}
-        <button className="secondary" onClick={() => confirmPair(outgoing, incoming, "settlement")} type="button">Settlement (pays back what House owes)</button>
+        <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => confirmPair(outgoing, incoming, "contribution")} type="button">Contribution (no one owes anything)</button>{" "}
+        <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => confirmPair(outgoing, incoming, "settlement")} type="button">Settlement (pays back what House owes)</button>
       </>
     );
-  }
-
-  function closeMoreMenu(event: React.MouseEvent<HTMLButtonElement>) {
-    event.currentTarget.closest("details")?.removeAttribute("open");
   }
 
   function displayDate(date: string) {
@@ -632,119 +685,78 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   }
 
   return (
-    <>
-      <header className="page-heading">
-        <h1 ref={headingRef} tabIndex={-1}>
-          Review <span className="muted">{pendingRows.length} need you</span>
-          {recordedRows.length > 0 && <span className="muted"> +{recordedRows.length} recorded</span>}
-          {waitingRows.length > 0 && <span className="muted"> +{waitingRows.length} waiting</span>}
-        </h1>
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Review imported bank rows</p>
+          <h1 ref={headingRef} tabIndex={-1}>Review</h1>
+        </div>
         {autoRuleRows.length > 0
-          ? <button className="primary" onClick={applyAutoRules} type="button">Apply {autoRuleRows.length} auto rules</button>
-          : suggestedSpends.length > 0 && <button className="primary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
+          ? <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={applyAutoRules} type="button">Apply {autoRuleRows.length} auto rules</button>
+          : suggestedSpends.length > 0 && <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
       </header>
-      {recordedRows.length > 0 && <section aria-label="Already recorded">
-        <h2>Already recorded</h2>
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th>Status</th><th /></tr></thead>
-            <tbody>{recordedRows.map((record) => {
-              const { row, entry } = record;
-              const account = ledger.accounts.find((item) => item.id === row.accountId);
-              const cardPayment = entry.kind === "transfer" && entry.tags?.includes("card-payment");
-              return <tr key={row.id}>
-                <td className="date-cell">{row.date}</td>
-                <td>{row.description || "Bank transaction"}</td>
-                <td>{account?.name ?? "Unknown"}</td>
-                <td className="amount">{formatMoney(row.amountCents)}</td>
-                <td>{cardPayment ? "Card payment from history" : "Already recorded"}</td>
-                <td><button className="secondary" onClick={() => linkRecordedRows([record])} type="button">Link</button></td>
-              </tr>;
-            })}</tbody>
-          </table>
-        </div>
-        <button className="primary" onClick={() => linkRecordedRows(recordedRows)} type="button">Link all {recordedRows.length}</button>
-      </section>}
-      {waitingRows.length > 0 && <details aria-label="Waiting on another account">
-        <summary>Waiting on another account <span className="muted">{waitingRows.length}</span></summary>
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th /></tr></thead>
-            <tbody>{waitingRows.map((row) => {
-              const account = ledger.accounts.find((item) => item.id === row.accountId);
-              return <tr key={row.id}>
-                <td className="date-cell">{row.date}</td>
-                <td>{row.description || "Bank transaction"}</td>
-                <td>{account?.name ?? "Unknown"}</td>
-                <td className="amount">{formatMoney(row.amountCents)}</td>
-                <td><button className="secondary" onClick={() => showWaitingRow(row.id)} type="button">Show anyway</button></td>
-              </tr>;
-            })}</tbody>
-          </table>
-        </div>
-      </details>}
-      {autoRuleRows.length > 0 && suggestedSpends.length > 0 && <button className="secondary" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} memory suggestions</button>}
-      {transferMessage && <p className="banner error" role="status">{transferMessage}</p>}
-      <p className="hint">Up/Down or j/k move; s spend, i income, x skip, t transfer, e settlement, r refund.</p>
-      {splitwiseItems.length > 0 && (
-        <section aria-label="From Splitwise">
-          <h2>From Splitwise</h2>
-          <div className="table-scroll">
-            <table>
-              <thead><tr><th>Date</th><th>Description</th><th>Entity</th><th>Amount</th><th>Status</th><th /></tr></thead>
-              <tbody>
-                {splitwiseItems.map((item) => {
-                  const entity = ledger.entities.find((candidate) => candidate.id === item.entityId);
-                  const fullySelfPaid = item.yourPaidCents === item.costCents;
-                  const manuallyEntered = item.yourPaidCents > 0 && !fullySelfPaid;
-                  const match = matchingSplitwiseEntry(item);
-                  return (
-                    <tr key={item.id}>
-                      <td className="date-cell">{item.date}</td>
-                      <td>{item.description || "Splitwise expense"}</td>
-                      <td>{entity?.name ?? "Unknown"}</td>
-                      <td className="amount">{formatMoney(item.costCents)}</td>
-                      <td>
-                        {item.status === "changed" && item.previous ? (
-                          <div>
-                            <div><strong>Previous:</strong> {item.previous.date} · {item.previous.description} · {formatMoney(item.previous.costCents)} · your owed share {formatMoney(item.previous.yourOwedCents)}</div>
-                            <div><strong>Splitwise:</strong> {item.date} · {item.description} · {formatMoney(item.costCents)} · your owed share {formatMoney(item.yourOwedCents)}</div>
-                          </div>
-                        ) : item.status === "deleted" ? splitwiseChangeText(item) : item.status}
-                      </td>
-                      <td>
-                        {item.status === "changed" && match ? (
-                          <button className="primary" onClick={() => applySplitwiseChange(item, match)} type="button">Apply to entry</button>
-                        ) : item.status === "deleted" && match ? (
-                          <>
-                            <button className="secondary" onClick={() => keepDeletedSplitwiseOut(item, match)} type="button">Keep out of balances</button>{" "}
-                            <button className="secondary" onClick={() => deleteDeletedSplitwiseEntry(item, match)} type="button">Delete entry</button>
-                          </>
-                        ) : item.status === "changed" || item.status === "deleted" ? (
-                          <button className="secondary" onClick={() => completeSplitwise(item)} type="button">Done</button>
-                        ) : manuallyEntered ? (
-                          <>
-                            <span>Enter by hand </span>
-                            <button className="secondary" onClick={() => dismissSplitwise(item)} type="button">Dismiss</button>
-                          </>
-                        ) : (
-                          <>
-                            {match && <button className="secondary" onClick={() => completeSplitwise(item, match.id, fullySelfPaid)} type="button">Link</button>}{" "}
-                            <button className="primary" onClick={() => createFromSplitwise(item)} type="button">{fullySelfPaid ? "Create" : "Confirm"}</button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-      <div className="filters" aria-label="Bulk review">
-        <span>{selectedRows.length} selected</span>
-        <label>
+      {transferMessage && <p className="text-sm text-destructive" role="alert">{transferMessage}</p>}
+      <div aria-label="Keyboard shortcuts" className="flex flex-wrap gap-2 text-sm text-foreground">
+        <span><Kbd className="bg-background text-foreground">J</Kbd>/<Kbd className="bg-background text-foreground">K</Kbd> move</span>
+        <span><Kbd className="bg-background text-foreground">S</Kbd> spend</span>
+        <span><Kbd className="bg-background text-foreground">I</Kbd> income</span>
+        <span><Kbd className="bg-background text-foreground">T</Kbd> transfer</span>
+        <span><Kbd className="bg-background text-foreground">X</Kbd> skip</span>
+        <span><Kbd className="bg-background text-foreground">E</Kbd> settlement</span>
+        <span><Kbd className="bg-background text-foreground">R</Kbd> refund</span>
+        <span><Kbd className="bg-background text-foreground">Enter</Kbd> open spend</span>
+      </div>
+      <Tabs onValueChange={setQueueTab} value={queueTab}>
+        <TabsList aria-label="Review queues" className="flex h-auto flex-wrap bg-background text-foreground">
+          <TabsTrigger value="needs">Needs you <Badge className="ml-2">{pendingRows.length}</Badge></TabsTrigger>
+          <TabsTrigger value="waiting">Waiting <Badge className="ml-2">{waitingRows.length}</Badge></TabsTrigger>
+          <TabsTrigger value="recorded">Already recorded <Badge className="ml-2">{recordedRows.length}</Badge></TabsTrigger>
+        </TabsList>
+        <TabsContent className="space-y-4" value="waiting">
+          {waitingRows.map((row) => {
+            const account = ledger.accounts.find((item) => item.id === row.accountId);
+            return <article className="space-y-3 rounded-lg border bg-card p-4" key={row.id}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">{row.date} · {account?.name ?? "Unknown"}</p>
+                  <h2 className="font-medium">{row.description || "Bank transaction"}</h2>
+                  <p className="text-sm text-muted-foreground">{waitingReason(ledger, row)}</p>
+                </div>
+                <strong className="text-lg tabular-nums">{formatMoney(row.amountCents)}</strong>
+              </div>
+              {shownWaitingIds.has(row.id)
+                ? <Badge>Shown in Needs you</Badge>
+                : <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => { showWaitingRow(row.id); setQueueTab("needs"); }} type="button">Show in Needs you</button>}
+            </article>;
+          })}
+          {!waitingRows.length && <p className="rounded-lg border p-4 text-muted-foreground">No rows are waiting on another account.</p>}
+        </TabsContent>
+        <TabsContent className="space-y-3" value="recorded">
+          {recordedRows.map((record) => {
+            const { row, entry } = record;
+            const account = ledger.accounts.find((item) => item.id === row.accountId);
+            const cardPayment = entry.kind === "transfer" && entry.tags?.includes("card-payment");
+            return <article className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4" key={row.id}>
+              <div>
+                <p className="text-sm text-muted-foreground">{row.date} · {account?.name ?? "Unknown"}</p>
+                <h2 className="font-medium">{row.description || "Bank transaction"}</h2>
+                <Badge>{cardPayment ? "Card payment from history" : "Already recorded"}</Badge>
+              </div>
+              <strong className="text-lg tabular-nums">{formatMoney(row.amountCents)}</strong>
+              <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => linkRecordedRows([record])} type="button">Link row</button>
+            </article>;
+          })}
+          {recordedRows.length > 1 && <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => linkRecordedRows(recordedRows)} type="button">Link all {recordedRows.length}</button>}
+          {!recordedRows.length && <p className="rounded-lg border p-4 text-muted-foreground">No rows are already recorded.</p>}
+        </TabsContent>
+        <TabsContent className="space-y-4" value="needs">
+      {waitingRows.length > 0 && <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => setQueueTab("waiting")} type="button">Waiting on another account {waitingRows.length}</button>}
+      {autoRuleRows.length > 0 && suggestedSpends.length > 0 && <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} memory suggestions</button>}
+      <details className="rounded-lg border p-4">
+        <summary className="cursor-pointer font-medium">Bulk review actions</summary>
+      <div className="mt-4 flex flex-wrap items-end gap-3" aria-label="Bulk review">
+        <p className="w-full font-medium">{selectedRows.length} selected</p>
+        <label className="grid gap-1">
           Spend preset
           <select value={bulkPresetKind} onChange={(event) => setBulkPresetKind(event.target.value as SplitPreset["kind"])}>
             <option value="payer">Payer</option>
@@ -754,13 +766,13 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
             <option value="equal">Equal split</option>
           </select>
         </label>
-        {bulkPresetKind === "entity" && <label>
+        {bulkPresetKind === "entity" && <label className="grid gap-1">
           Entity
           <select value={bulkEntityId} onChange={(event) => setBulkEntityId(event.target.value)}>
             {ledger.entities.filter((entity) => !entity.archived || entity.id === bulkEntityId).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
           </select>
         </label>}
-        {bulkPresetKind === "equal" && <label>
+        {bulkPresetKind === "equal" && <label className="grid gap-1">
           Equal split entities
           <select multiple size={Math.min(4, Math.max(2, ledger.entities.filter((entity) => !entity.archived).length))} value={bulkEntityIds} onChange={(event) => setBulkEntityIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>
             {ledger.entities.filter((entity) => !entity.archived || bulkEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
@@ -770,152 +782,223 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
           .filter((category) => !category.archived || category.id === bulkCategoryId)
           .map((category) => ({ id: category.id, name: category.name }))}
           nonePlaceholder="Uncategorized" onChange={setBulkCategoryId} onCreate={createCategory} />
-        <button className="secondary" disabled={!selectedRows.length} onClick={skipSelected} type="button">Skip selected</button>
-        <button className="primary" disabled={!selectedRows.length || selectedRows.some((row) => row.amountCents >= 0) || !selectedBulkPreset()} onClick={spendSelected} type="button">Spend selected</button>
+        <label className="flex items-center gap-2"><input aria-label="Select all review rows" checked={pendingRows.length > 0 && selectedRows.length === pendingRows.length} onChange={(event) => setSelectedRowIds(event.target.checked ? new Set(pendingRows.map((row) => row.id)) : new Set())} type="checkbox" /> Select all</label>
+        <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={!selectedRows.length} onClick={skipSelected} type="button">Bulk skip rows</button>
+        <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={!selectedRows.length || selectedRows.some((row) => row.amountCents >= 0) || !selectedBulkPreset()} onClick={spendSelected} type="button">Bulk spend rows</button>
       </div>
-      <div className="table-scroll">
-        <table>
-          <thead><tr><th><input aria-label="Select all review rows" checked={pendingRows.length > 0 && selectedRows.length === pendingRows.length} onChange={(event) => setSelectedRowIds(event.target.checked ? new Set(pendingRows.map((row) => row.id)) : new Set())} type="checkbox" /></th><th>Date</th><th>Description</th><th>Account</th><th>Amount</th><th /></tr></thead>
-          <tbody>
-            {pendingRows.map((row) => {
-              const account = ledger.accounts.find((item) => item.id === row.accountId);
-              const matchedRule = ruleFor(row);
-              const memory = matchedRule ? undefined : memoryFor(row);
-              const suggestion = suggestionByRow.get(row.id);
-              const otherRow = suggestion && (suggestion.outgoing.id === row.id ? suggestion.incoming : suggestion.outgoing);
-              const otherAccount = otherRow && ledger.accounts.find((item) => item.id === otherRow.accountId);
-              const paymentCycle = row.amountCents > 0 && account?.type === "credit" ? cardCycle(ledger, row) : null;
-              const detailIsOpen = openDetail?.rowId === row.id;
-              const selectableRows = detailIsOpen && openDetail.kind === "transfer"
-                ? pendingRows.filter((item) => item.id !== row.id && item.accountId !== row.accountId && Math.sign(item.amountCents) !== Math.sign(row.amountCents))
-                : [];
-              return (
-                <Fragment key={row.id}>
-                  <tr key={row.id} data-review-row={row.id} onFocusCapture={() => setActiveRowId(row.id)}>
-                    <td><input aria-label={`Select ${row.description || "bank transaction"}`} checked={selectedRowIds.has(row.id)} onChange={(event) => changeSelection(row.id, event.target.checked)} type="checkbox" /></td>
-                    <td className="date-cell">{row.date}</td>
-                    <td>
-                      <div>{row.description || "Bank transaction"}{matchedRule?.action.displayName && <span className="muted"> ({matchedRule.action.displayName})</span>}</div>
-                      {matchedRule && <span className="muted">By rule: {matchedRule.name}</span>}
-                    </td>
-                    <td>{account?.name ?? "Unknown"}</td>
-                    <td className="amount">{formatMoney(row.amountCents)}</td>
-                    <td>
-                      {row.amountCents < 0 ? <button ref={(button) => {
-                        if (button) actionRefs.current.set(row.id, button);
-                        else actionRefs.current.delete(row.id);
-                        shortcutRef(row.id, "s")(button);
-                        shortcutRef(row.id, "row")(button);
-                      }} className="primary" onClick={() => setOpenDetail({ rowId: row.id, kind: "spend" })} type="button">Spend</button> : row.amountCents > 0 ? <button ref={(button) => {
-                        if (button) actionRefs.current.set(row.id, button);
-                        else actionRefs.current.delete(row.id);
-                        shortcutRef(row.id, "i")(button);
-                        shortcutRef(row.id, "row")(button);
-                      }} className="primary" onClick={() => classifyIncome(row)} type="button">Income</button> : null}{" "}
-                      <button ref={(button) => {
-                        shortcutRef(row.id, "x")(button);
-                        if (row.amountCents === 0) {
-                          if (button) actionRefs.current.set(row.id, button);
-                          else actionRefs.current.delete(row.id);
-                        }
-                      }} className="secondary" onClick={() => skipRow(row)} type="button">Skip</button>{" "}
-                      <details className="more-menu">
-                        <summary className="secondary">More</summary>
-                        <div>
-                          <button ref={shortcutRef(row.id, "t")} className="secondary" onClick={(event) => {
-                            closeMoreMenu(event);
-                            setTransferPartnerId("");
-                            setOpenDetail({ rowId: row.id, kind: suggestion && otherRow ? "suggestion" : "transfer" });
-                          }} type="button">Transfer</button>
-                          {row.amountCents > 0 && <button ref={shortcutRef(row.id, "r")} className="secondary" onClick={(event) => {
-                            closeMoreMenu(event);
-                            setRefundOfId(refundCandidates(row)[0]?.id ?? "");
-                            setOpenDetail({ rowId: row.id, kind: "refund" });
-                          }} type="button">Refund</button>}
-                          <button className="secondary" onClick={(event) => { closeMoreMenu(event); onCreateRule(row.description); }} type="button">Create rule from this row</button>
-                          <button ref={shortcutRef(row.id, "e")} className="secondary" onClick={(event) => { closeMoreMenu(event); onSettle(row); }} type="button">Settlement</button>
-                        </div>
-                      </details>
-                    </td>
-                  </tr>
-                  {(detailIsOpen || paymentCycle) && (
-                    <tr className="row-detail" key={`${row.id}-detail`}>
-                      <td colSpan={6}>
-                        {detailIsOpen && openDetail.kind === "spend" && spendingRow?.id === row.id && (
-                          <section className="form-grid" aria-label="Review spend">
-                            <h2>Review spend</h2>
-                            <SpendForm key={row.id} initialValues={{
-                              date: row.date,
-                              description: row.description,
-                              amountCents: Math.abs(row.amountCents),
-                              accountId: row.accountId,
-                              bankRowIds: [row.id],
-                              categoryId: matchedRule?.action.categoryId ?? memory?.categoryId ?? null,
-                              displayName: matchedRule?.action.displayName ?? undefined,
-                              payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
-                              portions: matchedRule?.action.split
-                                ? splitPreset(Math.abs(row.amountCents), account?.payerEntityId ?? SELF_ENTITY_ID, matchedRule.action.split)
-                                : [{ entityId: memory?.entityId ?? account?.payerEntityId ?? SELF_ENTITY_ID, amountCents: Math.abs(row.amountCents) }],
-                              tags: matchedRule?.action.tags ?? [],
-                            }} ledger={ledger}
-                              onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
-                              onAddEntity={addEntity}
-                              onCancel={() => setOpenDetail(null)} onSave={(entry, preset) => saveSpend(row, entry, preset)} />
-                          </section>
-                        )}
-                        {detailIsOpen && openDetail.kind === "refund" && refundRow?.id === row.id && (() => {
-                          const candidates = refundCandidates(row);
-                          const original = candidates.find((entry) => entry.id === refundOfId);
-                          return <section className="form-grid" aria-label="Review refund">
-                            <h2>Review refund</h2>
-                            <label>Original spend<select value={refundOfId} onChange={(event) => setRefundOfId(event.target.value)}>
-                              <option value="">Choose a spend</option>
-                              {candidates.map((entry) => <option key={entry.id} value={entry.id}>{entry.date} | {entry.description} | {formatMoney(entry.amountCents)}</option>)}
-                            </select></label>
-                            {original ? <SpendForm key={`${row.id}-${original.id}`} initialValues={{
-                              kind: "refund", refundOf: original.id, date: row.date, description: row.description,
-                              amountCents: Math.abs(row.amountCents), accountId: row.accountId, bankRowIds: [row.id],
-                              payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
-                              portions: scaledPortions(original, Math.abs(row.amountCents)),
-                            }} ledger={ledger}
-                              onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
-                              onAddEntity={addEntity}
-                              onCancel={() => setOpenDetail(null)} onSave={(entry) => saveRefund(row, entry)} />
-                              : candidates.length === 0 ? <p className="banner">No spends are available to refund.</p> : null}
-                          </section>;
-                        })()}
-                        {detailIsOpen && openDetail.kind === "suggestion" && suggestion && otherRow && otherAccount && <section aria-label="Transfer suggestion">
-                          <p>Looks like a transfer {row.amountCents < 0 ? "to" : "from"} {otherAccount.name} on {displayDate(otherRow.date)}. {formatMoney(Math.abs(row.amountCents))}.</p>
-                          <button className="primary" onClick={() => requestConfirm(suggestion.outgoing, suggestion.incoming)} type="button">Confirm transfer</button>{" "}
-                          <button className="secondary" onClick={() => { dismissPair(row, otherRow); setOpenDetail(null); }} type="button">Not a transfer</button>
-                          {choiceActions(suggestion.outgoing, suggestion.incoming)}
-                        </section>}
-                        {detailIsOpen && openDetail.kind === "transfer" && row.amountCents !== 0 && <section className="form-grid" aria-label="Choose transfer row">
-                          <label>Other bank row<select value={transferPartnerId} onChange={(event) => setTransferPartnerId(event.target.value)}>
-                            <option value="">Choose a row</option>
-                            {selectableRows.map((item) => {
-                              const itemAccount = ledger.accounts.find((candidate) => candidate.id === item.accountId);
-                              return <option key={item.id} value={item.id}>{item.date} | {item.description} | {itemAccount?.name ?? "Unknown"} | {formatMoney(item.amountCents)}</option>;
-                            })}
-                          </select></label>
-                          {transferPartnerId && (() => {
-                            const partner = pendingRows.find((item) => item.id === transferPartnerId);
-                            if (!partner) return null;
-                            const pair = pendingPair(row, partner);
-                            return <><button className="primary" onClick={() => requestConfirm(pair.outgoing, pair.incoming)} type="button">Confirm transfer</button>{choiceActions(pair.outgoing, pair.incoming)}</>;
-                          })()}
-                        </section>}
-                        {paymentCycle && <p className="hint">Card payments this cycle: {formatMoney(paymentCycle.sumCents)}. Difference {formatMoney(paymentCycle.differenceCents)}. This may be interest or a fee.</p>}
-                      </td>
-                    </tr>
+      </details>
+      {splitwiseItems.length > 0 && (
+        <section aria-label="From Splitwise" className="space-y-3">
+          <h2 className="text-xl font-semibold">From Splitwise</h2>
+          {splitwiseItems.map((item) => {
+            const entity = ledger.entities.find((candidate) => candidate.id === item.entityId);
+            const fullySelfPaid = item.yourPaidCents === item.costCents;
+            const manuallyEntered = item.yourPaidCents > 0 && !fullySelfPaid;
+            const match = matchingSplitwiseEntry(item);
+            return <article className="space-y-3 rounded-lg border bg-card p-4" key={item.id}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">{item.date} · {entity?.name ?? "Unknown"}</p>
+                  <h3 className="font-medium">{item.description || "Splitwise expense"}</h3>
+                </div>
+                <strong className="text-lg tabular-nums">{formatMoney(item.costCents)}</strong>
+              </div>
+              <Badge variant="outline">{item.status}</Badge>
+              {item.status === "changed" && item.previous && (
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  <p><strong>Previous:</strong> {item.previous.date} · {item.previous.description} · {formatMoney(item.previous.costCents)} · your owed share {formatMoney(item.previous.yourOwedCents)}</p>
+                  <p><strong>Splitwise:</strong> {item.date} · {item.description} · {formatMoney(item.costCents)} · your owed share {formatMoney(item.yourOwedCents)}</p>
+                </div>
+              )}
+              {item.status === "deleted" && <p className="text-sm">{splitwiseChangeText(item)}</p>}
+              <div className="flex flex-wrap gap-2">
+                {item.status === "changed" && match ? (
+                  <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => applySplitwiseChange(item, match)} type="button">Apply to entry</button>
+                ) : item.status === "deleted" && match ? (
+                  <>
+                    <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => keepDeletedSplitwiseOut(item, match)} type="button">Keep out of balances</button>
+                    <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => deleteDeletedSplitwiseEntry(item, match)} type="button">Delete entry</button>
+                  </>
+                ) : item.status === "changed" || item.status === "deleted" ? (
+                  <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => completeSplitwise(item)} type="button">Done</button>
+                ) : manuallyEntered ? (
+                  <>
+                    <span>Enter by hand</span>
+                    <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => dismissSplitwise(item)} type="button">Dismiss</button>
+                  </>
+                ) : (
+                  <>
+                    {match && <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => completeSplitwise(item, match.id, fullySelfPaid)} type="button">Link</button>}
+                    <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => createFromSplitwise(item)} type="button">{fullySelfPaid ? "Create" : "Confirm"}</button>
+                  </>
+                )}
+              </div>
+            </article>;
+          })}
+        </section>
+      )}
+      <div className="space-y-3">
+        <div aria-label="Review queue" role="table">
+          <div className="space-y-3" role="rowgroup">
+        {pendingRows.map((row) => {
+          const account = ledger.accounts.find((item) => item.id === row.accountId);
+          const matchedRule = ruleFor(row);
+          const memory = matchedRule ? undefined : memoryFor(row);
+          const suggestion = suggestionByRow.get(row.id);
+          const otherRow = suggestion && (suggestion.outgoing.id === row.id ? suggestion.incoming : suggestion.outgoing);
+          const otherAccount = otherRow && ledger.accounts.find((item) => item.id === otherRow.accountId);
+          const paymentCycle = row.amountCents > 0 && account?.type === "credit" ? cardCycle(ledger, row) : null;
+          const detailIsOpen = openDetail?.rowId === row.id;
+          const selectableRows = detailIsOpen && openDetail.kind === "transfer"
+            ? pendingRows.filter((item) => item.id !== row.id && item.accountId !== row.accountId && Math.sign(item.amountCents) !== Math.sign(row.amountCents))
+            : [];
+          return (
+            <Fragment key={row.id}>
+              <article className="space-y-3 rounded-lg border bg-card p-4" data-review-row={row.id} onFocusCapture={() => setActiveRowId(row.id)} role="row">
+                <div className="space-y-3" role="cell">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm text-muted-foreground">{row.date} · {account?.name ?? "Unknown"}</p>
+                    <h2 className="break-words font-medium">{row.description || "Bank transaction"}{matchedRule?.action.displayName && <span className="text-muted-foreground"> ({matchedRule.action.displayName})</span>}</h2>
+                    {matchedRule && <p className="text-sm text-muted-foreground">By rule: {matchedRule.name}</p>}
+                    <div className="flex flex-wrap gap-2">
+                      {matchedRule && <Badge>Rule match</Badge>}
+                      {memory && <Badge variant="secondary">Remembered spend</Badge>}
+                      {suggestion && otherAccount && <Badge variant="outline">Transfer suggestion · {otherAccount.name} · {displayDate(otherRow!.date)}</Badge>}
+                    </div>
+                  </div>
+                  <strong className="shrink-0 text-lg tabular-nums">{formatMoney(row.amountCents)}</strong>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="mr-auto flex items-center gap-2 text-sm"><input aria-label={`Select ${row.description || "bank transaction"}`} checked={selectedRowIds.has(row.id)} onChange={(event) => changeSelection(row.id, event.target.checked)} type="checkbox" /> Select row</label>
+                  {row.amountCents < 0 && <button ref={(button) => {
+                    if (button) actionRefs.current.set(row.id, button);
+                    else actionRefs.current.delete(row.id);
+                    shortcutRef(row.id, "s")(button);
+                    shortcutRef(row.id, "row")(button);
+                  }} className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => setOpenDetail({ rowId: row.id, kind: "spend" })} type="button">Spend row <Kbd aria-hidden="true" className="bg-background text-foreground">S</Kbd> <Kbd aria-hidden="true" className="bg-background text-foreground">Enter</Kbd></button>}
+                  {row.amountCents > 0 && <button ref={(button) => {
+                    if (button) actionRefs.current.set(row.id, button);
+                    else actionRefs.current.delete(row.id);
+                    shortcutRef(row.id, "i")(button);
+                    shortcutRef(row.id, "row")(button);
+                  }} className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => classifyIncome(row)} type="button">Income row <Kbd aria-hidden="true" className="bg-background text-foreground">I</Kbd></button>}
+                  <button ref={shortcutRef(row.id, "t")} className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => {
+                    setTransferPartnerId("");
+                    setOpenDetail({ rowId: row.id, kind: suggestion && otherRow ? "suggestion" : "transfer" });
+                  }} type="button">Transfer row <Kbd aria-hidden="true" className="bg-background text-foreground">T</Kbd></button>
+                  <button ref={(button) => {
+                    shortcutRef(row.id, "x")(button);
+                    if (row.amountCents === 0) {
+                      if (button) actionRefs.current.set(row.id, button);
+                      else actionRefs.current.delete(row.id);
+                    }
+                  }} className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => skipRow(row)} type="button">Skip row <Kbd aria-hidden="true" className="bg-background text-foreground">X</Kbd></button>
+                  <details className="rounded-md border px-3 py-2">
+                    <summary className="cursor-pointer">More</summary>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {row.amountCents > 0 && <button ref={shortcutRef(row.id, "r")} className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => {
+                        setRefundOfId(refundCandidates(row)[0]?.id ?? "");
+                        setOpenDetail({ rowId: row.id, kind: "refund" });
+                      }} type="button">Refund <Kbd aria-hidden="true" className="bg-background text-foreground">R</Kbd></button>}
+                      <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => onCreateRule(row.description)} type="button">Create rule from this row</button>
+                      <button ref={shortcutRef(row.id, "e")} className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => onSettle(row)} type="button">Settlement <Kbd aria-hidden="true" className="bg-background text-foreground">E</Kbd></button>
+                    </div>
+                  </details>
+                </div>
+              {(detailIsOpen || paymentCycle) && (
+                <section className="space-y-4 rounded-lg border p-4" aria-label={`Details for ${row.description || "bank transaction"}`}>
+                  {detailIsOpen && openDetail.kind === "spend" && spendingRow?.id === row.id && (
+                    <section className="space-y-4" aria-label="Review spend">
+                      <h2 className="text-lg font-semibold">Review spend</h2>
+                      <SpendForm key={row.id} initialValues={{
+                        date: row.date, description: row.description, amountCents: Math.abs(row.amountCents),
+                        accountId: row.accountId, bankRowIds: [row.id],
+                        categoryId: matchedRule?.action.categoryId ?? memory?.categoryId ?? null,
+                        displayName: matchedRule?.action.displayName ?? undefined,
+                        payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
+                        portions: matchedRule?.action.split
+                          ? splitPreset(Math.abs(row.amountCents), account?.payerEntityId ?? SELF_ENTITY_ID, matchedRule.action.split)
+                          : [{ entityId: memory?.entityId ?? account?.payerEntityId ?? SELF_ENTITY_ID, amountCents: Math.abs(row.amountCents) }],
+                        tags: matchedRule?.action.tags ?? [],
+                      }} ledger={ledger}
+                        onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
+                        onAddEntity={addEntity}
+                        onCancel={() => setOpenDetail(null)} onSave={(entry, preset) => saveSpend(row, entry, preset)} />
+                    </section>
                   )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-        {!pendingRows.length && !recordedRows.length && !waitingRows.length && <p className="empty-state compact">All caught up.</p>}
+                  {detailIsOpen && openDetail.kind === "refund" && refundRow?.id === row.id && (() => {
+                    const candidates = refundCandidates(row);
+                    const original = candidates.find((entry) => entry.id === refundOfId);
+                    return <section className="space-y-4" aria-label="Review refund">
+                      <h2 className="text-lg font-semibold">Review refund</h2>
+                      <label className="grid gap-1">Original spend<select value={refundOfId} onChange={(event) => setRefundOfId(event.target.value)}>
+                        <option value="">Choose a spend</option>
+                        {candidates.map((entry) => <option key={entry.id} value={entry.id}>{entry.date} | {entry.description} | {formatMoney(entry.amountCents)}</option>)}
+                      </select></label>
+                      {original ? <SpendForm key={`${row.id}-${original.id}`} initialValues={{
+                        kind: "refund", refundOf: original.id, date: row.date, description: row.description,
+                        amountCents: Math.abs(row.amountCents), accountId: row.accountId, bankRowIds: [row.id],
+                        payerEntityId: account?.payerEntityId ?? SELF_ENTITY_ID,
+                        portions: scaledPortions(original, Math.abs(row.amountCents)),
+                      }} ledger={ledger}
+                        onAddCategory={(category: Category) => update({ ...ledger, categories: [...(ledger.categories ?? []), category] })}
+                        onAddEntity={addEntity}
+                        onCancel={() => setOpenDetail(null)} onSave={(entry) => saveRefund(row, entry)} />
+                        : candidates.length === 0 ? <p className="text-sm text-muted-foreground">No spends are available to refund.</p> : null}
+                    </section>;
+                  })()}
+                  {detailIsOpen && openDetail.kind === "suggestion" && suggestion && otherRow && otherAccount && <section className="space-y-3" aria-label="Transfer suggestion">
+                    <p>Looks like a transfer {row.amountCents < 0 ? "to" : "from"} {otherAccount.name} on {displayDate(otherRow.date)}. {formatMoney(Math.abs(row.amountCents))}.</p>
+                    <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => requestConfirm(suggestion.outgoing, suggestion.incoming)} type="button">Confirm transfer</button>
+                    <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => { dismissPair(row, otherRow); setOpenDetail(null); }} type="button">Not a transfer</button>
+                    {choiceActions(suggestion.outgoing, suggestion.incoming)}
+                  </section>}
+                  {detailIsOpen && openDetail.kind === "transfer" && row.amountCents !== 0 && <section className="space-y-3" aria-label="Choose transfer row">
+                    <label className="grid gap-1">Other bank row<select value={transferPartnerId} onChange={(event) => setTransferPartnerId(event.target.value)}>
+                      <option value="">Choose a row</option>
+                      {selectableRows.map((item) => {
+                        const itemAccount = ledger.accounts.find((candidate) => candidate.id === item.accountId);
+                        return <option key={item.id} value={item.id}>{item.date} | {item.description} | {itemAccount?.name ?? "Unknown"} | {formatMoney(item.amountCents)}</option>;
+                      })}
+                    </select></label>
+                    {transferPartnerId && (() => {
+                      const partner = pendingRows.find((item) => item.id === transferPartnerId);
+                      if (!partner) return null;
+                      const pair = pendingPair(row, partner);
+                      return <><button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => requestConfirm(pair.outgoing, pair.incoming)} type="button">Confirm transfer</button>{choiceActions(pair.outgoing, pair.incoming)}</>;
+                    })()}
+                  </section>}
+                  {paymentCycle && <p className="text-sm text-muted-foreground">Card payments this cycle: {formatMoney(paymentCycle.sumCents)}. Difference {formatMoney(paymentCycle.differenceCents)}. This may be interest or a fee.</p>}
+                </section>
+              )}
+                </div>
+              </article>
+            </Fragment>
+          );
+        })}
+          </div>
+        </div>
+        {!pendingRows.length && <p className="rounded-lg border p-4 text-muted-foreground">All caught up.</p>}
       </div>
-    </>
+        </TabsContent>
+      </Tabs>
+      <AlertDialog onOpenChange={(open) => { if (!open) setConfirmation(null); }} open={Boolean(confirmation)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmation?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmation?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const action = confirmation?.action;
+              setConfirmation(null);
+              action?.();
+            }}>{confirmation?.confirmLabel}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }

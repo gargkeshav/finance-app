@@ -4,7 +4,6 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./ui/theme.css";
 import { LocalApp } from "./ui/LocalApp";
-import "./ui/styles.css";
 import "./ui/mobile-layout.css";
 
 const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");

@@ -27,10 +27,11 @@ test("reverting the latest change undoes it", async ({ app, page }) => {
     }],
   };
   await app.openLedger(withLatestChange);
-  page.on("dialog", async (dialog) => dialog.accept());
   await app.goToView("History");
   await expect(page.getByText("Edit description")).toBeVisible();
+  await app.checkA11y();
   await page.getByRole("button", { name: /Revert/i }).press("Enter");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Revert", exact: true }).click();
   await app.goToView("Activity");
   await app.checkA11y();
   const isMobile = await page.evaluate(() => window.innerWidth < 640);

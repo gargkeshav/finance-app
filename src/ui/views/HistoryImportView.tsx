@@ -16,6 +16,8 @@ import type { Ledger } from "../../domain/ledger";
 import { STARTER_CATEGORIES } from "../../domain/taxonomy";
 import { formatMoney } from "../../domain/value";
 import { ComboField } from "./ComboField";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface HistoryImportViewProps {
   ledger: Ledger;
@@ -174,8 +176,14 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
   }
 
   return (
-    <section className="form-grid" aria-label="One-time history import">
-      <h2>One-time ANZ credit history</h2>
+    <Card aria-label="One-time history import">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-3">
+          One-time ANZ credit history
+          <Badge variant="outline">Dev only</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-5">
       <label>
         Credit account
         <select value={accountId} onChange={(event) => { setAccountId(event.target.value); setPlan(null); setMapping(null); setMessage(""); }}>
@@ -190,8 +198,8 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
         <input accept=".csv,text/csv" disabled={!accountId || busy} onChange={(event) => void readHistory(event)} type="file" />
       </label>
       {busy && <p role="status">Reading history file…</p>}
-      {error && <p className="banner error" role="alert">{error}</p>}
-      {message && <p className="banner success" role="status">{message}</p>}
+      {error && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{error}</p>}
+      {message && <p className="rounded-md border p-3 text-sm border-positive/40 text-positive" role="status">{message}</p>}
       {plan && (
         <>
           <p>
@@ -203,7 +211,7 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
           <ImportRows title="Pending associations" rows={plan.pending} />
           <ProblemRows rows={plan.problems} />
           {plan.problems.length > 0 && (
-            <label className="checkbox-label">
+            <label className="flex items-center gap-2 text-sm">
               <input checked={skipProblems} onChange={(event) => setSkipProblems(event.target.checked)} type="checkbox" />
               Skip problem rows
             </label>
@@ -212,7 +220,7 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
             <>
               <section aria-label="Group mapping">
                 <h3>Groups</h3>
-                <div className="table-scroll">
+                <div className="w-full min-w-0 overflow-x-auto">
                   <table>
                     <thead><tr><th>Value</th><th>Rows</th><th>Open rows</th><th>To</th><th>Name</th><th>Type</th></tr></thead>
                     <tbody>
@@ -275,7 +283,7 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
 
               <section aria-label="Subtype mapping">
                 <h3>Subtypes</h3>
-                <div className="table-scroll">
+                <div className="w-full min-w-0 overflow-x-auto">
                   <table>
                     <thead><tr><th>Value</th><th>Rows</th><th>To</th><th>Category</th><th>Name or tag</th><th>Gift card</th></tr></thead>
                     <tbody>
@@ -328,7 +336,7 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                               ) : null}
                             </td>
                             <td>
-                              <label className="checkbox-label">
+                              <label className="flex items-center gap-2 text-sm">
                                 <input checked={giftCard} onChange={(event) => updateSubtype(key, event.target.checked
                                   ? { to: "merchant", displayName: subtypeItems[0].subtype, category: "Gift cards" }
                                   : { to: "category", name: "Gift cards" })} type="checkbox" />
@@ -350,26 +358,26 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                   ["splitEqual", "Split equally"],
                   ["groupDefault", "Use group default"],
                 ] as const).map(([value, label]) => (
-                  <label className="checkbox-label" key={value}>
+                  <label className="flex items-center gap-2 text-sm" key={value}>
                     <input checked={mapping.blankShare === value} name="blank-share" onChange={() => setMapping({ ...mapping, blankShare: value })} type="radio" />
                     {label}
                   </label>
                 ))}
               </fieldset>
 
-              <label className="checkbox-label">
+              <label className="flex items-center gap-2 text-sm">
                 <input checked={replace} onChange={(event) => { setReplace(event.target.checked); setRemoveEntityIds(null); setRemoveCategoryIds(null); }} type="checkbox" />
                 Replace the earlier history import
               </label>
 
-              {previewError && <p className="banner error" role="alert">{previewError}</p>}
+              {previewError && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{previewError}</p>}
               {preview && (
                 <>
                   {replace && (preview.unreferencedEntities.length > 0 || preview.unreferencedCategories.length > 0) && (
                     <section aria-label="Unreferenced records">
                       <h3>Unreferenced records after replacement</h3>
                       {preview.unreferencedEntities.map((entity) => (
-                        <label className="checkbox-label" key={entity.id}>
+                        <label className="flex items-center gap-2 text-sm" key={entity.id}>
                           <input checked={(removeEntityIds ?? preview.unreferencedEntities.map((item) => item.id)).includes(entity.id)} onChange={(event) => setRemoveEntityIds((current) => {
                             const selected = new Set(current ?? preview.unreferencedEntities.map((item) => item.id));
                             if (event.target.checked) selected.add(entity.id); else selected.delete(entity.id);
@@ -379,7 +387,7 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                         </label>
                       ))}
                       {preview.unreferencedCategories.map((category) => (
-                        <label className="checkbox-label" key={category.id}>
+                        <label className="flex items-center gap-2 text-sm" key={category.id}>
                           <input checked={(removeCategoryIds ?? preview.unreferencedCategories.map((item) => item.id)).includes(category.id)} onChange={(event) => setRemoveCategoryIds((current) => {
                             const selected = new Set(current ?? preview.unreferencedCategories.map((item) => item.id));
                             if (event.target.checked) selected.add(category.id); else selected.delete(category.id);
@@ -394,7 +402,7 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                     <h3>Preview</h3>
                     <p>{preview.byKind.spend} spends · {preview.byKind.refund} refunds · {preview.payments} payments · {preview.needsShare} needs-share</p>
                     <p>{preview.entitiesCreated.length} entities created · {preview.entitiesMerged.length} entity mappings merged · {preview.categoriesCreated.length} categories created · {preview.categoriesMerged.length} category mappings merged</p>
-                    <div className="table-scroll">
+                    <div className="w-full min-w-0 overflow-x-auto">
                       <table>
                         <thead><tr><th>Entity</th><th>Before</th><th>After</th></tr></thead>
                         <tbody>
@@ -411,8 +419,8 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                   </section>
                 </>
               )}
-              <div className="dialog-actions">
-                <button className="primary" disabled={!preview || Boolean(previewError) || (plan.problems.length > 0 && !skipProblems)} onClick={commit} type="button">
+              <div className="flex flex-wrap justify-end gap-2">
+                <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={!preview || Boolean(previewError) || (plan.problems.length > 0 && !skipProblems)} onClick={commit} type="button">
                   Commit import
                 </button>
               </div>
@@ -420,6 +428,7 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
           )}
         </>
       )}
-    </section>
+      </CardContent>
+    </Card>
   );
 }

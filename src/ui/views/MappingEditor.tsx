@@ -4,6 +4,24 @@ import {
   type CsvColumn,
   type CsvMapping,
 } from "../../adapters/csv-mapping";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface MappingEditorProps {
   text: string;
@@ -61,17 +79,15 @@ export function MappingEditor({ text, initialMapping, onSave, onCancel }: Mappin
   const [negate, setNegate] = useState(
     initialMapping && "signed" in initialMapping.amount ? initialMapping.amount.negate : false,
   );
-  const [descriptionIndexes, setDescriptionIndexes] = useState(() =>
-    initialMapping?.descriptionColumns
-      .map((column) => mappingIndex(column, firstRow))
-      .filter((index): index is number => index !== null)
-      .map(String) ??
-      (firstRow.length > 2 ? ["2"] : []),
-  );
   const [balanceIndex, setBalanceIndex] = useState(() =>
     initialMapping?.balanceColumn
       ? String(mappingIndex(initialMapping.balanceColumn, firstRow) ?? "")
       : "",
+  );
+  const [descriptionColumnIndex, setDescriptionColumnIndex] = useState(() =>
+    initialMapping?.descriptionColumns.length
+      ? initialMapping.descriptionColumns.map((column) => String(mappingIndex(column, firstRow) ?? ""))
+      : [String(Math.min(2, Math.max(firstRow.length - 1, 0)))],
   );
 
   const options = firstRow.map((value, index) => ({
@@ -103,99 +119,114 @@ export function MappingEditor({ text, initialMapping, onSave, onCancel }: Mappin
       ...(dateColumn ? { dateColumn } : {}),
       hasHeader,
       amount,
-      descriptionColumns: descriptionIndexes.map(columnAt).filter((column): column is CsvColumn => column !== null),
+      descriptionColumns: descriptionColumnIndex.map(columnAt).filter((column): column is CsvColumn => column !== null),
       balanceColumn: balanceIndex ? columnAt(balanceIndex) : null,
       updatedAt: new Date().toISOString(),
     });
   }
 
+  const selectColumn = (
+    label: string,
+    value: string,
+    onValueChange: (value: string) => void,
+    optional = false,
+  ) => (
+    <Select value={value || undefined} onValueChange={(next) => onValueChange(next ?? "")}>
+      <SelectTrigger aria-label={`${label} column`} className="w-full min-w-40">
+        <SelectValue placeholder={optional ? "Auto detect" : "Choose column"} />
+      </SelectTrigger>
+      <SelectContent>
+        {optional && <SelectItem value="auto">Auto detect</SelectItem>}
+        {options.map((option) => <SelectItem key={option.index} value={String(option.index)}>{option.label}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+  const effectiveDateIndex = dateIndex || "auto";
+  const effectiveBalanceIndex = balanceIndex || "auto";
+
   return (
-    <form className="form-grid" onSubmit={save}>
-      <h2>New mapping</h2>
-      <label>
-        Mapping name
-        <input value={name} onChange={(event) => setName(event.target.value)} required />
-      </label>
-      <label className="checkbox-label">
-        <input
-          checked={hasHeader}
-          onChange={(event) => setHasHeader(event.target.checked)}
-          type="checkbox"
-        />
+    <form className="grid gap-4" onSubmit={save}>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2">
+          <Label htmlFor="mapping-name">Mapping name</Label>
+          <Input id="mapping-name" value={name} onChange={(event) => setName(event.target.value)} required />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="mapping-date-format">Date format</Label>
+          <Select value={dateFormat} onValueChange={(value) => value && setDateFormat(value as CsvMapping["dateFormat"])}>
+            <SelectTrigger id="mapping-date-format"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="D/M/YYYY">D/M/YYYY</SelectItem>
+              <SelectItem value="D Mon YYYY">D Mon YYYY</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input checked={hasHeader} onChange={(event) => setHasHeader(event.target.checked)} type="checkbox" />
         First row contains column names
       </label>
-      <label>
-        Date format
-        <select value={dateFormat} onChange={(event) => setDateFormat(event.target.value as CsvMapping["dateFormat"])}>
-          <option value="D/M/YYYY">D/M/YYYY</option>
-          <option value="D Mon YYYY">D Mon YYYY</option>
-        </select>
-      </label>
-      <label>
-        Date column
-        <select value={dateIndex} onChange={(event) => setDateIndex(event.target.value)}>
-          <option value="">Auto detect</option>
-          {options.map((option) => <option key={option.index} value={option.index}>{option.label}</option>)}
-        </select>
-      </label>
-      <label>
-        Amount format
-        <select value={amountMode} onChange={(event) => setAmountMode(event.target.value as typeof amountMode)}>
-          <option value="signed">Signed amount</option>
-          <option value="debit-credit">Separate debit and credit</option>
-        </select>
-      </label>
-      {amountMode === "signed" ? (
-        <>
-          <label>
-            Amount column
-            <select value={signedIndex} onChange={(event) => setSignedIndex(event.target.value)} required>
-              {options.map((option) => <option key={option.index} value={option.index}>{option.label}</option>)}
-            </select>
-          </label>
-          <label className="checkbox-label">
-            <input checked={negate} onChange={(event) => setNegate(event.target.checked)} type="checkbox" />
-            Reverse amount sign
-          </label>
-        </>
-      ) : (
-        <>
-          <label>
-            Debit column
-            <select value={debitIndex} onChange={(event) => setDebitIndex(event.target.value)} required>
-              {options.map((option) => <option key={option.index} value={option.index}>{option.label}</option>)}
-            </select>
-          </label>
-          <label>
-            Credit column
-            <select value={creditIndex} onChange={(event) => setCreditIndex(event.target.value)} required>
-              {options.map((option) => <option key={option.index} value={option.index}>{option.label}</option>)}
-            </select>
-          </label>
-        </>
+      <div className="grid gap-2">
+        <Label>Column mapping</Label>
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader><TableRow><TableHead>Field</TableHead><TableHead>CSV column</TableHead></TableRow></TableHeader>
+            <TableBody>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell>{selectColumn("Date", effectiveDateIndex, (value) => setDateIndex(value === "auto" ? "" : value), true)}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell>Amount format</TableCell>
+                <TableCell>
+                  <Select value={amountMode} onValueChange={(value) => value && setAmountMode(value as typeof amountMode)}>
+                    <SelectTrigger aria-label="Amount format" className="w-full min-w-40"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="signed">Signed amount</SelectItem>
+                      <SelectItem value="debit-credit">Separate debit and credit</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+              </TableRow>
+              {amountMode === "signed" ? (
+                <TableRow>
+                  <TableCell>Amount</TableCell>
+                  <TableCell>{selectColumn("Amount", signedIndex, setSignedIndex)}</TableCell>
+                </TableRow>
+              ) : (
+                <>
+                  <TableRow><TableCell>Debit</TableCell><TableCell>{selectColumn("Debit", debitIndex, setDebitIndex)}</TableCell></TableRow>
+                  <TableRow><TableCell>Credit</TableCell><TableCell>{selectColumn("Credit", creditIndex, setCreditIndex)}</TableCell></TableRow>
+                </>
+              )}
+              {descriptionColumnIndex.map((value, index) => (
+                <TableRow key={`description-${index}`}>
+                  <TableCell>Description {index + 1}</TableCell>
+                  <TableCell className="flex items-center gap-2">
+                    {selectColumn(`Description ${index + 1}`, value, (next) => setDescriptionColumnIndex((current) => current.map((item, currentIndex) => currentIndex === index ? next : item)), true)}
+                    {descriptionColumnIndex.length > 1 && <Button aria-label={`Remove description column ${index + 1}`} onClick={() => setDescriptionColumnIndex((current) => current.filter((_, currentIndex) => currentIndex !== index))} size="sm" type="button" variant="outline">Remove</Button>}
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow>
+                <TableCell colSpan={2}>
+                  <Button onClick={() => setDescriptionColumnIndex((current) => [...current, "auto"])} size="sm" type="button" variant="outline">Add description column</Button>
+                </TableCell>
+              </TableRow>
+              <TableRow><TableCell>Balance</TableCell><TableCell>{selectColumn("Balance", effectiveBalanceIndex, (value) => setBalanceIndex(value === "auto" ? "" : value), true)}</TableCell></TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+      {amountMode === "signed" && (
+        <label className="flex items-center gap-2 text-sm">
+          <input checked={negate} onChange={(event) => setNegate(event.target.checked)} type="checkbox" />
+          Reverse amount sign
+        </label>
       )}
-      <label>
-        Description columns
-        <select
-          multiple
-          value={descriptionIndexes}
-          onChange={(event) => setDescriptionIndexes(
-            Array.from(event.currentTarget.selectedOptions, (option) => option.value),
-          )}
-        >
-          {options.map((option) => <option key={option.index} value={option.index}>{option.label}</option>)}
-        </select>
-      </label>
-      <label>
-        Balance column
-        <select value={balanceIndex} onChange={(event) => setBalanceIndex(event.target.value)}>
-          <option value="">None</option>
-          {options.map((option) => <option key={option.index} value={option.index}>{option.label}</option>)}
-        </select>
-      </label>
-      <div className="dialog-actions">
-        <button className="primary" disabled={!firstRow.length || !name.trim() || (amountMode === "signed" ? !columnAt(signedIndex) : !columnAt(debitIndex) || !columnAt(creditIndex))} type="submit">Save mapping</button>
-        <button className="secondary" onClick={onCancel} type="button">Cancel</button>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button onClick={onCancel} type="button" variant="outline">Cancel</Button>
+        <Button disabled={!firstRow.length || !name.trim() || (amountMode === "signed" ? !columnAt(signedIndex) : !columnAt(debitIndex) || !columnAt(creditIndex))} type="submit">Save mapping</Button>
       </div>
     </form>
   );

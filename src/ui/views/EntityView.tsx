@@ -1,4 +1,7 @@
-import { balances, debtsOf, openEntryIds, SELF_ENTITY_ID, type Entry, type Ledger } from "../../domain/ledger";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { balances, debtsOf, openEntryIds, openItems, SELF_ENTITY_ID, type Entry, type Ledger, type Settlement } from "../../domain/ledger";
 import { formatMoney, sumCents } from "../../domain/value";
 import type { EntryFilter } from "../../domain/query";
 
@@ -20,13 +23,27 @@ interface TimelineItem {
   settled?: boolean;
 }
 
+function settlementCredit(ledger: Ledger, entityId: string, settlement: Settlement): number {
+  const ordered = [...(ledger.settlements ?? [])]
+    .sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
+  const priorSettlements = ordered.filter((item) =>
+    item.date < settlement.date || item.date === settlement.date && item.id < settlement.id,
+  );
+  const prior = { ...ledger, settlements: priorSettlements };
+  const open = openItems(prior, entityId);
+  const relevant = settlement.direction === "theyPaidYou" ? open.theyOweYou : open.youOweThem;
+  const outstandingCents = sumCents(relevant.map((item) => item.openAmountCents));
+  return Math.max(0, settlement.amountCents - outstandingCents);
+}
+
 export function EntityView({ ledger, update, entityId, openActivity, onSettle, onBack }: EntityViewProps) {
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const entity = ledger.entities.find((item) => item.id === entityId);
   if (!entity) {
     return <>
-      <header className="page-heading">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1>Entity not found</h1>
-        <button className="secondary" onClick={onBack} type="button">Back</button>
+        <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={onBack} type="button">Back</button>
       </header>
     </>;
   }
@@ -55,10 +72,11 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
 
   for (const settlement of ledger.settlements ?? []) {
     if (settlement.entityId !== entityId) continue;
+    const creditCents = settlementCredit(ledger, entityId, settlement);
     items.push({
       id: `settlement-${settlement.id}`,
       date: settlement.date,
-      label: settlement.direction === "theyPaidYou" ? "They paid you" : "You paid them",
+      label: `${settlement.direction === "theyPaidYou" ? "They paid you" : "You paid them"}${creditCents > 0 ? ` · includes ${formatMoney(creditCents)} credit` : ""}`,
       amountCents: settlement.direction === "theyPaidYou" ? -settlement.amountCents : settlement.amountCents,
     });
   }
@@ -94,6 +112,17 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
       }),
     }, "Start claiming write-off");
   }
+  function toggleArchived() {
+    const currentEntity = ledger.entities.find((item) => item.id === entityId);
+    update({
+      ...ledger,
+      entities: ledger.entities.map((item) => item.id === entityId
+        ? { ...item, archived: !item.archived, updatedAt: new Date().toISOString() }
+        : item),
+    }, currentEntity?.archived ? `Restore ${currentEntity.name}` : `Archive ${currentEntity?.name ?? "entity"}`);
+    setConfirmArchive(false);
+  }
+  const canArchive = entity.kind !== "self" && entity.kind !== "house";
   const balanceText = balanceCents > 0
     ? `${entity.name} owes you ${formatMoney(balanceCents)}`
     : balanceCents < 0
@@ -101,38 +130,41 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
       : "Settled";
 
   return <>
-    <header className="page-heading">
+    <header className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <button className="text-button" onClick={onBack} type="button">Back</button>
+        <button className="text-sm underline-offset-4 hover:underline" onClick={onBack} type="button">Back</button>
         <h1>{entity.name}</h1>
-        <p className={balanceCents > 0 ? "amount positive" : balanceCents < 0 ? "amount negative" : "muted"}>{balanceText}</p>
+        <p className={balanceCents > 0 ? "text-right tabular-nums text-positive" : balanceCents < 0 ? "text-right tabular-nums text-negative" : "text-muted-foreground"}>{balanceText}</p>
       </div>
-      <button className="primary" onClick={onSettle} type="button">Settle up</button>
+      <div className="flex items-center gap-2">
+        {canArchive && <Button variant="outline" onClick={() => setConfirmArchive(true)} type="button">{entity.archived ? "Restore" : "Archive"}</Button>}
+        <Button onClick={onSettle} type="button">Settle up</Button>
+      </div>
     </header>
-    <div className="table-scroll">
-      <table>
-        <thead><tr><th>Date</th><th>Activity</th><th>Amount</th><th>Status</th><th>Balance</th></tr></thead>
-        <tbody>
+    <div className="min-w-0 max-w-full overflow-x-auto">
+      <Table tabIndex={0}>
+        <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Activity</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Status</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Balance</TableHead></TableRow></TableHeader>
+        <TableBody>
           {rows.map((row) => {
             const entryId = row.entry?.id;
-            return <tr key={row.id}>
-              <td className="date-cell">{row.date || "Opening"}</td>
-              <td>{entryId
-                ? <button className="transaction-link" onClick={() => openActivity({ entryIds: [entryId] })} type="button">{row.label}</button>
-                : row.label}</td>
-              <td className="amount">{formatMoney(row.amountCents)}</td>
-              <td>{row.entry ? row.settled ? "Settled" : "Open" : ""}</td>
-              <td className="amount">{formatMoney(row.runningBalanceCents)}</td>
-            </tr>;
+            return <TableRow key={row.id}>
+              <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{row.date || "Opening"}</TableCell>
+              <TableCell>{entryId
+                ? <Button variant="link" className="h-auto p-0" onClick={() => openActivity({ entryIds: [entryId] })} type="button">{row.label}</Button>
+                : row.label}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatMoney(row.amountCents)}</TableCell>
+              <TableCell>{row.entry ? row.settled ? "Settled" : "Open" : ""}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatMoney(row.runningBalanceCents)}</TableCell>
+            </TableRow>;
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
     <section>
       <h2>Written off and gifted</h2>
       {treatedPortions.length === 0
-        ? <p className="empty-state compact">No written-off or gifted portions.</p>
-        : <div className="table-scroll">
+        ? <p className="text-sm text-muted-foreground p-4">No written-off or gifted portions.</p>
+        : <div className="w-full min-w-0 overflow-x-auto">
           <table>
             <thead><tr><th>Date</th><th>Activity</th><th>Treatment</th><th>Would-be debt</th><th>Action</th></tr></thead>
             <tbody>
@@ -142,18 +174,31 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
                 const debtorName = ledger.entities.find((item) => item.id === debtorId)?.name ?? "Unknown";
                 const creditorName = ledger.entities.find((item) => item.id === creditorId)?.name ?? "Unknown";
                 return <tr key={`${entry.id}-${portionIndex}`}>
-                  <td className="date-cell">{entry.date}</td>
+                  <td className="whitespace-nowrap tabular-nums text-muted-foreground">{entry.date}</td>
                   <td><button className="transaction-link" onClick={() => openActivity({ entryIds: [entry.id] })} type="button">{entry.description || entry.kind}</button></td>
                   <td>{portion.treatment === "writeOff" ? "Write off" : "Gift"}</td>
                   <td>{debt
                     ? `${debtorName} owes ${creditorName} ${formatMoney(Math.abs(debt.amountCents))}`
                     : "No debt would be created"}</td>
-                  <td>{portion.treatment === "writeOff" && <button className="text-button" onClick={() => startClaiming(entry.id, portionIndex)} type="button">Start claiming</button>}</td>
+                  <td>{portion.treatment === "writeOff" && <button className="text-sm underline-offset-4 hover:underline" onClick={() => startClaiming(entry.id, portionIndex)} type="button">Start claiming</button>}</td>
                 </tr>;
               })}
             </tbody>
           </table>
         </div>}
     </section>
+    <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{entity.archived ? "Restore this entity?" : "Archive this entity?"}</AlertDialogTitle>
+          <AlertDialogDescription>{entity.archived ? `Restore ${entity.name} to the active entity list.` : `Archive ${entity.name}. Existing balances and history will be kept.`}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={toggleArchived}>{entity.archived ? "Restore" : "Archive"}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </>;
 }
+import { useState } from "react";

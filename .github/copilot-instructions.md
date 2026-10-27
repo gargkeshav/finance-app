@@ -7,9 +7,9 @@ New code: views in `src/ui/views/`, one file each. Rules in `src/domain/ledger.t
 ## Batches
 - Work comes from `.github/prompts/NN-*.prompt.md`, one prompt per session. The prompt is the plan. Do not write a plan, redesign, or revisit earlier batches.- First read `.github/prompts/PROGRESS.md`. Then read only the files the prompt lists, files you create, and files a handoff note in `PROGRESS.md` lists.- If the prompt conflicts with the code, or needs a decision it does not give, stop and ask.- Stop and hand off when you need to touch a third file the prompt does not name, or the same failure survives three fixes. Append a handoff note to `PROGRESS.md`: batch, steps done, files changed, next step. Tell the user: "Context is getting long. Start a new session and run NN again."- When the batch is done, append three lines to `PROGRESS.md`: batch, files changed, anything left. Tell the user which prompt to run next, in a new session.
 ## Work style
+UI rules live in `.github/prompts/PHASE4.md`.
 - Smallest change that meets the prompt. Stop at its done list.
 - Tests: only the ones the prompt names. No UI tests, fixtures, or coverage work. Leave existing test files alone.
 - Run `npm test`, `npm run typecheck`, and `npm run test:e2e`. Never run Cargo or Tauri.
 - Never read a `*.finance.json` file, or create one in the repo, except test ledgers built in code.
 - A pasted Splitwise cURL is a credential. It lives only in dev-server memory. Never write it to the ledger, files, tests, logs, prompts, or chat. Dev-server code lives in `vite/`.
-

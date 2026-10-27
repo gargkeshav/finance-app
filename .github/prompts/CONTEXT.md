@@ -45,11 +45,13 @@ The `Share` association values in the history CSV map to the model like this:
 | `payment` | A card-payment transfer |
 | blank | A self spend tagged `needs-share` |
 
-## Code map
-- `src/domain/`: `ledger.ts` (types, `splitPreset`, `debtsOf`, `report`, `balances`, `openItems`, coverage), `query.ts` (`filterEntries`), `rules.ts`, `transfers.ts` (pairing, `cardCycle`), `reports.ts`, `health.ts`, `history-import.ts`, `value.ts`.
-- `src/adapters/`: `file-ledger.ts` (Zod schema, `parseLedger`, `stringifyLedger`, `ledgerProblem`), `file-store.ts` (File System Access, backups), `csv-mapping.ts`, `splitwise.ts`.
-- `src/ui/LocalApp.tsx` is the shell: it holds the view switch and `update()` with its 10-second undo. Views live in `src/ui/views/`, and `SpendForm.tsx` is shared.
-- UI uplift (commit `97f3a4a`): the file controls moved into the sidebar `ledger-controls`. Activity now has a toolbar, "More filters", inline row edits, a details row, and 50-row pages. Accounts, People, and Balances link into Activity. `more-menu` has no CSS.
+## Layout
+- `src/domain/` contains the ledger types and rules, including `ledger.ts`, `rules.ts`, `transfers.ts`, `reports.ts`, `health.ts`, `history-import.ts`, and `value.ts`.
+- `src/adapters/` contains JSON storage and integrations, including `file-ledger.ts`, `file-store.ts`, `csv-mapping.ts`, and `splitwise.ts`.
+- `src/ui/LocalApp.tsx` is the browser shell. Views live in `src/ui/views/`; `SpendForm.tsx` is shared.
+- `src/components/ui/` contains the shadcn/Base UI components. `src/lib/` contains shared UI utilities such as `cn`.
+- `src/ui/theme.css` defines the design tokens; views use Tailwind utilities.
+- `vite/` contains dev-server integrations. `tests/e2e/` contains Playwright specs and synthetic-ledger fixtures; `tests/` also contains unit tests.
 
 ## Workflow
 - Run one prompt per session. Read `PROGRESS.md` first, then only the files the prompt lists.
@@ -58,7 +60,7 @@ The `Share` association values in the history CSV map to the model like this:
 - Finish by appending batch, files changed, and anything left to `PROGRESS.md`.
 
 ## State and run order
-Phase 1 (01–11e) and phase 2 (12–19, plus H1) are done. Phase 3 runs in this order: 20 through 34. Phase 4 runs 35 through 41 under `PHASE4.md`: cleanup and Playwright, the Splitwise session, then the UI rebuild on shadcn/ui. The app runs under `npm run dev` in the browser. There is no desktop app.
+Phases 1 to 4 (batches 01–41) are done. Phase 4 followed `PHASE4.md`: cleanup and Playwright, the Splitwise session, then the shadcn/ui rebuild. The app runs under `npm run dev` in the browser. There is no desktop app.
 
 | Batch | Adds |
 |---|---|
@@ -118,4 +120,3 @@ Keep tags few, lowercase, and about why something was bought. Category, merchant
 
 ## Privacy
 `ledger1.finance.json` holds real names and transactions. It was committed in `05c7516` on `origin/main`; the user takes it out of git and makes the repo private (`MANUAL.md`), and batch 35 ignores `*.finance.json`. Never open it or copy its contents into code, tests, prompts, logs, or chat.
-

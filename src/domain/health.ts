@@ -142,7 +142,11 @@ export function findIssues(ledger: Ledger, today: string): HealthIssue[] {
   }
 
   const amended = ledger.entries.filter((entry) => {
-    if (!entry.bankRowIds?.length || entry.note?.trim()) return false;
+    if (
+      (entry.kind !== "spend" && entry.kind !== "refund") ||
+      !entry.bankRowIds?.length ||
+      entry.note?.trim()
+    ) return false;
     const bankAmount = linkedBankAmountCents(entry, ledger.bankRows ?? []);
     return bankAmount !== null && bankAmount !== entry.amountCents;
   });

@@ -191,7 +191,7 @@ export interface OpenItem {
   id: string;
   date: string;
   description: string;
-  source: "baseline" | "entry";
+  source: "baseline" | "entry" | "credit";
   amountCents: number;
   openAmountCents: number;
 }
@@ -592,8 +592,11 @@ export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
 
   const oldestFirst = (first: OpenItem, second: OpenItem) =>
     first.date.localeCompare(second.date) || first.id.localeCompare(second.id);
-  theyOweYou.sort(oldestFirst);
-  youOweThem.sort(oldestFirst);
+  const sortItems = () => {
+    theyOweYou.sort(oldestFirst);
+    youOweThem.sort(oldestFirst);
+  };
+  sortItems();
 
   const settlements = [...(ledger.settlements ?? [])]
     .sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
@@ -606,6 +609,18 @@ export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
       item.openAmountCents -= applied;
       remaining -= applied;
       if (remaining === 0) break;
+    }
+    if (remaining > 0) {
+      const credits = settlement.direction === "theyPaidYou" ? youOweThem : theyOweYou;
+      credits.push({
+        id: settlement.id,
+        date: settlement.date,
+        description: `Credit from ${settlement.date} payment`,
+        source: "credit",
+        amountCents: remaining,
+        openAmountCents: remaining,
+      });
+      sortItems();
     }
   }
 

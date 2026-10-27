@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type CategoryNature, type Ledger } from "../../domain/ledger";
 import { addStarterCategories, STARTER_CATEGORIES } from "../../domain/taxonomy";
 import { formatAud, formatMoney, parseAud, sumCents } from "../../domain/value";
@@ -138,32 +141,32 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
 
   return (
     <>
-      <header className="page-heading">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1>Balances</h1>
-        <button className="primary" onClick={() => setMonth(currentMonth())} type="button">Current month</button>
+        <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => setMonth(currentMonth())} type="button">Current month</button>
       </header>
-      <div className="filters">
+      <div className="grid gap-3 sm:grid-cols-2">
         <label>
           Month
           <input type="month" value={month} onChange={(event) => setMonth(event.target.value || currentMonth())} />
         </label>
       </div>
-      <section className="summary-strip" aria-label="Monthly spending">
-        <div><span className="metric-label">Personal spend</span><strong className="amount">{formatMoney(monthly.personalCents)}</strong></div>
-        <div><span className="metric-label">House spend</span><strong className="amount">{formatMoney(monthly.houseCents)}</strong></div>
+      <section className="flex flex-wrap gap-4" aria-label="Monthly spending">
+        <div><span className="text-sm text-muted-foreground">Personal spend</span><strong className="text-right tabular-nums">{formatMoney(monthly.personalCents)}</strong></div>
+        <div><span className="text-sm text-muted-foreground">House spend</span><strong className="text-right tabular-nums">{formatMoney(monthly.houseCents)}</strong></div>
       </section>
 
       <section className="section-heading">
         <h2>By category</h2>
-        {hasMissingStarterCategories && <button className="secondary" onClick={() => update(addStarterCategories(ledger, new Date().toISOString()), "Add suggested categories")} type="button">Add suggested categories</button>}
+        {hasMissingStarterCategories && <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => update(addStarterCategories(ledger, new Date().toISOString()), "Add suggested categories")} type="button">Add suggested categories</button>}
       </section>
-      <div className="table-scroll">
-        <table>
-          <thead><tr><th>Category</th><th>Personal</th><th>House</th></tr></thead>
-          <tbody>
+      <div className="w-full min-w-0 max-w-full overflow-x-auto">
+        <Table tabIndex={0}>
+          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Category</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Personal</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">House</TableHead></TableRow></TableHeader>
+          <TableBody>
             {categoryRows.map((category) => (
-              <tr key={category.id}>
-                <td>
+              <TableRow key={category.id}>
+                <TableCell>
                   {category.name}
                   {category.id && (() => {
                     const record = categories.find((item) => item.id === category.id);
@@ -173,7 +176,7 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
                     return (
                       <details>
                         <summary>Edit</summary>
-                        <div className="form-grid">
+                        <div className="grid gap-4">
                           <label>Parent
                             <select value={draft.parentId} onChange={(event) => updateCategoryDraft(record.id, defaults, { parentId: event.target.value })}>
                               <option value="">None</option>
@@ -188,45 +191,54 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
                               {CATEGORY_NATURES.map((nature) => <option key={nature} value={nature}>{nature}</option>)}
                             </select>
                           </label>
-                          <button className="secondary" onClick={() => saveCategory(record.id)} type="button">Save</button>
+                          <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => saveCategory(record.id)} type="button">Save</button>
                         </div>
                       </details>
                     );
                   })()}
-                </td>
-                <td className="amount"><button className="amount drilldown-button" aria-label={`${category.name} personal transactions: ${formatMoney(category.personalCents)}`} onClick={() => openActivity({ from, to, categoryId: category.id || undefined, entityId: SELF_ENTITY_ID })} type="button">{formatMoney(category.personalCents)}</button></td>
-                <td className="amount"><button className="amount drilldown-button" aria-label={`${category.name} house transactions: ${formatMoney(category.houseCents)}`} onClick={() => openActivity({ from, to, categoryId: category.id || undefined, entityId: HOUSE_ENTITY_ID })} type="button">{formatMoney(category.houseCents)}</button></td>
-              </tr>
+                </TableCell>
+                <TableCell className="text-right tabular-nums"><button className="text-right tabular-nums drilldown-button" aria-label={`${category.name} personal transactions: ${formatMoney(category.personalCents)}`} onClick={() => openActivity({ from, to, categoryId: category.id || undefined, entityId: SELF_ENTITY_ID })} type="button">{formatMoney(category.personalCents)}</button></TableCell>
+                <TableCell className="text-right tabular-nums"><button className="text-right tabular-nums drilldown-button" aria-label={`${category.name} house transactions: ${formatMoney(category.houseCents)}`} onClick={() => openActivity({ from, to, categoryId: category.id || undefined, entityId: HOUSE_ENTITY_ID })} type="button">{formatMoney(category.houseCents)}</button></TableCell>
+              </TableRow>
             ))}
-            <tr>
-              <th scope="row">Total</th>
-              <td className="amount">{formatMoney(monthly.personalCents)}</td>
-              <td className="amount">{formatMoney(monthly.houseCents)}</td>
-            </tr>
-          </tbody>
-        </table>
-        {categoryRows.length === 0 && <p className="empty-state compact">No spending for this month.</p>}
+            <TableRow>
+              <TableHead scope="row" className="!text-secondary-foreground !text-xl !font-bold">Total</TableHead>
+              <TableCell className="text-right tabular-nums">{formatMoney(monthly.personalCents)}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatMoney(monthly.houseCents)}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+        {categoryRows.length === 0 && <p className="text-sm text-muted-foreground p-4">No spending for this month.</p>}
       </div>
 
       <section className="section-heading">
         <h2>Balances</h2>
-        <button className="secondary" onClick={() => setShowBaselines((visible) => !visible)} type="button">{showBaselines ? "Hide opening balances" : "Edit opening balances"}</button>
+        <Button variant="outline" onClick={() => setShowBaselines((visible) => !visible)} type="button">{showBaselines ? "Hide opening balances" : "Edit opening balances"}</Button>
       </section>
-      {error && <p className="banner error" role="alert">{error}</p>}
-      <div className="table-scroll">
-        <table>
-          <thead><tr><th>Entity</th><th>Balance</th>{showBaselines && <th>Opening balance</th>}</tr></thead>
-          <tbody>
-            {entities.map((entity) => {
-              const amount = overall.byEntity[entity.id] ?? 0;
-              const baseline = baselineFor(entity.id);
-              return (
-                <tr key={entity.id}>
-                  <td>{entity.name}</td>
-                  <td className={amount > 0 ? "amount positive" : amount < 0 ? "amount negative" : "muted"}>{onOpenEntity ? <button className="amount drilldown-button" onClick={() => onOpenEntity(entity.id)} type="button">{amount > 0 ? `${entity.name} owes you ${formatMoney(amount)}` : amount < 0 ? `You owe ${entity.name} ${formatMoney(Math.abs(amount))}` : "Settled"}</button> : amount > 0 ? `${entity.name} owes you ${formatMoney(amount)}` : amount < 0 ? `You owe ${entity.name} ${formatMoney(Math.abs(amount))}` : "Settled"}</td>
-                  {showBaselines && <td>
+      {error && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{error}</p>}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {entities.map((entity) => {
+          const amount = overall.byEntity[entity.id] ?? 0;
+          const baseline = baselineFor(entity.id);
+          const balanceLabel = amount > 0
+            ? `${entity.name} owes you ${formatMoney(amount)}`
+            : amount < 0
+              ? `You owe ${entity.name} ${formatMoney(Math.abs(amount))}`
+              : "Settled";
+          return (
+            <Card key={entity.id} className={amount > 0 ? "border-positive/40" : amount < 0 ? "border-negative/40" : ""}>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {onOpenEntity
+                    ? <Button variant="link" className="h-auto p-0 text-base" onClick={() => onOpenEntity(entity.id)} type="button">{entity.name}</Button>
+                    : entity.name}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <p className={`text-right tabular-nums ${amount > 0 ? "text-positive" : amount < 0 ? "text-negative" : "text-muted-foreground"}`}>{balanceLabel}</p>
+                {showBaselines && <div>
                     <label>
-                      <span className="sr-only">Opening balance for {entity.name}</span>
+                      <span className="text-sm text-muted-foreground">Opening balance</span>
                       <input
                         inputMode="decimal"
                         value={drafts[entity.id] ?? (baseline && baseline.amountCents !== 0 ? centsText(baseline.amountCents) : "")}
@@ -235,29 +247,28 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
                         aria-invalid={errorEntityId === entity.id}
                       />
                     </label>
-                  </td>}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                </div>}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {overall.betweenEntities.length > 0 && <>
       <h2>Between others</h2>
-      <div className="table-scroll">
-        <table>
-          <thead><tr><th>Debtor</th><th>Creditor</th><th>Amount</th></tr></thead>
-          <tbody>
+      <div className="w-full min-w-0 max-w-full overflow-x-auto">
+        <Table tabIndex={0}>
+          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Debtor</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Creditor</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead></TableRow></TableHeader>
+          <TableBody>
             {overall.betweenEntities.map((debt) => (
-              <tr key={`${debt.debtorId}-${debt.creditorId}`}>
-                <td>{ledger.entities.find((entity) => entity.id === debt.debtorId)?.name ?? "Unknown"}</td>
-                <td>{ledger.entities.find((entity) => entity.id === debt.creditorId)?.name ?? "Unknown"}</td>
-                <td className="amount">{formatMoney(debt.amountCents)}</td>
-              </tr>
+              <TableRow key={`${debt.debtorId}-${debt.creditorId}`}>
+                <TableCell>{ledger.entities.find((entity) => entity.id === debt.debtorId)?.name ?? "Unknown"}</TableCell>
+                <TableCell>{ledger.entities.find((entity) => entity.id === debt.creditorId)?.name ?? "Unknown"}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(debt.amountCents)}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
       </>}
     </>

@@ -1,4 +1,8 @@
 import type { HealthIssue, HealthViewName } from "../../domain/health";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty } from "@/components/ui/empty";
 
 interface HealthViewProps {
   issues: HealthIssue[];
@@ -14,41 +18,42 @@ export function HealthView({ issues, onNavigate }: HealthViewProps) {
 
   return (
     <>
-      <header className="page-heading">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1>Health</h1>
-        <button className="primary" onClick={() => onNavigate("Review")} type="button">Review items</button>
+        <Button onClick={() => onNavigate("Review")} type="button">Review items</Button>
       </header>
       {groups.length === 0 ? (
-        <section className="empty-state compact">Nothing needs attention.</section>
+        <Empty>All clear</Empty>
       ) : (
-        <section className="summary-strip" aria-label="Items needing attention">
-          <span className="metric-label">{count} item{count === 1 ? "" : "s"} need attention</span>
+        <section className="flex flex-wrap gap-4" aria-label="Items needing attention">
+          <span className="text-sm text-muted-foreground">{count} item{count === 1 ? "" : "s"} need attention</span>
         </section>
       )}
-      {groups.map((group) => (
-        <section className="card" key={group.kind}>
-          <header className="section-heading">
-            <h2>{group.kind}</h2>
-            <span className="nav-count">{group.issues.reduce((total, issue) => total + issue.count, 0)}</span>
-          </header>
-          <div className="table-scroll">
-            <table>
-              <tbody>
+      {groups.map((group) => {
+        const groupCount = group.issues.reduce((total, issue) => total + issue.count, 0);
+        return (
+          <Card key={group.kind}>
+            <details>
+              <summary className="cursor-pointer list-none">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between gap-3">
+                    <span>{group.kind}</span>
+                    <Badge variant="secondary">{groupCount}</Badge>
+                  </CardTitle>
+                </CardHeader>
+              </summary>
+              <CardContent className="grid gap-3">
                 {group.issues.map((issue, index) => (
-                  <tr key={`${issue.detail}-${index}`}>
-                    <td>{issue.detail}</td>
-                    <td>
-                      <button className="secondary" onClick={() => onNavigate(issue.view)} type="button">
-                        Open {issue.view}
-                      </button>
-                    </td>
-                  </tr>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" key={`${issue.detail}-${index}`}>
+                    <p>{issue.detail}</p>
+                    <Button variant="link" onClick={() => onNavigate(issue.view)} type="button">Open {issue.view}</Button>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ))}
+              </CardContent>
+            </details>
+          </Card>
+        );
+      })}
     </>
   );
 }
