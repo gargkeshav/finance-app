@@ -1,19 +1,12 @@
 {
-	"version": "2.0.0",
-	"tasks": [
-		{
-			"label": "Finance: native development",
-			"type": "shell",
-			"command": "source \"$HOME/.nvm/nvm.sh\" && nvm use && export PATH=\"$HOME/.cargo/bin:$PATH\" && npm run tauri dev",
-			"isBackground": true,
-			"problemMatcher": []
-		},
-		{
-			"label": "Finance: synthetic browser preview",
-			"type": "shell",
-			"command": "source \"$HOME/.nvm/nvm.sh\" && nvm use && VITE_SYNTHETIC_PREVIEW=1 npm run dev -- --port 1421 --strictPort",
-			"isBackground": true,
-			"problemMatcher": []
-		}
-	]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Finance: dev server",
+      "type": "shell",
+      "command": "nvm use && npm run dev",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
 }

@@ -1,14 +1,15 @@
 # Finance app
-Local AUD page. React 19, TypeScript, Vite, Zod, Papa Parse, Vitest. No new dependencies. If `node_modules` is missing, run `npm ci` once.
-`IMPLEMENTATION_PLAN.md`, `VERIFICATION.md`, `README.md`, `docs/`, `src-tauri/`, `src/application/`, and `src/ui/App.tsx` belong to the retired desktop app. Do not read, follow, import from, or delete them.
+Local AUD page. React 19, TypeScript, Vite, Zod, Papa Parse, Vitest. If `node_modules` is missing, run `npm ci` once.
+Batches 35 and above follow `.github/prompts/PHASE4.md`. It replaces the retired-files line, "No new dependencies", the `## UI` section, the test rules, and the no-markdown rule below.
 New code: views in `src/ui/views/`, one file each. Rules in `src/domain/ledger.ts` or a sibling named by the prompt. Data in `src/adapters/file-ledger.ts`.
 ## Money rules
 - Money is integer cents. Dates are `YYYY-MM-DD`. No floats, no timezone shifts.- Every account has a payer entity. An entity is self, House, a person, or a group. A group is one entity, not a list of members.- A spend has one payer and portions that sum to its amount. A portion for a different entity is a debt: that entity owes the payer. The same entity is report only.- A House account is always paid by House. A self portion on it means you owe House.- Personal report = self portions + half of House portions, odd cent to self. That half is never a debt.- Transfers, settlements, income, and skipped rows are never spending.- Bank rows never change. Interpretation lives on entries.- One JSON file is the database. Every record has `id` and `updatedAt`. No global revision counter. Keep `schemaVersion: 1`; new keys are optional and default on load.
 ## Batches
 - Work comes from `.github/prompts/NN-*.prompt.md`, one prompt per session. The prompt is the plan. Do not write a plan, redesign, or revisit earlier batches.- First read `.github/prompts/PROGRESS.md`. Then read only the files the prompt lists, files you create, and files a handoff note in `PROGRESS.md` lists.- If the prompt conflicts with the code, or needs a decision it does not give, stop and ask.- Stop and hand off when you need to touch a third file the prompt does not name, or the same failure survives three fixes. Append a handoff note to `PROGRESS.md`: batch, steps done, files changed, next step. Tell the user: "Context is getting long. Start a new session and run NN again."- When the batch is done, append three lines to `PROGRESS.md`: batch, files changed, anything left. Tell the user which prompt to run next, in a new session.
-## UI
-- Reuse `src/ui/styles.css`. Do not read it. Do not add CSS unless the prompt says so.- Shell: `app-shell`, `sidebar`, `nav-item` (`active`), `nav-count`, `workspace`, `topbar`.- Each view: `page-heading` with an `h1` and one `primary` action, an optional `summary-strip` with `metric-label`, then a table in `table-scroll`.- Money cells: `amount`, formatted with `formatAud`. Dates: `date-cell`. Entity chips: `allocation-tag`, plus `house` for House.- Forms: `form-grid`, `checkbox-label`, `dialog-actions`, `primary`, `secondary`. Filters: `filters`.- Messages: `banner`, `banner error`, `banner success`. Empty view: `empty-state compact` with one sentence.- Visible focus, labels on every input, no charts, no landing page.
 ## Work style
-- Smallest change that meets the prompt. Stop at its done list.- Tests: only the ones the prompt names. No UI tests, fixtures, or coverage work. Leave existing test files alone.- Run `npm test` and `npm run typecheck`. Do not run Cargo, Playwright, or Tauri.- No markdown files other than `PROGRESS.md` entries.
-
+- Smallest change that meets the prompt. Stop at its done list.
+- Tests: only the ones the prompt names. No UI tests, fixtures, or coverage work. Leave existing test files alone.
+- Run `npm test`, `npm run typecheck`, and `npm run test:e2e`. Never run Cargo or Tauri.
+- Never read a `*.finance.json` file, or create one in the repo, except test ledgers built in code.
+- A pasted Splitwise cURL is a credential. It lives only in dev-server memory. Never write it to the ledger, files, tests, logs, prompts, or chat. Dev-server code lives in `vite/`.
 

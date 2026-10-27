@@ -1,0 +1,50 @@
+@media (max-width: 640px) {
+  .app-shell.app-shell {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .app-shell .sidebar {
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .app-shell .sidebar nav {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .app-shell .sidebar nav > .nav-group,
+  .app-shell .sidebar nav > details {
+    flex-basis: 100%;
+  }
+
+  .app-shell .sidebar nav > details > summary {
+    display: block;
+  }
+
+  .app-shell .sidebar nav > .nav-item {
+    flex: 0 1 auto;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .app-shell .workspace,
+  .app-shell .workspace-content {
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .app-shell .table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}

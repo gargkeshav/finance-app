@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { headerNames, parseCurl } from "../src/adapters/curl-capture";
 import { buildExpense, buildPayment, pullIntoInbox, type SplitwiseExpense } from "../src/adapters/splitwise";
 import type { Entry, Entity, Ledger, Settlement } from "../src/domain/ledger";
 
@@ -26,6 +27,31 @@ const group: Entity = {
   updatedAt: "2026-10-25T00:00:00.000Z",
   splitwise: { kind: "group", id: "42" },
 };
+
+describe("parseCurl", () => {
+  it("parses a multi-line Chrome request without exposing header values", () => {
+    const parsed = parseCurl(`curl 'https://secure.splitwise.com/api/v3.0/create_expense' \\
+      -H 'Accept: application/json' \\
+      -H 'X-Requested-With: XMLHttpRequest' \\
+      -b 'session=fake-session; route=test' \\
+      --data-raw '{"description":"Cafe"}'`);
+
+    expect(parsed.method).toBe("POST");
+    expect(parsed.url).toBe("https://secure.splitwise.com/api/v3.0/create_expense");
+    expect(headerNames(parsed)).toEqual(["Accept", "X-Requested-With", "Cookie"]);
+    expect(parsed.headers).toEqual({
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    });
+    expect(parsed.cookies).toBe("session=fake-session; route=test");
+    expect(headerNames(parsed).join(" ")).not.toContain("fake-session");
+  });
+
+  it("rejects a request to another host", () => {
+    expect(() => parseCurl("curl 'https://example.test/api/v3.0/get_current_user'"))
+      .toThrow("Only requests to https://secure.splitwise.com are supported.");
+  });
+});
 
 describe("buildExpense", () => {
   it("splits a group portion across its other members", () => {

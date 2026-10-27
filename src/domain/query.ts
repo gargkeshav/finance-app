@@ -76,7 +76,7 @@ export function filterEntries(ledger: Ledger, filter: EntryFilter): Entry[] {
         if (!debtsOf(entry, ledger.bankRows ?? []).some((debt) => debt.amountCents !== 0)) return false;
         if (filter.settled ? openIds?.has(entry.id) : !openIds?.has(entry.id)) return false;
       }
-      if (text && ![entry.description, entry.note ?? "", ...(entry.tags ?? [])]
+      if (text && ![entry.description, entry.displayName ?? "", entry.note ?? "", ...(entry.tags ?? [])]
         .some((value) => value.toLocaleLowerCase().includes(text))) return false;
       return true;
     })

@@ -17,8 +17,8 @@ import {
   getCurrentUser,
   getFriends,
   getGroups,
-  hasKey,
   postExpense,
+  sessionStatus,
   SplitwiseNoResponseError,
   SplitwiseRejectedError,
   type SplitwiseExpenseDraft,
@@ -156,11 +156,11 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
   async function preparePayment(settlement: NonNullable<typeof savedSettlement>) {
     const entity = ledger.entities.find((candidate) => candidate.id === settlement.entityId);
     if (!entity?.splitwise || settlement.splitwisePaymentId) return;
-    if (!hasKey()) {
-      setPaymentMessage("Connect Splitwise in People first.");
-      return;
-    }
     try {
+      if (!(await sessionStatus()).connected) {
+        setPaymentMessage("Connect Splitwise in People first.");
+        return;
+      }
       const you = await getCurrentUser();
       const posts = currentLedger.current.splitwisePosts ?? [];
       if (posts.some((post) => post.settlementId === settlement.id)) return;
@@ -182,8 +182,13 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
 
   async function submitPayment() {
     if (!stagedPayment || pendingPayment) return;
-    if (!hasKey()) {
-      setPaymentMessage("Connect Splitwise in People first.");
+    try {
+      if (!(await sessionStatus()).connected) {
+        setPaymentMessage("Connect Splitwise in People first.");
+        return;
+      }
+    } catch (reason) {
+      setPaymentMessage(reason instanceof Error ? reason.message : "Could not check the Splitwise session.");
       return;
     }
     let amountCents: number;

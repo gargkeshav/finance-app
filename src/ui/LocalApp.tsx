@@ -1,4 +1,20 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+  Activity,
+  Banknote,
+  ChartNoAxesCombined,
+  ClipboardCheck,
+  Database,
+  FileClock,
+  FileInput,
+  HeartPulse,
+  House,
+  Landmark,
+  ListChecks,
+  Search,
+  Users,
+} from "lucide-react";
 import { FileStore, isPickerCancellation, nextAutosaveDelayMs } from "../adapters/file-store";
 import { emptyLedger, ledgerProblem, parseLedger, stringifyLedger } from "../adapters/file-ledger";
 import { categoryMemoryKey, type Account, type BankRow, type Baseline, type Entry, type Entity, type Ledger, type Settlement } from "../domain/ledger";
@@ -24,10 +40,131 @@ import { ReviewView } from "./views/ReviewView";
 import { RulesView } from "./views/RulesView";
 import { SettleView } from "./views/SettleView";
 import { decodeRoute, encodeRoute } from "./route";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Kbd } from "@/components/ui/kbd";
+import { Toaster } from "@/components/ui/sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 type ViewName = "Home" | "Activity" | "Import" | "Review" | "Settle" | "Accounts" | "People" | "Balances" | "Reports" | "Data" | "Rules" | "Health" | "History";
 const knownViews: ViewName[] = ["Home", "Activity", "Import", "Review", "Settle", "Accounts", "People", "Balances", "Reports", "Data", "Rules", "Health", "History"];
 type RecordWithTimestamp = { id: string; updatedAt: string };
+
+const navigationGroups = [
+  {
+    label: "Daily",
+    items: [
+      { name: "Home", icon: House },
+      { name: "Review", icon: ClipboardCheck },
+      { name: "Activity", icon: Activity },
+      { name: "Settle", icon: Banknote },
+    ],
+  },
+  {
+    label: "Money",
+    items: [
+      { name: "Accounts", icon: Landmark },
+      { name: "People", icon: Users },
+      { name: "Balances", icon: Banknote },
+      { name: "Reports", icon: ChartNoAxesCombined },
+    ],
+  },
+  {
+    label: "Setup",
+    items: [
+      { name: "Import", icon: FileInput },
+      { name: "Rules", icon: ListChecks },
+      { name: "Data", icon: Database },
+      { name: "History", icon: FileClock },
+      { name: "Health", icon: HeartPulse },
+    ],
+  },
+] as const;
+
+function SidebarNavigation({
+  view,
+  reviewCount,
+  healthCount,
+  navigate,
+}: {
+  view: ViewName;
+  reviewCount: number;
+  healthCount: number;
+  navigate: (view: ViewName) => void;
+}) {
+  const { isMobile, setOpenMobile } = useSidebar();
+  return (
+    <SidebarContent>
+      {navigationGroups.map((group) => (
+        <SidebarGroup key={group.label}>
+          <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {group.items.map(({ name, icon: Icon }) => (
+                <SidebarMenuItem key={name}>
+                  <SidebarMenuButton
+                    isActive={view === name}
+                    onClick={() => {
+                      navigate(name);
+                      if (isMobile) setOpenMobile(false);
+                    }}
+                    tooltip={name}
+                  >
+                    <Icon />
+                    <span>{name}</span>
+                  </SidebarMenuButton>
+                  {name === "Review" && reviewCount > 0 && <SidebarMenuBadge>{reviewCount}</SidebarMenuBadge>}
+                  {name === "Health" && healthCount > 0 && <SidebarMenuBadge>{healthCount}</SidebarMenuBadge>}
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      ))}
+    </SidebarContent>
+  );
+}
 
 function updateRecords<T extends RecordWithTimestamp>(
   previous: T[],
@@ -58,6 +195,9 @@ export function LocalApp() {
   const [warning, setWarning] = useState("");
   const [undoState, setUndoState] = useState<{ ledger: Ledger; label: string } | null>(null);
   const [view, setView] = useState<ViewName>("Home");
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
+  const [activityAddSpendRequest, setActivityAddSpendRequest] = useState(0);
   const [activityFilter, setActivityFilter] = useState<EntryFilter>({});
   const [ruleDescription, setRuleDescription] = useState("");
   const [settlementRow, setSettlementRow] = useState<BankRow | null>(null);
@@ -73,6 +213,7 @@ export function LocalApp() {
   const autosaveInProgress = useRef(false);
   const lastAutosaveContent = useRef("");
   const saveLedgerRef = useRef<(saveAs: boolean, automatic?: boolean) => Promise<void>>(async () => {});
+  const replaceLedgerAction = useRef<(() => void) | null>(null);
   let currentContent = "";
   let serializationError = "";
   try {
@@ -119,9 +260,39 @@ export function LocalApp() {
 
   useEffect(() => {
     if (!message) return;
-    const timeout = window.setTimeout(() => setMessage(""), 4000);
-    return () => window.clearTimeout(timeout);
+    toast.success(message);
+    setMessage("");
   }, [message]);
+
+  useEffect(() => {
+    if (!warning) return;
+    toast.warning(warning);
+    setWarning("");
+  }, [warning]);
+
+  useEffect(() => {
+    if (!visibleError) return;
+    toast.error(visibleError);
+  }, [visibleError]);
+
+  useEffect(() => {
+    if (!undoState) return;
+    toast(undoState.label, {
+      duration: 10_000,
+      action: { label: "Undo", onClick: undoLastAction },
+    });
+  }, [undoState]);
+
+  useEffect(() => {
+    function openCommand(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    }
+    window.addEventListener("keydown", openCommand);
+    return () => window.removeEventListener("keydown", openCommand);
+  }, []);
 
   useEffect(() => () => {
     if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
@@ -184,7 +355,8 @@ export function LocalApp() {
     }
     if (undoTimeout.current !== null) window.clearTimeout(undoTimeout.current);
     const actionLabel = undoLabel ?? (settlementRow ? "Record settlement" : undefined);
-    if (actionLabel) {
+    const undoable = actionLabel === "Record settlement" || /^(Delete|Archive|Skip|Bulk)/.test(actionLabel ?? "");
+    if (actionLabel && undoable) {
       setUndoState({ ledger, label: actionLabel });
       undoTimeout.current = window.setTimeout(() => {
         setUndoState(null);
@@ -207,8 +379,8 @@ export function LocalApp() {
         settlements: updateRecords<Settlement>(previous.settlements ?? [], next.settlements ?? [], updatedAt),
         rules: updateRecords<EntryRule>(previous.rules ?? [], next.rules ?? [], updatedAt),
       };
-      if (!undoLabel) return stamped;
-      const changeSet = buildChangeSet(previous, stamped, undoLabel, actor);
+      if (!actionLabel) return stamped;
+      const changeSet = buildChangeSet(previous, stamped, actionLabel, actor);
       return changeSet
         ? { ...stamped, history: [...(previous.history ?? []), changeSet].slice(-200) }
         : stamped;
@@ -258,8 +430,13 @@ export function LocalApp() {
     navigate("Balances");
   }
 
-  function canReplaceLedger(): boolean {
-    return !hasUnsavedChanges || window.confirm("Discard unsaved changes and open another ledger?");
+  function requestReplaceLedger(action: () => void) {
+    if (!hasUnsavedChanges) {
+      action();
+      return;
+    }
+    replaceLedgerAction.current = action;
+    setConfirmReplaceOpen(true);
   }
 
   function acceptOpenedLedger(result: { ledger: Ledger; fileName: string }, unsaved = false) {
@@ -321,8 +498,7 @@ export function LocalApp() {
     setRecoveryCopy(null);
   }
 
-  async function openLedger() {
-    if (!canReplaceLedger()) return;
+  async function performOpenLedger() {
     if (fileStore.mode === "download") {
       uploadInput.current?.click();
       return;
@@ -334,6 +510,10 @@ export function LocalApp() {
       setError(reason instanceof Error ? reason.message : "The ledger file could not be opened.");
       setMessage("");
     }
+  }
+
+  function openLedger() {
+    requestReplaceLedger(() => { void performOpenLedger(); });
   }
 
   async function uploadLedger(event: React.ChangeEvent<HTMLInputElement>) {
@@ -423,15 +603,22 @@ export function LocalApp() {
   }
 
   function restoreLedger(restoredLedger: Ledger) {
-    if (!canReplaceLedger()) return;
-    acceptOpenedLedger({ ledger: restoredLedger, fileName: fileStore.fileName || "Restored backup" });
+    requestReplaceLedger(() => acceptOpenedLedger({ ledger: restoredLedger, fileName: fileStore.fileName || "Restored backup" }));
   }
 
   const views = {
     Home: <HomeView ledger={ledger} healthIssues={healthIssues} reviewCount={reviewCount} openActivity={openActivity} onOpenEntity={openEntity} onNavigate={navigate} />,
     Import: <ImportView ledger={ledger} update={update} />,
     Review: <ReviewView ledger={ledger} update={update} onSettle={(row) => { setSettlementRow(row); navigate("Settle"); }} onCreateRule={(description) => { setRuleDescription(description); navigate("Rules"); }} />,
-    Activity: <ActivityView ledger={ledger} update={update} saveNow={saveNow} activityFilter={activityFilter} openActivity={openActivity} onNavigate={navigate} />,
+    Activity: <ActivityView
+      ledger={ledger}
+      update={update}
+      saveNow={saveNow}
+      activityFilter={activityFilter}
+      openActivity={openActivity}
+      onNavigate={navigate}
+      addSpendRequest={activityAddSpendRequest}
+    />,
     Rules: <RulesView ledger={ledger} update={update} initialDescription={ruleDescription} onClearInitialDescription={() => setRuleDescription("")} />,
     Settle: <SettleView ledger={ledger} update={update} saveNow={saveNow} bankRow={settlementRow} onSaved={() => setSettlementRow(null)} />,
     Accounts: <AccountsView ledger={ledger} update={update} openActivity={openActivity} />,
@@ -459,68 +646,135 @@ export function LocalApp() {
     History: <HistoryView history={ledger.history ?? []} onRevert={revertLatestChange} />,
   };
 
+  const saveStatus = isSaving
+    ? "Saving…"
+    : hasUnsavedChanges
+      ? autosaveFailures > 0
+        ? "Not saved · retrying"
+        : fileStore.mode === "in-place" && fileStore.hasOpenFile
+          ? "Saving…"
+          : "Not saved"
+      : "Saved";
+
+  function runCommand(action: () => void) {
+    setCommandOpen(false);
+    action();
+  }
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar" aria-label="Main navigation">
-        <div className="sidebar-brand">Finance</div>
-        <nav>
-          {(["Home"] as const).map((name) => (
-            <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">{name}</button>
-          ))}
-          <div className="nav-group">Daily</div>
-          {(["Review", "Activity", "Settle", "Reports"] as const).map((name) => (
-            <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
-              {name}
-              {name === "Review" && reviewCount > 0 && <span className="nav-count">{reviewCount}</span>}
-            </button>
-          ))}
-          <details open={(["Balances", "Import", "Health"] as const).includes(view as "Balances" | "Import" | "Health")}>
-            <summary className="nav-group">More</summary>
-            {(["Balances", "Import", "Health"] as const).map((name) => (
-              <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
-                {name}
-                {name === "Health" && healthCount > 0 && <span className="nav-count">{healthCount}</span>}
-              </button>
-            ))}
-          </details>
-          <div className="nav-group">Setup</div>
-          {(["Accounts", "People", "Rules", "Data", "History"] as const).map((name) => (
-            <button className={`nav-item${view === name ? " active" : ""}`} key={name} onClick={() => navigate(name)} type="button">
-              {name}
-            </button>
-          ))}
-        </nav>
-        <section className="ledger-controls" aria-label="Ledger file">
-          <div className="ledger-file-name" title={fileName || "No file open"}>{fileName || "No file open"}</div>
-          <div className="ledger-file-actions">
-            <button className="secondary" onClick={openLedger} type="button">Open</button>
-            <button className="secondary" onClick={() => void saveLedger(true)} type="button">Save as</button>
-            <button className="primary" onClick={() => void saveLedger(false)} type="button">Save</button>
+    <SidebarProvider>
+      <Sidebar collapsible="icon">
+        <SidebarHeader>
+          <div className="flex items-center gap-2 px-2 py-2 font-semibold">
+            <House className="size-5" />
+            <span>Finance</span>
           </div>
-          <span className="ledger-unsaved" role="status">
-            {isSaving ? "Saving…" : hasUnsavedChanges ? autosaveFailures > 0 ? "Not saved · retrying" : "Saving…" : "Saved"}
-          </span>
-        </section>
-      </aside>
-      <main className="workspace">
-        <div className="workspace-content">
+        </SidebarHeader>
+        <SidebarNavigation view={view} reviewCount={reviewCount} healthCount={healthCount} navigate={navigate} />
+        <SidebarFooter>
+          <section aria-label="Ledger file" className="flex min-w-0 flex-col gap-2">
+            <div className="truncate text-sm" title={fileName || "No file open"}>{fileName || "No file open"}</div>
+            <span className="text-xs text-muted-foreground" role="status">{saveStatus}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button className="w-full justify-start" variant="outline" />}>
+                Ledger file actions
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={openLedger}>Open</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void saveLedger(false)}>Save</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void saveLedger(true)}>Save as</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </section>
+        </SidebarFooter>
+      </Sidebar>
+      <SidebarInset className="min-w-0">
+        <header className="sticky top-0 z-10 flex min-h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur">
+          <SidebarTrigger aria-label="Toggle navigation" />
+          <span className="font-medium">{view}</span>
+          <div className="ml-auto">
+            <Button aria-label="Search ⌘K" onClick={() => setCommandOpen(true)} variant="outline">
+              <Search />
+              <span>Search</span>
+              <Kbd className="bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-100">⌘K</Kbd>
+            </Button>
+          </div>
+        </header>
+        <main className="min-w-0 p-4 md:p-6">
           <input
             ref={uploadInput}
             accept="application/json,.json,.finance.json"
             aria-label="Open ledger JSON file"
             onChange={uploadLedger}
-            style={{ display: "none" }}
+            className="sr-only"
             type="file"
           />
-        {message && <p className="banner success" role="status">{message}</p>}
-        {warning && <p className="banner warning" role="status">{warning}</p>}
-        {undoState && <p className="banner" role="status">{undoState.label}. <button className="secondary" onClick={undoLastAction} type="button">Undo</button></p>}
-        {visibleError && <p className="banner error" role="alert">{visibleError}</p>}
-        {reopenPrompt && <p className="banner" role="status">Reopen <strong>{reopenPrompt.fileName}</strong>? <button className="secondary" onClick={() => void reopenRememberedFile()} type="button">Reopen</button></p>}
-        {!reopenPrompt && recoveryCopy && <p className="banner" role="status">Recovered unsaved work from {new Date(recoveryCopy.savedAt).toLocaleString()}. <button className="secondary" onClick={useRecoveryCopy} type="button">Use recovered copy</button> <button className="secondary" onClick={() => void discardRecoveryCopy()} type="button">Discard</button></p>}
-        {views[view]}
-        </div>
-      </main>
-    </div>
+          {reopenPrompt && (
+            <Alert className="mb-4">
+              <AlertTitle>Reopen ledger</AlertTitle>
+              <AlertDescription className="flex flex-wrap items-center gap-3">
+                Reopen {reopenPrompt.fileName}?
+                <Button onClick={() => void reopenRememberedFile()} size="sm" type="button">Reopen</Button>
+              </AlertDescription>
+            </Alert>
+          )}
+          {!reopenPrompt && recoveryCopy && (
+            <Alert className="mb-4">
+              <AlertTitle>Recovered unsaved work</AlertTitle>
+              <AlertDescription className="flex flex-wrap items-center gap-3">
+                A copy saved {new Date(recoveryCopy.savedAt).toLocaleString()} is available.
+                <Button onClick={useRecoveryCopy} size="sm" type="button">Use recovered copy</Button>
+                <Button onClick={() => void discardRecoveryCopy()} size="sm" variant="outline" type="button">Discard</Button>
+              </AlertDescription>
+            </Alert>
+          )}
+          {views[view]}
+        </main>
+      </SidebarInset>
+      <Toaster />
+      <CommandDialog open={commandOpen} onOpenChange={setCommandOpen} title="Command palette">
+        <Command>
+          <CommandInput aria-label="Search views and actions" placeholder="Search views and actions..." />
+          <CommandList>
+            <CommandEmpty>No matching commands.</CommandEmpty>
+            <CommandGroup heading="Go to">
+              {knownViews.map((name) => (
+                <CommandItem key={name} value={`Go to ${name}`} onSelect={() => runCommand(() => navigate(name))}>
+                  {name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+            <CommandGroup heading="Actions">
+              <CommandItem value="Add spend" onSelect={() => runCommand(() => {
+                setActivityAddSpendRequest((request) => request + 1);
+                navigate("Activity");
+              })}>Add spend</CommandItem>
+              <CommandItem value="Open file" onSelect={() => runCommand(openLedger)}>Open file</CommandItem>
+              <CommandItem value="Save" onSelect={() => runCommand(() => void saveLedger(false))}>Save</CommandItem>
+              <CommandItem value="Import CSV" onSelect={() => runCommand(() => navigate("Import"))}>Import CSV</CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </CommandDialog>
+      <AlertDialog open={confirmReplaceOpen} onOpenChange={setConfirmReplaceOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Opening another ledger will replace your unsaved changes. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { replaceLedgerAction.current = null; }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const action = replaceLedgerAction.current;
+              replaceLedgerAction.current = null;
+              setConfirmReplaceOpen(false);
+              action?.();
+            }}>Discard and continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SidebarProvider>
   );
 }

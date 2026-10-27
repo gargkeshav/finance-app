@@ -1,7 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HOUSE_ENTITY_ID, SELF_ENTITY_ID, type Entity, type EntityKind, type GroupType, type Ledger } from "../../domain/ledger";
 import type { EntryFilter } from "../../domain/query";
-import { getCurrentUser, getExpenses, getFriends, getGroups, pullIntoInbox, setKey, type SplitwiseGroup, type SplitwiseUser } from "../../adapters/splitwise";
+import {
+  connectSession,
+  disconnectSession,
+  getCurrentUser,
+  getExpenses,
+  getFriends,
+  getGroups,
+  pullIntoInbox,
+  sessionStatus,
+  SplitwiseSessionExpiredError,
+  type SplitwiseGroup,
+  type SplitwiseUser,
+} from "../../adapters/splitwise";
 
 interface PeopleViewProps {
   ledger: Ledger;
@@ -19,6 +31,9 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [connectedName, setConnectedName] = useState("");
+  const [curlText, setCurlText] = useState("");
+  const [headerNames, setHeaderNames] = useState<string[]>([]);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [friends, setFriends] = useState<SplitwiseUser[]>([]);
   const [groups, setGroups] = useState<SplitwiseGroup[]>([]);
   const [links, setLinks] = useState<Record<string, string>>({});
@@ -26,38 +41,76 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
   const [busyEntityId, setBusyEntityId] = useState<string | null>(null);
   const connected = Boolean(connectedName);
 
+  useEffect(() => {
+    let active = true;
+    async function restoreSession() {
+      try {
+        const status = await sessionStatus();
+        if (!active || !status.connected) return;
+        const [user, friendList, groupList] = await Promise.all([getCurrentUser(), getFriends(), getGroups()]);
+        if (!active) return;
+        setConnectedName(`${user.first_name} ${user.last_name}`.trim());
+        setHeaderNames(status.headerNames);
+        setFriends(friendList);
+        setGroups(groupList);
+        setSessionExpired(false);
+      } catch (cause) {
+        if (!active) return;
+        setConnectedName("");
+        setSessionExpired(cause instanceof SplitwiseSessionExpiredError);
+        setError(cause instanceof Error ? cause.message : "Could not restore the Splitwise session.");
+      }
+    }
+    void restoreSession();
+    return () => { active = false; };
+  }, []);
+
   async function connectSplitwise(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const key = String(data.get("splitwise-key") ?? "");
-    setKey(key);
+    const text = curlText;
+    setCurlText("");
     setConnectedName("");
+    setHeaderNames([]);
     setFriends([]);
     setGroups([]);
+    setSessionExpired(false);
     setError("");
-    form.reset();
     try {
-      const [user, friendList, groupList] = await Promise.all([getCurrentUser(), getFriends(), getGroups()]);
+      await connectSession(text);
+      const [user, friendList, groupList, status] = await Promise.all([
+        getCurrentUser(),
+        getFriends(),
+        getGroups(),
+        sessionStatus(),
+      ]);
       setConnectedName(`${user.first_name} ${user.last_name}`.trim());
+      setHeaderNames(status.headerNames);
       setFriends(friendList);
       setGroups(groupList);
       setError("");
+      setSessionExpired(false);
     } catch (cause) {
-      setKey("");
       setConnectedName("");
+      setHeaderNames([]);
       setFriends([]);
       setGroups([]);
+      setSessionExpired(cause instanceof SplitwiseSessionExpiredError);
       setError(cause instanceof Error ? cause.message : "Could not connect to Splitwise.");
     }
   }
 
-  function disconnectSplitwise() {
-    setKey("");
-    setConnectedName("");
-    setFriends([]);
-    setGroups([]);
-    setError("");
+  async function disconnectSplitwise() {
+    try {
+      await disconnectSession();
+      setConnectedName("");
+      setHeaderNames([]);
+      setFriends([]);
+      setGroups([]);
+      setSessionExpired(false);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not disconnect Splitwise.");
+    }
   }
 
   function linkSplitwise(entity: Entity) {
@@ -282,10 +335,11 @@ export function PeopleView({ ledger, update, openActivity }: PeopleViewProps) {
         <div className="section-heading"><h2>Splitwise</h2></div>
         <p className="muted">{connected ? `Connected as ${connectedName}` : "Not connected"}</p>
         {!connected && <form className="form-grid" onSubmit={connectSplitwise}>
-          <label>API key<input autoComplete="new-password" name="splitwise-key" type="password" required /></label>
-          <div className="dialog-actions"><button className="primary" type="submit">Connect</button></div>
+          <label>Paste a request copied as cURL from splitwise.com<textarea autoComplete="off" value={curlText} onChange={(event) => setCurlText(event.target.value)} required rows={5} /></label>
+          <div className="dialog-actions"><button className="primary" type="submit">{sessionExpired ? "Reconnect" : "Connect"}</button></div>
         </form>}
         {connected && <>
+          <p>Request headers: {headerNames.join(", ")}</p>
           <div className="form-grid">
             <label>First pull since<input type="date" value={sinceDate} onChange={(event) => setSinceDate(event.target.value)} /></label>
             <div className="dialog-actions"><button className="secondary" onClick={disconnectSplitwise} type="button">Disconnect</button></div>

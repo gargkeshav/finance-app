@@ -4,9 +4,9 @@ A single place to get oriented. The rules themselves live in `.github/copilot-in
 ## What it is
 A local, single-user AUD finance ledger that runs in the browser. It tracks personal and House spending, who owes whom, settlements, and imports from bank CSVs and Splitwise. One JSON file (`*.finance.json`) is the database. The goal is that reconciliation happens on its own, and only the things that need a decision, like a missing category or split, reach the user.
 
-- Stack: React 19, TypeScript, Vite, Zod, Papa Parse, Vitest. No new dependencies.
+- Stack: React 19, TypeScript, Vite, Zod, Papa Parse, Vitest.
 - Entry point: `src/main.tsx` renders `LocalApp`.
-- Retired, never touched: `src/ui/App.tsx`, `src-tauri/`, `src/application/`, `docs/`, `IMPLEMENTATION_PLAN.md`, `VERIFICATION.md`, `README.md`.
+- Setup and usage: see `README.md`.
 
 ## Money model
 - Money is integer cents. Dates are `YYYY-MM-DD`, with no floats and no timezone shifts.
@@ -54,11 +54,11 @@ The `Share` association values in the history CSV map to the model like this:
 ## Workflow
 - Run one prompt per session. Read `PROGRESS.md` first, then only the files the prompt lists.
 - Stop and ask when a prompt conflicts with the code. Hand off when a third unnamed file is needed or the same failure survives three fixes.
-- Only the tests a prompt names. Run `npm test` and `npm run typecheck`, never Cargo, Playwright, or Tauri.
+- Only the tests a prompt names. Run `npm test` and `npm run typecheck`, never Cargo or Tauri. From batch 35, Playwright (`npm run test:e2e`) is the main test; see `PHASE4.md`.
 - Finish by appending batch, files changed, and anything left to `PROGRESS.md`.
 
 ## State and run order
-Phase 1 (01–11e) and phase 2 (12–19, plus H1) are done. Phase 3 runs in this order: 20 through 34.
+Phase 1 (01–11e) and phase 2 (12–19, plus H1) are done. Phase 3 runs in this order: 20 through 34. Phase 4 runs 35 through 41 under `PHASE4.md`: cleanup and Playwright, the Splitwise session, then the UI rebuild on shadcn/ui. The app runs under `npm run dev` in the browser. There is no desktop app.
 
 | Batch | Adds |
 |---|---|
@@ -77,8 +77,15 @@ Phase 1 (01–11e) and phase 2 (12–19, plus H1) are done. Phase 3 runs in this
 | 32 | Remembered merchant display names |
 | 33 | Rules over existing entries, with a selectable preview |
 | 34 | Rule suggestions from repeated manual edits |
+| 35 | Remove the retired desktop app, rewrite README, Playwright specs |
+| 36 | Splitwise via a pasted cURL replayed by the dev server |
+| 37 | UI foundation: Tailwind v4, shadcn/ui on Base UI, tokens, fonts |
+| 38 | Shell and Activity: Sidebar, toasts, ⌘K, TanStack Table |
+| 39 | Review queue; Home cards and chart; Reports range and charts |
+| 40 | Overpayment credit; Settle through Health |
+| 41 | Import, Rules, Data, History; delete the old stylesheet |
 
-Later, not yet written as prompts: recurring payments, month close, quick add and a command palette, settle-up helpers, receipt photos stored locally, optional encryption.
+Later, not yet written as prompts: recurring payments, month close, settle-up helpers, receipt photos stored locally. The command palette is batch 38. The ledger stays out of git; see `MANUAL.md`. Do not write these until asked.
 
 ## The historic import (`ledger1.finance.json`)
 It holds 807 history entries on one credit account, 19 entities besides self and House, 26 categories, and no bank rows, settlements, or rules. Its date range is 2023 to 2026.
@@ -88,17 +95,7 @@ It holds 807 history entries on one credit account, 19 entities besides self and
 - Payment rows and blank-`Share` rows were never imported.
 - The first import is replaced, not repaired: batch 29 re-imports the CSV with a mapping step and "Replace" on.
 
-## Re-import steps for the user (after 29)
-1. Optional CSV edits:
-   - Add a `Tags` column, using the recommended tags below and separating several with `;`.
-   - Add a `Notes` column for anything that does not fit a tag, such as who was there or why it was unusual. Leave it blank when there is nothing to say.
-   - Put the gift card brand in `SubType` for gift card rows.
-   - Fix `Group` spelling, so one person or group has one spelling.
-   - Keep the payment rows.
-2. In `npm run dev`, open the ledger, then go to Data, then History import, then choose the CSV.
-3. Review the group and subtype mapping, and choose what happens when your share is blank.
-4. Turn Replace on, check the preview, and commit.
-5. Check Balances and Health, then use "Save as" to write a new file.
+The user's re-import steps are in `MANUAL.md`.
 
 ## Answers for batch 29
 1. A blank `Our share` on a shared row means they owed the full amount.
@@ -120,5 +117,5 @@ Keep tags few, lowercase, and about why something was bought. Category, merchant
 | `project:<name>` | A home or personal project, for example `project:garden` |
 
 ## Privacy
-`ledger1.finance.json` holds real names and transactions. It was committed in `05c7516`, which is on `origin/main`, and `.gitignore` no longer ignores `*.finance.json`. Never copy its contents into code, tests, prompts, logs, or chat.
+`ledger1.finance.json` holds real names and transactions. It was committed in `05c7516` on `origin/main`; the user takes it out of git and makes the repo private (`MANUAL.md`), and batch 35 ignores `*.finance.json`. Never open it or copy its contents into code, tests, prompts, logs, or chat.
 

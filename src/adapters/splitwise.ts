@@ -1,8 +1,12 @@
 import type { Entry, Entity, Ledger, Settlement } from "../domain/ledger";
 import { parseAud } from "../domain/value";
 
-const baseUrl = "https://secure.splitwise.com/api/v3.0";
-let apiKey = "";
+const baseUrl = "/splitwise-api/api/v3.0";
+
+export interface SplitwiseSessionStatus {
+  connected: boolean;
+  headerNames: string[];
+}
 
 export interface SplitwiseUser {
   id: number;
@@ -35,8 +39,15 @@ export interface SplitwiseExpenseDraft {
 
 export class SplitwiseNoResponseError extends Error {
   constructor() {
-    super("The browser could not reach Splitwise. It may be offline, or Splitwise may block calls from a web page (CORS).");
+    super("The dev server could not reach Splitwise.");
     this.name = "SplitwiseNoResponseError";
+  }
+}
+
+export class SplitwiseSessionExpiredError extends Error {
+  constructor() {
+    super("Splitwise session expired. Copy a fresh cURL from splitwise.com.");
+    this.name = "SplitwiseSessionExpiredError";
   }
 }
 
@@ -89,39 +100,92 @@ interface SplitwisePayload<T> {
 
 type PullCursor = { datedAfter?: string; updatedAfter?: string };
 
-export function setKey(key: string): void {
-  apiKey = key.trim();
+async function sessionRequest<T>(method: "GET" | "POST" | "DELETE", text?: string): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch("/__splitwise/session", {
+      method,
+      headers: {
+        "X-Finance-App": "1",
+        ...(text === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      ...(text === undefined ? {} : { body: JSON.stringify({ text }) }),
+    });
+  } catch {
+    throw new Error("The dev server could not update the Splitwise session.");
+  }
+  if (!response.ok) throw new Error("The dev server could not update the Splitwise session.");
+  if (response.status === 204) return undefined as T;
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new Error("The dev server returned an unreadable session status.");
+  }
 }
 
-export function hasKey(): boolean {
-  return apiKey.length > 0;
+export async function connectSession(text: string): Promise<void> {
+  await sessionRequest("POST", text);
 }
 
-async function request<T>(path: string, params?: URLSearchParams): Promise<T> {
-  if (!hasKey()) throw new Error("Connect Splitwise with an API key first.");
-  const url = new URL(`${baseUrl}/${path}`);
+export async function disconnectSession(): Promise<void> {
+  await sessionRequest("DELETE");
+}
+
+export async function sessionStatus(): Promise<SplitwiseSessionStatus> {
+  return sessionRequest<SplitwiseSessionStatus>("GET");
+}
+
+async function request<T>(
+  path: string,
+  method: "GET" | "POST" = "GET",
+  body?: URLSearchParams,
+  params?: URLSearchParams,
+  isExpensePost = false,
+): Promise<T> {
+  const url = new URL(`${baseUrl}/${path}`, window.location.origin);
   if (params) url.search = params.toString();
   let response: Response;
   try {
-    response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    response = await fetch(url, {
+      method,
+      headers: {
+        "X-Finance-App": "1",
+        ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+      },
+      ...(body ? { body } : {}),
+    });
   } catch {
-    throw new Error("The browser could not reach Splitwise. It may be offline, or Splitwise may block calls from a web page (CORS).");
+    throw new SplitwiseNoResponseError();
+  }
+
+  let responseText: string;
+  try {
+    responseText = await response.text();
+  } catch {
+    throw new SplitwiseNoResponseError();
+  }
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (response.status === 401 || response.status === 403 || contentType.includes("text/html") ||
+      /^\s*(?:<!doctype\s+html|<html\b)/i.test(responseText)) {
+    throw new SplitwiseSessionExpiredError();
   }
 
   let payload: SplitwisePayload<T>;
   try {
-    payload = await response.json() as SplitwisePayload<T>;
+    payload = JSON.parse(responseText) as SplitwisePayload<T>;
   } catch {
     throw new Error("Splitwise returned an unreadable response.");
   }
-  const errors = payload && typeof payload === "object" ? payload.errors : undefined;
+  if (!payload || typeof payload !== "object") throw new Error("Splitwise returned an unreadable response.");
+  const errors = payload.errors;
   const hasErrors = Array.isArray(errors)
     ? errors.length > 0
     : errors && typeof errors === "object"
       ? Object.keys(errors).length > 0
       : Boolean(errors);
   if (!response.ok || hasErrors) {
-    throw new Error("Splitwise rejected the request. Check the API key and account access.");
+    if (isExpensePost) throw new SplitwiseRejectedError();
+    throw new Error("Splitwise rejected the request. Check account access.");
   }
   return payload as T;
 }
@@ -248,7 +312,6 @@ function formatCents(cents: number): string {
 }
 
 export async function postExpense(draft: SplitwiseExpenseDraft): Promise<number> {
-  if (!hasKey()) throw new Error("Connect Splitwise with an API key first.");
   const userIds = new Set<number>();
   const validShares = draft.shares.length >= 2 && draft.shares.every((share) => {
     const valid = Number.isSafeInteger(share.userId) && share.userId > 0 && !userIds.has(share.userId) &&
@@ -279,36 +342,15 @@ export async function postExpense(draft: SplitwiseExpenseDraft): Promise<number>
     body.set(`users__${index}__owed_share`, formatCents(share.owedCents));
   });
 
-  let response: Response;
-  try {
-    response = await fetch(`${baseUrl}/create_expense`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body,
-    });
-  } catch {
-    throw new SplitwiseNoResponseError();
-  }
-
-  let payload: { expenses?: Array<{ id?: number }>; errors?: unknown };
-  try {
-    payload = await response.json() as typeof payload;
-  } catch {
-    throw new Error("Splitwise returned an unreadable response.");
-  }
-  if (!payload || typeof payload !== "object") throw new Error("Splitwise returned an unreadable response.");
-  const errors = payload && typeof payload === "object" ? payload.errors : undefined;
-  const hasErrors = Array.isArray(errors)
-    ? errors.length > 0
-    : errors && typeof errors === "object"
-      ? Object.keys(errors).length > 0
-      : Boolean(errors);
-  if (hasErrors) throw new SplitwiseRejectedError();
+  const payload = await request<{ expenses?: Array<{ id?: number }> }>(
+    "create_expense",
+    "POST",
+    body,
+    undefined,
+    true,
+  );
   const expenseId = payload.expenses?.[0]?.id;
-  if (!response.ok || !Number.isSafeInteger(expenseId) || (expenseId ?? 0) <= 0) {
+  if (!Number.isSafeInteger(expenseId) || (expenseId ?? 0) <= 0) {
     throw new Error("Splitwise did not confirm the expense.");
   }
   return expenseId as number;
@@ -328,7 +370,7 @@ export async function getExpenses(
     });
     if (cursor.datedAfter) params.set("dated_after", cursor.datedAfter);
     if (cursor.updatedAfter) params.set("updated_after", cursor.updatedAfter);
-    const result = await request<{ expenses: SplitwiseExpense[] }>("get_expenses", params);
+    const result = await request<{ expenses: SplitwiseExpense[] }>("get_expenses", "GET", undefined, params);
     const page = result.expenses;
     for (const expense of page) {
       if (expense.currency_code !== "AUD") throw new Error("Splitwise expenses must use AUD.");

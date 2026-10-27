@@ -1,7 +1,5 @@
 node_modules/
 dist/
-src-tauri/target/
-src-tauri/gen/
 test-results/
 playwright-report/
 .DS_Store
@@ -10,4 +8,5 @@ playwright-report/
 *.sqlite*
 *.csv
 *.zip
+*.finance.json
 .env*

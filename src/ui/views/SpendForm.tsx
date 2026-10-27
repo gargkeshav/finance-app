@@ -3,6 +3,9 @@ import { categoryMemoryKey, debtsOf, defaultSplitPreset, linkedBankAmountCents, 
 import { formatAud, formatMoney, isBankDate, parseAud } from "../../domain/value";
 import { ComboField } from "./ComboField";
 import { cleanMerchantKey } from "../../domain/merchants";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 interface SpendFormProps {
   ledger: Ledger;
@@ -173,22 +176,22 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
   }
 
   return (
-    <form className="form-grid" onKeyDown={handleFormKeyDown} onSubmit={save}>
+    <form className="grid gap-4 py-4" onKeyDown={handleFormKeyDown} onSubmit={save}>
       <label>
         Date
-        <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+        <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
       </label>
       <label>
         Description
-        <input value={description} onChange={(event) => setDescription(event.target.value)} required />
+        <Input value={description} onChange={(event) => setDescription(event.target.value)} required />
       </label>
       <label>
         Display name
-        <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+        <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
       </label>
       <label>
         Amount (AUD)
-        <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required />
+        <Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required />
       </label>
       <ComboField label="Category" value={categoryId} options={(ledger.categories ?? [])
         .filter((category) => !category.archived || category.id === categoryId)
@@ -198,18 +201,17 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
       {categoryId && categoryId === suggestedCategoryId && <p>Suggested from a past spend</p>}
       <label>
         Tags (comma-separated)
-        <input value={tagsText} onChange={(event) => setTagsText(event.target.value)} />
+        <Input value={tagsText} onChange={(event) => setTagsText(event.target.value)} />
       </label>
       <label>
         Note
-        <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional details" required={amountAmended} />
+        <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional details" required={amountAmended} />
       </label>
       {amountAmended && linkedBankAmount !== null && (
         <>
-          <p>Entry amount: <span className="amount">{amountCents === null ? "" : formatAud(amountCents)}</span>; bank amount: <span className="amount">{formatAud(linkedBankAmount)}</span></p>
-                    <p>Entry amount: <span className="amount">{amountCents === null ? "" : formatMoney(amountCents)}</span>; bank amount: <span className="amount">{formatMoney(linkedBankAmount)}</span></p>
+          <p>Entry amount: <span className="tabular-nums">{amountCents === null ? "" : formatMoney(amountCents)}</span>; bank amount: <span className="tabular-nums">{formatMoney(linkedBankAmount)}</span></p>
           <label className="checkbox-label">
-            <input type="checkbox" checked={extraReimbursable} onChange={(event) => setExtraReimbursable(event.target.checked)} />
+            <Input type="checkbox" checked={extraReimbursable} onChange={(event) => setExtraReimbursable(event.target.checked)} />
             Extra is reimbursable
           </label>
         </>
@@ -239,9 +241,9 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
       <fieldset>
         <legend>Split</legend>
         <div className="dialog-actions" aria-label="Split presets">
-          <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "payer" })} type="button">Payer</button>
-          <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "halfHouse" })} type="button">Half House</button>
-          <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "allHouse" })} type="button">All House</button>
+          <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "payer" })} type="button">Payer</Button>
+          <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "halfHouse" })} type="button">Half House</Button>
+          <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "allHouse" })} type="button">All House</Button>
           {ledger.entities.some((entity) => !entity.archived) && <>
             <ComboField label="Entity" value={presetEntityId} options={entityOptions}
               nonePlaceholder="Choose entity" onChange={(entityId) => {
@@ -253,7 +255,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
                 if (preset) applyPreset(preset);
               }}
               onCreate={onAddEntity ? createEntity : undefined} />
-            <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "entity", entityId: presetEntityId })} type="button">All to entity</button>
+            <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "entity", entityId: presetEntityId })} type="button">All to entity</Button>
           </>}
           <label>
             Equal split entities
@@ -261,17 +263,17 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
               {ledger.entities.filter((entity) => !entity.archived || equalEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
             </select>
           </label>
-          <button className="secondary" disabled={amountCents === null || amountCents <= 0 || equalEntityIds.length === 0} onClick={() => applyPreset({ kind: "equal", entityIds: equalEntityIds })} type="button">Equal split</button>
-          {accountId && ledger.lastSplitByAccount?.[accountId] && <button className="secondary" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset(ledger.lastSplitByAccount![accountId])} type="button">Last split on this account</button>}
+          <Button variant="outline" disabled={amountCents === null || amountCents <= 0 || equalEntityIds.length === 0} onClick={() => applyPreset({ kind: "equal", entityIds: equalEntityIds })} type="button">Equal split</Button>
+          {accountId && ledger.lastSplitByAccount?.[accountId] && <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset(ledger.lastSplitByAccount![accountId])} type="button">Last split on this account</Button>}
         </div>
         {portions.map((portion, index) => (
-          <div className="form-grid" key={`${index}-${portion.entityId}`}>
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]" key={`${index}-${portion.entityId}`}>
             <ComboField label="For" value={portion.entityId} options={entityOptions}
               nonePlaceholder="Choose person" onChange={(id) => setPortion(index, "entityId", id)}
               onCreate={onAddEntity ? createEntity : undefined} />
             <label>
               Amount
-              <input inputMode="decimal" value={portion.amount} onChange={(event) => setPortion(index, "amount", event.target.value)} placeholder="0.00" />
+              <Input inputMode="decimal" value={portion.amount} onChange={(event) => setPortion(index, "amount", event.target.value)} placeholder="0.00" />
             </label>
             <label>
               Treatment
@@ -282,22 +284,22 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
                 <option value="reportOnly">Report only</option>
               </select>
             </label>
-            <button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} className="icon-button" onClick={() => { setActivePreset(undefined); setPortions((current) => current.filter((_, row) => row !== index)); }} type="button">×</button>
+            <Button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} onClick={() => { setActivePreset(undefined); setPortions((current) => current.filter((_, row) => row !== index)); }} type="button" variant="outline">×</Button>
           </div>
         ))}
         {remainingCents !== null && <p className={remainingCents === 0 ? "amount positive" : "banner warning"}>Left to split: {formatMoney(remainingCents)}</p>}
         <div className="dialog-actions">
-          <button className="secondary" onClick={() => {
+          <Button variant="outline" onClick={() => {
             const used = new Set(portions.map((portion) => portion.entityId));
             const next = ledger.entities.find((entity) => !entity.archived && entity.kind !== "self" && entity.kind !== "house" && !used.has(entity.id));
             if (next) {
               setActivePreset(undefined);
               setPortions((current) => [...current, { entityId: next.id, amount: "" }]);
             }
-          }} type="button">Add person</button>
-          <button className="secondary" onClick={() => {
+          }} type="button">Add person</Button>
+          <Button variant="outline" onClick={() => {
             if (amountCents !== null && amountCents > 0) applyPreset({ kind: "payer" });
-            }} type="button">All to {effectivePayerId === "self" ? "You" : payerName}</button>
+            }} type="button">All to {effectivePayerId === "self" ? "You" : payerName}</Button>
         </div>
       </fieldset>
       <p aria-live="polite">
@@ -309,8 +311,8 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
       </p>
       {error && <p className="banner error" role="alert">{error}</p>}
       <div className="dialog-actions">
-        <button className="primary" disabled={!valid} type="submit">{draft.kind === "refund" ? "Save refund" : "Save spend"}</button>
-        {onCancel && <button className="secondary" onClick={onCancel} type="button">Cancel</button>}
+        <Button disabled={!valid} type="submit">{draft.kind === "refund" ? "Save refund" : "Save spend"}</Button>
+        {onCancel && <Button variant="outline" onClick={onCancel} type="button">Cancel</Button>}
       </div>
     </form>
   );

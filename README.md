@@ -1,71 +1,80 @@
-# Finance App Implementation Handoff
+# Finance app
 
-Status: Gate 0 implemented; Gate 1 manual ledger/recovery, initial Gate 2 imports with history reconciliation and transfer suggestions, and the core multi-source expense funding plus House claim/payment slice implemented (schema 6). Previously built features are retained. Native file-dialog acceptance is deferred with user approval. Payment reversal/unapplication and remaining Gate 2/3+ workflows are incomplete. Not ready for live financial use or V1 release.
-Prepared: 2026-10-16.
+## What it is
 
-## Current Implementation
+A local, single-user AUD ledger that runs in your browser. One JSON file is the database. The app tracks personal and House spending, shared debts and settlements, imports bank CSVs, and connects to Splitwise.
 
-React/TypeScript and Tauri 2 provide a manual ledger with accounts, balanced Personal/House allocations, transaction details, confirmed atomic correction/reversal, native SQLite transactions, audit, optimistic concurrency, and exact-command recovery. Expenses support multiple account or labelled-other funding components; funding and allocation totals balance independently to the interpreted expense total while imported observations remain unchanged. House reimbursement is limited to personally account-funded House portions. Overview calculates personal attribution; Sharing supports partial/consolidated common-account applications with exact outstanding caps. Payment reversal/unapplication, advances, refund accounting, and matching a payment to an imported bank movement are not implemented. Unencrypted JSON export/restore uses native dialogs, staged validation, safety copies, and atomic replacement. Existing import, transfer-suggestion, and history-reconciliation workflows remain. Classification/rules, full reports, and Splitwise are not implemented yet.
+## Status
 
-Imported bank movements remain unclassified and do not automatically become expenses or income. Transactions separates manual entries from bank movements. Import accepts multiple UTF-8 CSVs in a sequential review queue; each file requires its own profile, account, occurrence decisions, and confirmation, then commits independently and atomically. Possible overlaps are ranked using preserved raw-field equality and adjacent transaction sequence from prior imports of the same profile, plus known balance agreement; these are suggestions only, and each match or keep-new decision remains explicit. Keep-new choices persist rejected candidate IDs. Import history can explicitly relink a kept-new occurrence to a previously rejected active event, with a required reason and retained old mapping. Exact-date, exact-magnitude opposite-sign movements may show a unique cross-account transfer suggestion; ambiguous repeated amounts remain unlinked, and suggestions do not change classification. The prior event stays in database and audit history while no longer appearing in active movements if unreferenced. Each file is limited to 5 MiB/10,000 rows, with optional retention of exact original bytes. Preview and bank tables use 50-row pages without omitting other rows from the command. All-or-nothing multi-file commits, structured reference extraction, pending/posted reconciliation, explicit transfer links, and broader import acceptance remain outstanding. Expenses support explicitly labelled account/other funding split across Personal and House allocations without altering imported observations. Schema-6 complete-export size is limited to 32 MiB; native writes reject changes that would exceed that recovery limit.
+Phases 1 to 3 are done. Phase 4 is in progress. See [the progress log](.github/prompts/PROGRESS.md).
 
-See [docs/VERIFICATION_REPORT.md](docs/VERIFICATION_REPORT.md) for executed checks and gate status and [docs/CONTRACTS.md](docs/CONTRACTS.md) for the current boundary.
+## Setup
+
+Use the Node version in `.nvmrc`:
 
 ```sh
-source "$HOME/.nvm/nvm.sh"
-nvm use
-export PATH="$HOME/.cargo/bin:$PATH"
+nvm install && nvm use
 npm ci
-npm run tauri dev
+npx playwright install chromium
 ```
 
-For an explicitly synthetic, non-persisted browser preview:
+Install Chromium once for Playwright.
+
+## Run
+
+Start the app:
 
 ```sh
-VITE_SYNTHETIC_PREVIEW=1 npm run dev -- --port 1421
+npm run dev
 ```
 
-Tests: `npm test`, `npm run test:integration`, `npm run test:e2e`, `npm run test:native:smoke`, and `npm run test:native:packaged`. Native smoke tests use and remove a temporary synthetic profile; the packaged smoke uses a debug app, not a production release acceptance test. Build the normal macOS bundle with `npm run tauri -- build --bundles app`.
+Open `http://127.0.0.1:5173` in Chrome or Edge. Saving in place needs one of those browsers; other browsers download a ledger when saving and upload it when opening.
 
-Local databases and exports are unencrypted. Do not enter live finances until recovery and the remaining acceptance gates pass. Native data lives under the OS application-data directory for `local.financeapp.desktop`; browser preview deliberately loses all data on reload. In Transactions, open a description to inspect or correct an entry. Corrections atomically reverse the original and record a replacement; neither corrections nor reversals delete original evidence. Data management contains export/restore. Native export/restore dialogs still need an interactive walkthrough on this Mac, where UI automation is disabled.
+Choose **Save as** to create a new ledger, or **Open** to select an existing one. **Save** writes to the open file. Changes autosave when a file is open. The app also keeps local recovery data and can offer to reopen the last file or recover unsaved work after a restart.
 
-## Start Here
+## Real and test ledgers
 
-1. Read AGENTS.md for execution and delegation rules.
-2. Read IMPLEMENTATION_PLAN.md for approved scope, financial semantics, work packages, and acceptance gates.
-3. Read VERIFICATION.md for the independent release checklist.
-4. Complete Gate 0 before committing to dependencies or parallel implementation.
+Keep your real ledger outside the repository, for example in `~/Finance/`. Git ignores `*.finance.json`. Keep test ledgers in a separate folder and use **Open** to switch between them. Never share the real ledger file with an agent or in chat. See [MANUAL.md](.github/prompts/MANUAL.md) for removing the existing file from git.
 
-The original handoff requested a separate implementation agent followed by independent verification. Implementation has now begun under that handoff; the original scope and release requirements below remain authoritative.
+## Splitwise
 
-## User Setup
+Splitwise connects while the app runs with `npm run dev`:
 
-- Open this folder as the VS Code workspace for implementation, or move these documents together to the chosen repository root.
-- Confirm macOS is the initial release target. Other desktop platforms are future build targets, not currently tested support.
-- The implementation agent must check Node.js LTS, the package manager, Rust stable/Cargo, and Tauri 2 prerequisites. macOS native builds require Xcode Command Line Tools. Installation requiring credentials or elevated privileges must be performed by the user directly.
-- Provide approval for dependency downloads during setup. No hosted backend, cloud account, paid AI service, or live bank credentials are needed.
-- Identify the four bank accounts and the House common account in onboarding. Confirm whether HSBC joint is the account used to settle House claims or whether that is a separate account.
-- Choose when live balance tracking starts. Confirm partner/friend/House amounts outstanding and any unused advances at that date. Use zero only when explicitly confirmed; never infer it from incomplete statements.
-- Supply fuller bank history later as available. Credit-card and bank opening balances must be entered or reconciled before claiming accurate account balances.
-- Splitwise credentials are needed only for that integration stage. Enter them directly into the app, never chat, source files, fixtures, or logs. Access/terms must first pass the feasibility gate.
-- Decide whether original imported CSVs should be retained inside the data folder. Raw row provenance is required regardless. Initially all financial files and manual exports are unencrypted.
+1. Sign in to Splitwise in your browser and open Developer Tools.
+2. In **Network**, find a request to `secure.splitwise.com` and choose **Copy as cURL**.
+3. In Finance, open **People**, paste the request into the Splitwise field, and choose **Connect**.
 
-## Reference Data
+The pasted request contains your session credentials. It stays only in the dev server's memory, is not saved in the ledger or browser storage, and is cleared when the dev server restarts. If the session expires, copy a fresh cURL request and choose **Reconnect**. See [MANUAL.md](.github/prompts/MANUAL.md) for trying it against the real site.
 
-Private user files are outside this folder. Do not commit or duplicate them into the repository without permission. Verify their presence before use; no filenames establish account identity.
+## Test
 
-| Source                 | Local reference path                     | Purpose                                          |
-| ---------------------- | ---------------------------------------- | ------------------------------------------------ |
-| ING transaction        | /Users/kesh/Downloads/ING_trans.csv      | Recurring bank format                            |
-| HSBC joint             | /Users/kesh/Downloads/HSBC_joint.csv     | Recurring bank format                            |
-| ANZ credit             | /Users/kesh/Downloads/ANZ_credit.csv     | Recurring bank format                            |
-| ANZ transaction        | /Users/kesh/Downloads/ANZ_trans.csv      | Recurring bank format                            |
-| Annotated ANZ history  | /Users/kesh/Documents/ANZ_history.csv    | Learning/reference or approved one-time data use |
-| Common account history | /Users/kesh/Documents/Common_account.csv | Settled historical summaries, not bank events    |
-| Partner history        | /Users/kesh/Documents/Trisha_Keshav.csv  | Settled signed bilateral records                 |
+Run the unit tests, typecheck, production build, and Playwright suite:
 
-Build anonymized synthetic fixtures preserving edge cases, not copies containing real names, references, addresses, or account identifiers.
+```sh
+npm test
+npm run typecheck
+npm run build
+npm run test:e2e
+```
 
-## Implementation Handoff Prompt
+Run one Playwright spec with `npm run test:e2e -- tests/e2e/home.spec.ts`. Use `npm run test:e2e:ui` for the Playwright UI. The HTML report is in `playwright-report/`; traces and other failure results are in `test-results/`. Open a trace with `npx playwright show-trace test-results/<test-folder>/trace.zip`.
 
-> Read README.md, AGENTS.md, IMPLEMENTATION_PLAN.md, and VERIFICATION.md. Implement the finance app in stage order, beginning with Gate 0. Use a high-capability lead for architecture, financial logic, persistence, integration, and final decisions. Delegate independent, bounded work to cost-efficient subagents when suitable and available, with explicit contracts and independent quality checks. Do not weaken tests or financial invariants to satisfy a gate. Preserve user files and changes. Do not implement deferred features. Record actual commands, results, blockers, and residual risks in a verification report. Pause only for a genuine blocker, credentials, required permissions, or a material product decision.
+## Project layout
+
+- `src/domain/` contains ledger rules and calculations.
+- `src/adapters/` contains file and import integrations.
+- `src/ui/` contains the browser app and views.
+- `tests/` contains unit and end-to-end tests.
+- `.github/prompts/` contains the batch prompts and workflow notes.
+
+## How work is done
+
+Work follows one prompt per session, in the order in `CONTEXT.md`. Handoffs and completed batches are recorded in `PROGRESS.md`.
+
+## Plan
+
+Phase 4: cleanup and Playwright; Splitwise session; UI foundation; shell and Activity; Review, Home, and Reports; Settle through Health; setup views and stylesheet. Later: recurring payments, month close, settle-up helpers, and local receipt photos. Eventually: a phone app with OCR and a backend.
+
+## Privacy
+
+The real ledger and Splitwise credentials never go into git, tests, logs, prompts, or chat.
