@@ -155,6 +155,12 @@ export interface Settlement {
   note: string;
   splitwisePaymentId: string | null;
   updatedAt: string;
+  /** Set when `entityId` paid this entity instead of you, e.g. House paying out Trisha. */
+  paidToEntityId?: string;
+}
+
+export function isBetweenOthers(settlement: Settlement): boolean {
+  return Boolean(settlement.paidToEntityId);
 }
 
 export interface Ledger {
@@ -444,6 +450,14 @@ export function balances(ledger: Ledger): BalanceReport {
     .map((entity) => entity.id);
   const byEntityBig = new Map(nonSelfIds.map((id) => [id, 0n]));
   const pairBig = new Map<string, { firstId: string; secondId: string; amount: bigint }>();
+  const addPairDebt = (debtorId: string, creditorId: string, amount: bigint) => {
+    const firstId = debtorId < creditorId ? debtorId : creditorId;
+    const secondId = debtorId < creditorId ? creditorId : debtorId;
+    const key = `${firstId}\u0000${secondId}`;
+    const current = pairBig.get(key) ?? { firstId, secondId, amount: 0n };
+    current.amount += amount * (debtorId === firstId ? 1n : -1n);
+    pairBig.set(key, current);
+  };
 
   for (const baseline of ledger.baselines) {
     if (baseline.entityId !== selfEntityId) {
@@ -467,18 +481,16 @@ export function balances(ledger: Ledger): BalanceReport {
           (byEntityBig.get(debt.debtorId) ?? 0n) + BigInt(debt.amountCents),
         );
       } else if (debt.debtorId !== selfEntityId && debt.creditorId !== selfEntityId) {
-        const firstId = debt.debtorId < debt.creditorId ? debt.debtorId : debt.creditorId;
-        const secondId = debt.debtorId < debt.creditorId ? debt.creditorId : debt.debtorId;
-        const key = `${firstId}\u0000${secondId}`;
-        const current = pairBig.get(key) ?? { firstId, secondId, amount: 0n };
-        const direction = debt.debtorId === firstId ? 1n : -1n;
-        current.amount += BigInt(debt.amountCents) * direction;
-        pairBig.set(key, current);
+        addPairDebt(debt.debtorId, debt.creditorId, BigInt(debt.amountCents));
       }
     }
   }
 
   for (const settlement of ledger.settlements ?? []) {
+    if (settlement.paidToEntityId) {
+      addPairDebt(settlement.paidToEntityId, settlement.entityId, BigInt(settlement.amountCents));
+      continue;
+    }
     const amount = BigInt(settlement.amountCents);
     const balanceChange = settlement.direction === "theyPaidYou" ? -amount : amount;
     byEntityBig.set(
@@ -602,7 +614,7 @@ export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
     .sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
   for (const settlement of settlements) {
     const items = settlement.direction === "theyPaidYou" ? theyOweYou : youOweThem;
-    if (settlement.entityId !== entityId) continue;
+    if (settlement.entityId !== entityId || settlement.paidToEntityId) continue;
     let remaining = settlement.amountCents;
     for (const item of items) {
       const applied = Math.min(item.openAmountCents, remaining);

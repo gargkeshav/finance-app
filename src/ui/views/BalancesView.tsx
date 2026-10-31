@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type CategoryNature, type Ledger } from "../../domain/ledger";
+import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type CategoryNature, type Debt, type Ledger, type Settlement } from "../../domain/ledger";
 import { addStarterCategories, STARTER_CATEGORIES } from "../../domain/taxonomy";
 import { formatAud, formatMoney, parseAud, sumCents } from "../../domain/value";
 import type { EntryFilter } from "../../domain/query";
@@ -37,6 +37,8 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
   const [errorEntityId, setErrorEntityId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [showBaselines, setShowBaselines] = useState(false);
+  const [payment, setPayment] = useState<{ key: string; amount: string; date: string } | null>(null);
+  const [paymentError, setPaymentError] = useState("");
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, { parentId: string; nature: CategoryNature | "" }>>({});
   const [from, to] = monthBounds(month);
   const monthly = report(ledger.entries, from, to);
@@ -137,6 +139,36 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
     };
     update({ ...ledger, categories: categories.map((item) => item.id === categoryId ? updated : item) });
     setCategoryDrafts((current) => { const next = { ...current }; delete next[categoryId]; return next; });
+  }
+
+  function recordPayment(debt: Debt) {
+    if (!payment) return;
+    let amountCents: number;
+    try {
+      amountCents = parseAud(payment.amount);
+    } catch {
+      setPaymentError("Enter an AUD amount.");
+      return;
+    }
+    if (amountCents <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(payment.date)) {
+      setPaymentError("Enter a positive amount and a date.");
+      return;
+    }
+    const settlement: Settlement = {
+      id: crypto.randomUUID(),
+      date: payment.date,
+      entityId: debt.debtorId,
+      paidToEntityId: debt.creditorId,
+      direction: "theyPaidYou",
+      amountCents,
+      bankRowIds: [],
+      note: "",
+      splitwisePaymentId: null,
+      updatedAt: new Date().toISOString(),
+    };
+    update({ ...ledger, settlements: [...(ledger.settlements ?? []), settlement] }, "Record payment between others");
+    setPayment(null);
+    setPaymentError("");
   }
 
   return (
@@ -258,13 +290,32 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
       <h2>Between others</h2>
       <div className="w-full min-w-0 max-w-full overflow-x-auto">
         <Table tabIndex={0}>
-          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Debtor</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Creditor</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Debtor</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Creditor</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Payment</TableHead></TableRow></TableHeader>
           <TableBody>
             {overall.betweenEntities.map((debt) => (
               <TableRow key={`${debt.debtorId}-${debt.creditorId}`}>
                 <TableCell>{ledger.entities.find((entity) => entity.id === debt.debtorId)?.name ?? "Unknown"}</TableCell>
                 <TableCell>{ledger.entities.find((entity) => entity.id === debt.creditorId)?.name ?? "Unknown"}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatMoney(debt.amountCents)}</TableCell>
+                <TableCell>
+                  {payment?.key === `${debt.debtorId}-${debt.creditorId}` ? (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label><span className="sr-only">Payment date</span><input type="date" value={payment.date} onChange={(event) => setPayment({ ...payment, date: event.target.value })} /></label>
+                      <label><span className="sr-only">Payment amount</span><input inputMode="decimal" value={payment.amount} onChange={(event) => setPayment({ ...payment, amount: event.target.value })} aria-invalid={Boolean(paymentError)} /></label>
+                      <Button onClick={() => recordPayment(debt)} type="button">Save</Button>
+                      <Button onClick={() => { setPayment(null); setPaymentError(""); }} type="button" variant="outline">Cancel</Button>
+                      {paymentError && <p className="text-sm text-destructive" role="alert">{paymentError}</p>}
+                    </div>
+                  ) : (
+                    <Button
+                      onClick={() => { setPayment({ key: `${debt.debtorId}-${debt.creditorId}`, amount: centsText(debt.amountCents), date: new Date().toISOString().slice(0, 10) }); setPaymentError(""); }}
+                      type="button"
+                      variant="outline"
+                    >
+                      Record payment
+                    </Button>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

@@ -142,7 +142,7 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
   const preview = allocationsFor(items, direction, amountCents);
   const netBalance = entity ? balances(ledger).byEntity[entity.id] ?? 0 : 0;
   const settlements = (ledger.settlements ?? [])
-    .filter((settlement) => settlement.entityId === entityId)
+    .filter((settlement) => settlement.entityId === entityId && !settlement.paidToEntityId)
     .sort((first, second) => second.date.localeCompare(first.date) || second.id.localeCompare(first.id));
   const splitwisePayments = (ledger.splitwiseInbox ?? []).filter((item) =>
     item.entityId === entityId && item.isPayment && ["new", "changed", "deleted"].includes(item.status),

@@ -71,7 +71,7 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
   }
 
   for (const settlement of ledger.settlements ?? []) {
-    if (settlement.entityId !== entityId) continue;
+    if (settlement.entityId !== entityId || settlement.paidToEntityId) continue;
     const creditCents = settlementCredit(ledger, entityId, settlement);
     items.push({
       id: `settlement-${settlement.id}`,

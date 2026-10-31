@@ -276,6 +276,19 @@ const moneyCases: MoneyCase[] = [
     personalCents: 4_000,
     balances: { house: 0 },
   },
+  {
+    case: 15,
+    label: "Friend pays a $50 House spend; House pays them back $20",
+    ledger: (() => {
+      const ledger = baseLedger([spend("friend-house", "friend", 5_000, [{ entityId: "house", amountCents: 5_000 }])]);
+      ledger.settlements = [{ ...settlement("house-payout", "house", "theyPaidYou", 2_000), paidToEntityId: "friend" }];
+      return ledger;
+    })(),
+    personalCents: 2_500,
+    balances: { house: 0, friend: 0 },
+    betweenEntities: [{ debtorId: "house", creditorId: "friend", amountCents: 3_000 }],
+    openItems: { theyOweYou: [], youOweThem: [] },
+  },
 ];
 
 describe("agreed money cases", () => {

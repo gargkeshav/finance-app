@@ -435,7 +435,7 @@ function isEntityReferenced(ledger: Ledger, id: string): boolean {
   return ledger.entries.some((entry) => entry.payerEntityId === id || entry.portions.some((portion) => portion.entityId === id)) ||
     ledger.accounts.some((account) => account.payerEntityId === id) ||
     ledger.baselines.some((baseline) => baseline.entityId === id) ||
-    (ledger.settlements ?? []).some((settlement) => settlement.entityId === id) ||
+    (ledger.settlements ?? []).some((settlement) => settlement.entityId === id || settlement.paidToEntityId === id) ||
     ledger.entities.some((entity) => entity.id !== id && entity.members?.some((member) => member.entityId === id));
 }
 

@@ -10,3 +10,5 @@ playwright-report/
 *.zip
 *.finance.json
 .env*
+# Real reconciliation output (personal data)
+reconciliation/
