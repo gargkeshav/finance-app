@@ -10,9 +10,15 @@ export default tseslint.config(
       "src-tauri/**",
       "test-results/**",
       "playwright-report/**",
+      "reconciliation/**",
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   { languageOptions: { globals: { ...globals.browser, ...globals.node } } },
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", destructuredArrayIgnorePattern: "^_" }],
+    },
+  },
 );

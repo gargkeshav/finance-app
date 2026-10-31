@@ -157,10 +157,100 @@ export interface Settlement {
   updatedAt: string;
   /** Set when `entityId` paid this entity instead of you, e.g. House paying out Trisha. */
   paidToEntityId?: string;
+  /** Entries this payment settles. Their debt between the two parties closes first. */
+  entryIds?: string[];
+  /** Statement lines the payment was worked out from, such as a row of a settle-up sheet. */
+  lines?: SettlementLine[];
+  /** What happens to the payment minus the linked items: kept as credit or shortfall, or written off. Defaults to carry. */
+  remainder?: "carry" | "writeOff";
+}
+
+export interface SettlementLine {
+  label: string;
+  amountCents: number;
+  entryIds: string[];
+  note?: string;
 }
 
 export function isBetweenOthers(settlement: Settlement): boolean {
   return Boolean(settlement.paidToEntityId);
+}
+
+export function linkedEntryIds(settlement: Settlement): string[] {
+  return [...new Set([...(settlement.entryIds ?? []), ...(settlement.lines ?? []).flatMap((line) => line.entryIds)])];
+}
+
+/** The two parties as debtor and creditor: whoever paid owed the other. */
+function settlementParties(settlement: Settlement, selfId: string): { debtorId: string; creditorId: string } {
+  if (settlement.paidToEntityId) return { debtorId: settlement.entityId, creditorId: settlement.paidToEntityId };
+  return settlement.direction === "theyPaidYou"
+    ? { debtorId: settlement.entityId, creditorId: selfId }
+    : { debtorId: selfId, creditorId: settlement.entityId };
+}
+
+/** Signed debt an entry carries from the settlement's payer to its payee. Uncounted entries carry none. */
+function linkedDebtCents(entry: Entry, settlement: Settlement, bankRows: readonly BankRow[], selfId: string): number {
+  const { debtorId, creditorId } = settlementParties(settlement, selfId);
+  return sumCents(debtsOf(entry, bankRows).map((debt) => {
+    if (debt.debtorId === debtorId && debt.creditorId === creditorId) return debt.amountCents;
+    if (debt.debtorId === creditorId && debt.creditorId === debtorId) return -debt.amountCents;
+    return 0;
+  }));
+}
+
+/** Amount of an entry that belongs to the settlement's payer, counted or not. Used to show what a payment covered. */
+function linkedShareCents(entry: Entry, settlement: Settlement, selfId: string): number {
+  const { debtorId, creditorId } = settlementParties(settlement, selfId);
+  if (entry.payerEntityId !== creditorId && entry.payerEntityId !== debtorId) return 0;
+  const sign = entry.kind === "refund" ? -1 : 1;
+  const owing = entry.payerEntityId === creditorId ? debtorId : creditorId;
+  const direction = entry.payerEntityId === creditorId ? 1 : -1;
+  return sign * direction * sumCents(entry.portions
+    .filter((portion) => portion.entityId === owing && (portion.treatment ?? "claim") === "claim")
+    .map((portion) => portion.amountCents));
+}
+
+export interface SettlementCoverageItem {
+  entry: Entry;
+  shareCents: number;
+}
+
+export interface SettlementCoverage {
+  items: SettlementCoverageItem[];
+  linkedCents: number;
+  differenceCents: number;
+  lines: { line: SettlementLine; items: SettlementCoverageItem[]; itemsCents: number }[];
+}
+
+/** What a payment covered: linked items, their total, and how far the payment is over (+) or under (-) it. */
+export function settlementCoverage(ledger: Ledger, settlement: Settlement): SettlementCoverage {
+  const selfId = ledger.entities.find((entity) => entity.kind === "self")?.id ?? SELF_ENTITY_ID;
+  const entriesById = new Map(ledger.entries.map((entry) => [entry.id, entry]));
+  const itemFor = (id: string): SettlementCoverageItem[] => {
+    const entry = entriesById.get(id);
+    return entry ? [{ entry, shareCents: linkedShareCents(entry, settlement, selfId) }] : [];
+  };
+  const items = linkedEntryIds(settlement).flatMap(itemFor);
+  const linkedCents = sumCents(items.map((item) => item.shareCents));
+  const lines = (settlement.lines ?? []).map((line) => {
+    const lineItems = line.entryIds.flatMap(itemFor);
+    return { line, items: lineItems, itemsCents: sumCents(lineItems.map((item) => item.shareCents)) };
+  });
+  const statedCents = lines.length ? sumCents(lines.map(({ line }) => line.amountCents)) : linkedCents;
+  return { items, linkedCents, differenceCents: settlement.amountCents - statedCents, lines };
+}
+
+/** Settlements that list this entry as one of the items they paid. */
+export function settlementsForEntry(ledger: Ledger, entryId: string): Settlement[] {
+  return (ledger.settlements ?? []).filter((settlement) => linkedEntryIds(settlement).includes(entryId));
+}
+
+/** How much a settlement moves the balance: the full amount, or only its linked debt when the rest is written off. */
+export function settlementEffectCents(ledger: Ledger, settlement: Settlement, selfId: string = SELF_ENTITY_ID): number {
+  if (settlement.remainder !== "writeOff") return settlement.amountCents;
+  const ids = new Set(linkedEntryIds(settlement));
+  return sumCents(ledger.entries.filter((entry) => ids.has(entry.id))
+    .map((entry) => linkedDebtCents(entry, settlement, ledger.bankRows ?? [], selfId)));
 }
 
 export interface Ledger {
@@ -487,11 +577,12 @@ export function balances(ledger: Ledger): BalanceReport {
   }
 
   for (const settlement of ledger.settlements ?? []) {
+    const effect = BigInt(settlementEffectCents(ledger, settlement, selfEntityId ?? SELF_ENTITY_ID));
     if (settlement.paidToEntityId) {
-      addPairDebt(settlement.paidToEntityId, settlement.entityId, BigInt(settlement.amountCents));
+      addPairDebt(settlement.paidToEntityId, settlement.entityId, effect);
       continue;
     }
-    const amount = BigInt(settlement.amountCents);
+    const amount = effect;
     const balanceChange = settlement.direction === "theyPaidYou" ? -amount : amount;
     byEntityBig.set(
       settlement.entityId,
@@ -610,12 +701,50 @@ export function openItems(ledger: Ledger, entityId: string): EntityOpenItems {
   };
   sortItems();
 
+  // Same-day payments apply in the order they were recorded.
   const settlements = [...(ledger.settlements ?? [])]
-    .sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
-  for (const settlement of settlements) {
+    .filter((settlement) => settlement.entityId === entityId && !settlement.paidToEntityId)
+    .sort((first, second) => first.date.localeCompare(second.date));
+  // A linked payment closes what is still open on its items, in date order, then spreads any
+  // remainder oldest first. Written-off history closes its items outright before anything else.
+  const closeLinked = (settlement: Settlement, ids: Set<string>): number => {
     const items = settlement.direction === "theyPaidYou" ? theyOweYou : youOweThem;
-    if (settlement.entityId !== entityId || settlement.paidToEntityId) continue;
+    const opposite = settlement.direction === "theyPaidYou" ? youOweThem : theyOweYou;
     let remaining = settlement.amountCents;
+    for (const item of items) {
+      if (item.source !== "entry" || !ids.has(item.id)) continue;
+      remaining -= item.openAmountCents;
+      item.openAmountCents = 0;
+    }
+    for (const item of opposite) {
+      if (item.source !== "entry" || !ids.has(item.id)) continue;
+      remaining += item.openAmountCents;
+      item.openAmountCents = 0;
+    }
+    return remaining;
+  };
+  for (const settlement of settlements) {
+    if (settlement.remainder === "writeOff") closeLinked(settlement, new Set(linkedEntryIds(settlement)));
+  }
+
+  for (const settlement of settlements) {
+    if (settlement.remainder === "writeOff") continue;
+    const items = settlement.direction === "theyPaidYou" ? theyOweYou : youOweThem;
+    const ids = new Set(linkedEntryIds(settlement));
+    let remaining = ids.size ? closeLinked(settlement, ids) : settlement.amountCents;
+    if (remaining < 0) {
+      items.push({
+        id: settlement.id,
+        date: settlement.date,
+        description: `Short on ${settlement.date} payment`,
+        source: "credit",
+        amountCents: -remaining,
+        openAmountCents: -remaining,
+      });
+      sortItems();
+      continue;
+    }
+    if (remaining === 0) continue;
     for (const item of items) {
       const applied = Math.min(item.openAmountCents, remaining);
       item.openAmountCents -= applied;

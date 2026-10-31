@@ -125,4 +125,19 @@ describe("card payment check", () => {
     expect(check.rows.map((row) => row.owedAfterCents)).toEqual([0, 1000]);
     expect(check.owedNowCents).toBe(1000);
   });
+
+  it("restarts the estimate from a statement checkpoint when earlier payments are missing", () => {
+    const ledger = baseLedger();
+    ledger.entries = [
+      { id: "unpaid-history", kind: "spend", date: "2024-01-01", description: "Charge", amountCents: 900000, payerEntityId: "self", accountId: "C", portions: [], countsTowardDebt: false, updatedAt: "" },
+      { id: "charge", kind: "spend", date: "2024-02-10", description: "Charge", amountCents: 4000, payerEntityId: "self", accountId: "C", portions: [], countsTowardDebt: false, updatedAt: "" },
+      { id: "payment", kind: "transfer", date: "2024-02-20", description: "Payment", amountCents: 6000, payerEntityId: "self", accountId: "C", portions: [], countsTowardDebt: false, updatedAt: "" },
+    ];
+    ledger.checkpoints = [{ id: "statement", accountId: "C", date: "2024-02-01", balanceCents: -2000, note: "", updatedAt: "" }];
+
+    const check = cardPaymentCheck(ledger, "C");
+    expect(check.anchoredOn).toBe("2024-02-01");
+    expect(check.rows.map((row) => row.owedAfterCents)).toEqual([0]);
+    expect(check.owedNowCents).toBe(0);
+  });
 });

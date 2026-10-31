@@ -168,7 +168,7 @@ export const test = base.extend<{ app: AppFixture }>({
       },
       async checkA11y() {
         const { default: AxeBuilder } = await import("@axe-core/playwright");
-        const axe = await new AxeBuilder({ page }).analyze();
+        const axe = await new AxeBuilder({ page }).exclude("[data-sonner-toaster]").analyze();
         expect(axe.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
       },
     };

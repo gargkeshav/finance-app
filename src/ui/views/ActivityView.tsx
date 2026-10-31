@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-table";
 import { Search } from "lucide-react";
 import { formatMoney, parseAud } from "../../domain/value";
-import { categoryMemoryAfterSpend, merchantNameAfterSpend, type Category, type Entity, type Entry, type EntryKind, type Ledger } from "../../domain/ledger";
+import { categoryMemoryAfterSpend, merchantNameAfterSpend, openItems, SELF_ENTITY_ID, settlementsForEntry, type Category, type Entity, type Entry, type EntryKind, type Ledger } from "../../domain/ledger";
 import { filterEntries, filteredTotals, type EntryFilter } from "../../domain/query";
 import {
   buildExpense,
@@ -295,6 +295,16 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
   });
   const pageCount = Math.max(1, table.getPageCount());
   const sheetEntry = ledger.entries.find((entry) => entry.id === sheetEntryId) ?? null;
+
+  function portionStatus(entry: Entry, entityId: string): string {
+    if (entityId === entry.payerEntityId || entityId === SELF_ENTITY_ID && entry.payerEntityId === SELF_ENTITY_ID) return "";
+    const paid = settlementsForEntry(ledger, entry.id).find((settlement) => settlement.entityId === entityId || settlement.paidToEntityId === entityId);
+    if (paid) return `paid ${paid.date} (${formatMoney(paid.amountCents)} payment)`;
+    if (!entry.countsTowardDebt) return "settled before tracking";
+    const debtor = entityId === SELF_ENTITY_ID ? entry.payerEntityId : entityId;
+    const open = openItems(ledger, debtor);
+    return [...open.theyOweYou, ...open.youOweThem].some((item) => item.id === entry.id) ? "open" : "paid by earlier payments";
+  }
   const sheetOpen = showForm || sheetEntryId !== null;
 
   function setSort(value: string) {
@@ -916,7 +926,10 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
                   <h3 className="font-medium">Split</h3>
                   {sheetEntry.portions.map((portion) => (
                     <div className="flex justify-between gap-4 text-sm" key={portion.entityId}>
-                      <span>{ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "Unknown"}</span>
+                      <span>
+                        {ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "Unknown"}
+                        <span className="ml-2 text-muted-foreground">{portionStatus(sheetEntry, portion.entityId)}</span>
+                      </span>
                       <span className="tabular-nums">{formatMoney(portion.amountCents)}</span>
                     </div>
                   ))}

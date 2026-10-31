@@ -18,7 +18,7 @@ const amountMappingSchema = z.union([
 export const csvMappingSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  dateFormat: z.enum(["D/M/YYYY", "D Mon YYYY"]),
+  dateFormat: z.enum(["D/M/YYYY", "D Mon YYYY", "YYYY-MM-DD"]),
   dateColumn: csvColumnSchema.optional(),
   hasHeader: z.boolean(),
   amount: amountMappingSchema,
@@ -67,6 +67,27 @@ export const BANK_PRESETS: readonly CsvMapping[] = [
     hasHeader: true,
     amount: { signed: header("Amount"), negate: false },
     descriptionColumns: [header("Description")],
+    balanceColumn: header("Balance"),
+    updatedAt: presetUpdatedAt,
+  },
+  {
+    id: "revolut",
+    name: "Revolut",
+    dateFormat: "YYYY-MM-DD",
+    dateColumn: header("Started Date"),
+    hasHeader: true,
+    amount: { signed: header("Amount"), negate: false },
+    descriptionColumns: [header("Description")],
+    balanceColumn: header("Balance"),
+    updatedAt: presetUpdatedAt,
+  },
+  {
+    id: "westpac",
+    name: "Westpac",
+    dateFormat: "D/M/YYYY",
+    hasHeader: true,
+    amount: { debit: header("Debit Amount"), credit: header("Credit Amount") },
+    descriptionColumns: [header("Narrative")],
     balanceColumn: header("Balance"),
     updatedAt: presetUpdatedAt,
   },
@@ -131,6 +152,12 @@ function parseDate(value: string, format: CsvMapping["dateFormat"]): string {
     day = match[1];
     month = String(monthIndex + 1);
     year = match[3];
+  } else if (format === "YYYY-MM-DD") {
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?$/.exec(text);
+    if (!match) throw new Error("Expected date YYYY-MM-DD, with an optional time.");
+    year = match[1];
+    month = match[2];
+    day = match[3];
   } else {
     const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
     if (!match) throw new Error("Expected Australian posting date D/M/YYYY.");
@@ -306,17 +333,20 @@ export function parseWithMapping(text: string, mapping: CsvMapping): CsvMappingR
 
 function presetCandidates(first: string[]): CsvMapping[] {
   const keys = first.map(headerKey);
+  const preset = (id: string) => BANK_PRESETS.filter((item) => item.id === id);
+  if (keys.includes("starteddate") && keys.includes("amount")) return preset("revolut");
+  if (keys.includes("narrative") && keys.includes("debitamount")) return preset("westpac");
   if (keys.includes("credit") && keys.includes("debit") && keys.includes("date")) {
-    return [BANK_PRESETS[0]];
+    return preset("ing");
   }
   if (
     (keys.includes("transactiondate") || keys.includes("date")) &&
     keys.includes("amount")
   ) {
-    return [BANK_PRESETS[1]];
+    return preset("hsbc");
   }
   if (first.length >= 8 && /^\s*\d{1,2}\/\d{1,2}\/\d{4}\s*$/.test(first[0] ?? "")) {
-    return [BANK_PRESETS[2], BANK_PRESETS[3]];
+    return [...preset("anz-credit"), ...preset("anz-transaction")];
   }
   return [];
 }

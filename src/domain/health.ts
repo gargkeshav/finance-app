@@ -122,15 +122,18 @@ export function findIssues(ledger: Ledger, today: string): HealthIssue[] {
     });
   }
 
+  // A payment is only "unseen" when every statement-backed account it could have come from covers that date.
   const unseenCardPayments = ledger.accounts
     .filter((account) => account.type === "credit")
-    .flatMap((card) => cardPaymentCheck(ledger, card.id).rows
-      .filter((row) => row.fundedFrom === null && ledger.accounts.some((asset) =>
-        asset.type === "asset" && asset.payerEntityId === card.payerEntityId &&
-        accountCoverage(ledger, asset.id).ranges.some((range) => row.payment.date >= range.from && row.payment.date <= range.to),
-      ))
-      .map((row) => ({ card, payment: row.payment })),
-    );
+    .flatMap((card) => {
+      const fundingAccounts = ledger.accounts.filter((asset) =>
+        asset.type === "asset" && asset.payerEntityId === card.payerEntityId && accountCoverage(ledger, asset.id).ranges.length > 0);
+      return cardPaymentCheck(ledger, card.id).rows
+        .filter((row) => row.fundedFrom === null && fundingAccounts.length > 0 && fundingAccounts.every((asset) =>
+          accountCoverage(ledger, asset.id).ranges.some((range) => row.payment.date >= range.from && row.payment.date <= range.to),
+        ))
+        .map((row) => ({ card, payment: row.payment }));
+    });
   if (unseenCardPayments.length) {
     issues.push({
       kind: "Card payments not seen leaving an account",

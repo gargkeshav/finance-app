@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   balances,
   openItems,
+  settlementCoverage,
+  settlementsForEntry,
   report,
   type BankRow,
   type Entry,
@@ -303,5 +305,49 @@ describe("agreed money cases", () => {
       expect(report(ledger.entries, "2026-10-01", "2026-10-31").personalCents).toBe(personalCents);
     }
     if (expectedOpenItems) expect(openItems(ledger, "house")).toEqual(expectedOpenItems);
+  });
+});
+describe("payments linked to the items they settle", () => {
+  const twoItems = () => baseLedger([
+    spend("older", "self", 4_000, [{ entityId: "friend", amountCents: 4_000 }], { date: "2026-10-01" }),
+    spend("newer", "self", 3_000, [{ entityId: "friend", amountCents: 3_000 }], { date: "2026-10-10" }),
+  ]);
+
+  it("closes the linked item, not the oldest, and carries the overpayment as credit", () => {
+    const ledger = twoItems();
+    ledger.settlements = [{ ...settlement("pay", "friend", "theyPaidYou", 3_250), entryIds: ["newer"] }];
+    expect(balances(ledger).byEntity.friend).toBe(3_750);
+    const open = openItems(ledger, "friend");
+    expect(open.theyOweYou.map((item) => [item.id, item.openAmountCents])).toEqual([["older", 3_750]]);
+    expect(settlementCoverage(ledger, ledger.settlements[0])).toMatchObject({ linkedCents: 3_000, differenceCents: 250 });
+    expect(settlementsForEntry(ledger, "newer").map((item) => item.id)).toEqual(["pay"]);
+  });
+
+  it("keeps a shortfall open when a linked payment is under", () => {
+    const ledger = twoItems();
+    ledger.settlements = [{ ...settlement("pay", "friend", "theyPaidYou", 2_900), entryIds: ["newer"] }];
+    expect(balances(ledger).byEntity.friend).toBe(4_100);
+    expect(openItems(ledger, "friend").theyOweYou.map((item) => [item.description, item.openAmountCents]))
+      .toEqual([["older", 4_000], ["Short on 2026-10-25 payment", 100]]);
+  });
+
+  it("writes off the difference when asked", () => {
+    const ledger = twoItems();
+    ledger.settlements = [{ ...settlement("pay", "friend", "theyPaidYou", 2_990), entryIds: ["newer"], remainder: "writeOff" }];
+    expect(balances(ledger).byEntity.friend).toBe(4_000);
+    expect(openItems(ledger, "friend").theyOweYou.map((item) => item.id)).toEqual(["older"]);
+  });
+
+  it("shows statement lines and covers uncounted history without moving balances", () => {
+    const ledger = baseLedger([spend("old-house", "self", 5_000, [{ entityId: "house", amountCents: 5_000 }], { countsTowardDebt: false })]);
+    ledger.settlements = [{
+      ...settlement("payout", "house", "theyPaidYou", 5_010),
+      lines: [{ label: "House till Jan", amountCents: 5_000, entryIds: ["old-house"] }],
+      remainder: "writeOff",
+    }];
+    expect(balances(ledger).byEntity.house).toBe(0);
+    const coverage = settlementCoverage(ledger, ledger.settlements[0]);
+    expect(coverage.lines[0].itemsCents).toBe(5_000);
+    expect(coverage.differenceCents).toBe(10);
   });
 });

@@ -132,14 +132,14 @@ These come from `.github/copilot-instructions.md` ("Money rules"), `CONTEXT.md`,
 ### 3.5 Baseline, Settlement, Checkpoint
 
 - **Baseline** (`file-ledger.ts:180`): `{ id, entityId, amountCents (signed: + = they owe you), updatedAt }`. It has no date and sorts first in `openItems`. Edited in Balances.
-- **Settlement** (`file-ledger.ts:187`): `{ id, date, entityId, direction: "theyPaidYou" | "youPaidThem", amountCents>0, bankRowIds = [], note, splitwisePaymentId: string|null = null, updatedAt }`. Between self and `entityId`, unless optional `paidToEntityId` is set: then `entityId` paid `paidToEntityId` (e.g. House → Trisha), `direction` is `theyPaidYou` by convention, and it only reduces that pair in `betweenEntities`. Own-balance code (`openItems`, cash flow, Settle and Entity lists) skips these.
+- **Settlement** (`file-ledger.ts:187`): `{ id, date, entityId, direction: "theyPaidYou" | "youPaidThem", amountCents>0, bankRowIds = [], note, splitwisePaymentId: string|null = null, entryIds?: string[], lines?: {label, amountCents, entryIds, note?}[], remainder?: "carry" | "writeOff", updatedAt }`. `entryIds` and `lines` link the payment to the items it covers (a line is one named group of items with its amount); `remainder` says what happens to money not covered by the links (default `carry`). Between self and `entityId`, unless optional `paidToEntityId` is set: then `entityId` paid `paidToEntityId` (e.g. House → Trisha), `direction` is `theyPaidYou` by convention, and it only reduces that pair in `betweenEntities`. Own-balance code (`openItems`, cash flow, Settle and Entity lists) skips these.
 - **BalanceCheckpoint** (`file-ledger.ts:229`): `{ id, accountId, date, balanceCents (signed), note, updatedAt }`.
 
 ### 3.6 Imports and bank rows
 
 - **LedgerImport** (`file-ledger.ts:199`): `{ id, accountId, mappingId, fileName, contentHash (SHA-256 of the text), dateFrom|null, dateTo|null, countsTowardDebt, importedAt, updatedAt }`. `countsTowardDebt = !olderHistory` ("Older history: keep out of balances"). Coverage is computed from `dateFrom`/`dateTo`.
 - **BankRow** (`file-ledger.ts:212`): `{ id, accountId, importId, line, date, description, amountCents (signed: − out, + in), balanceCents|null, raw: string[], entryId|null, settlementId|null, skipped = false, dismissedTransferIds = [], updatedAt }`. A row is **pending** when `!entryId && !settlementId && !skipped`.
-- **CsvMapping** (`csv-mapping.ts:18`): `{ id, name, dateFormat: "D/M/YYYY" | "D Mon YYYY", dateColumn?, hasHeader, amount: {signed: Col, negate} | {debit: Col, credit: Col}, descriptionColumns: Col[], balanceColumn: Col|null, updatedAt }`, where `Col = {header: string} | {index: int}`.
+- **CsvMapping** (`csv-mapping.ts:18`): `{ id, name, dateFormat: "D/M/YYYY" | "D Mon YYYY" | "YYYY-MM-DD", dateColumn?, hasHeader, amount: {signed: Col, negate} | {debit: Col, credit: Col}, descriptionColumns: Col[], balanceColumn: Col|null, updatedAt }`, where `Col = {header: string} | {index: int}`.
 
 ### 3.7 Categories, memory, merchants, rules
 
@@ -178,8 +178,8 @@ These come from `.github/copilot-instructions.md` ("Money rules"), `CONTEXT.md`,
 
 ### 4.2 Debts and balances
 - `debtsOf(entry, bankRows)` `ledger.ts:374`: only `spend`/`refund` with `countsTowardDebt`. One debt per claim portion whose entity ≠ payer. Refunds produce **negative** debts. Bank-amount scaling as in §2.12.
-- `balances(ledger)` `ledger.ts:440`: `byEntity[e]` for every non-self entity = baseline + (debts where e owes self) − (debts where self owes e) − `theyPaidYou` settlements + `youPaidThem` settlements. **Positive means they owe you.** Debts between two non-self entities (for example House ↔ a friend when House paid) are netted per pair into `betweenEntities`. Only settlements with `paidToEntityId` touch `betweenEntities` (as a reverse pair debt); Balances → Between others has **Record payment** to create one.
-- `openItems(ledger, entityId)` `ledger.ts:555`: builds `theyOweYou` and `youOweThem` lists from the baseline (dated "", first) and from entry debts that involve self, sorted oldest first (date, then id). Settlements, oldest first, consume the matching list. Leftover money becomes a `source:"credit"` item on the **opposite** list ("Credit from <date> payment"; batch 40). Negative (refund) debts flip direction. Items with open amount 0 are filtered out.
+- `balances(ledger)` `ledger.ts:440`: `byEntity[e]` for every non-self entity = baseline + (debts where e owes self) − (debts where self owes e) − `theyPaidYou` settlements + `youPaidThem` settlements. A `writeOff` settlement moves the balance only by its linked debt (`settlementEffectCents`), not by the full amount paid. **Positive means they owe you.** Debts between two non-self entities (for example House ↔ a friend when House paid) are netted per pair into `betweenEntities`. Only settlements with `paidToEntityId` touch `betweenEntities` (as a reverse pair debt); Balances → Between others has **Record payment** to create one.
+- `openItems(ledger, entityId)` `ledger.ts:555`: builds `theyOweYou` and `youOweThem` lists from the baseline (dated "", first) and from entry debts that involve self, sorted oldest first (date, then id). Order: links of `writeOff` settlements close first; then settlements in date order (same-day in record order). A settlement with links closes what is still open on its linked items; a carried remainder goes oldest-first, or, when nothing is left to close, becomes a `source:"credit"` item on the **opposite** list ("Credit from <date> payment"; batch 40), or a "Short on <date> payment" item when a payment paid less than its linked items. Helpers: `settlementCoverage` (what a payment covers and any over/under), `settlementsForEntry`, `linkedEntryIds`. Negative (refund) debts flip direction. Items with open amount 0 are filtered out.
 - `openEntryIds` `:633` → the `settled` filter in Activity (`query.ts:75`).
 
 ### 4.3 Reports — `src/domain/reports.ts`
@@ -192,6 +192,7 @@ These come from `.github/copilot-instructions.md` ("Money rules"), `CONTEXT.md`,
 - Same `contentHash` on the same account → blocked (`ImportView.tsx`, `sameFile`).
 - `accountCoverage(ledger, accountId)` `ledger.ts:510`: merges import date ranges (adjacent days merge) and reports gaps.
 - `checkpointDifferences` `ledger.ts:533`: Δcheckpoint − Σ bank rows in `(earlier, later]`.
+- Card payment check (`transfers.ts`) anchors on the latest balance checkpoint of the card (`anchoredOn`). Card checkpoints are entered in Accounts as the amount owed and stored negative.
 
 ### 4.5 Review pipeline (`ReviewView.tsx`, `transfers.ts`)
 Each pending bank row is put into one of three groups:
@@ -259,13 +260,14 @@ It reports:
 - Splitwise posts that are `posting`/`unknown` plus inbox items that are `new`/`changed`/`deleted`;
 - uncategorised spends and refunds;
 - `needs-share` entries;
-- card payments not seen leaving a covered same-payer asset account;
+- card payments not seen leaving a covered same-payer asset account (every statement-backed own asset account must cover the payment date, otherwise the check is not run);
 - amended amounts without a note (spend and refund only);
 - possible double entries (manual vs bank, and unlinked history vs linked entries; same account, date, and amount).
 
 Each issue carries `view` and an optional `filter: {tag}`.
 
 ### 4.10 Settle view logic (`SettleView.tsx`)
+- **UI**: the who-picker labels each entity with its balance; direction defaults from the balance; a **Full balance** button fills the amount; an item checklist, "what this payment covers", auto-ticks items oldest-first and shows over/under with a carry vs write-off choice for the remainder. **Past payments** lists settlements with **Details** (`SettlementDetail.tsx`). `BetweenOthers.tsx` holds the record-payment-between-others form shared with Balances.
 - **Who**: non-self entities, active ones plus archived ones with a non-zero balance (`:107`).
 - It shows the net `balances().byEntity[e]` and `openItems` both ways. `allocationsFor` (`:95`) previews which items a payment would close, oldest first (not editable).
 - `save` `:363` writes a `Settlement` (and `bankRowIds:[row.id]` plus `row.settlementId` when it came from Review) with the label "Record settlement" (undoable).
@@ -295,7 +297,9 @@ Each issue carries `view` and an optional `filter: {tag}`.
 | `hsbc` | HSBC | yes | `D Mon YYYY` | signed `Amount` | `Description` | `Balance` |
 | `anz-credit` | ANZ Credit Card | no | col 0, `D/M/YYYY` | signed col 1 | cols 2–49 joined `" \| "` | none |
 | `anz-transaction` | ANZ Transaction | no | same as ANZ credit | | | |
+| `revolut`, `westpac` | Revolut, Westpac | yes | `YYYY-MM-DD` (an optional time after the date is ignored) | see `BANK_PRESETS` | | |
 
+- Preset detection is by id (`anz-` prefix for ANZ, the preset id otherwise).
 - ANZ rows must have 8–50 fields (`:259`, keyed on the `anz-` id prefix).
 - Amounts accept `+`, thousands commas, and accounting `(1.23)`.
 - `suggestPresets(text)` `:324` sniffs the first row: credit+debit+date → ING; date+amount → HSBC; ≥ 8 fields with a D/M/YYYY first cell → both ANZ presets.
@@ -342,13 +346,13 @@ Hash routes: `#/<View>` and, for Activity, `?f=<JSON EntryFilter>` (`route.ts`).
 
 | Group | View | File | What it does |
 |---|---|---|---|
-| Daily | Home | `HomeView.tsx` | This month personal (incl. ½ House) and House totals, owed to you / you owe, a 6-month chart, entity balance cards, a to-do list (review count, health), recently handled, getting started |
+| Daily | Home | `HomeView.tsx` | This month personal (incl. ½ House) and House totals, owed to you / you owe, a 6-month chart, balance cards for non-zero balances only (sorted), between-others debts, a line naming settled entities, a to-do list (review count, health), recently handled, getting started |
 | Daily | Review | `ReviewView.tsx` | Keyboard queue (j/k/arrows plus shortcuts). Tabs: needs you, already recorded, waiting. Transfer suggestions, rules and memory prefill, bulk actions, "From Splitwise" inbox (new/changed/deleted) |
-| Daily | Activity | `ActivityView.tsx` | TanStack table of entries. Filters (`EntryFilter`: text, date, account, category, uncategorised, entity, payer, kind, tag, counted, source, settled) kept in the URL. Inline edits, details sheet (bank rows, note), bulk category/tag, add or edit with `SpendForm`, Post to Splitwise |
+| Daily | Activity | `ActivityView.tsx` | TanStack table of entries. Filters (`EntryFilter`: text, date, account, category, uncategorised, entity, payer, kind, tag, counted, source, settled) kept in the URL. Inline edits, details sheet (bank rows, note, and each share's payment status), bulk category/tag, add or edit with `SpendForm`, Post to Splitwise |
 | Daily | Settle | `SettleView.tsx` | See §4.10 |
 | Money | Accounts | `AccountsView.tsx` | Add or rename accounts (type, Paid by), coverage, checkpoints, card payments check |
 | Money | People | `PeopleView.tsx` | People and groups (type, members and weights, default split), archive, Splitwise connect/disconnect, link, pull |
-| Money | Balances | `BalancesView.tsx` → `EntityView.tsx` | One card per entity, baselines, "Between others" (`betweenEntities`), by category, starter categories. The entity page has a timeline with a running balance, Open/Settled, credit notes, "Written off and gifted" with "Start claiming", archive/restore, and Settle up |
+| Money | Balances | `BalancesView.tsx` → `EntityView.tsx` | One card per entity, baselines, "Between others" (`betweenEntities`), by category, starter categories. "Between others" is the shared `BetweenOthers.tsx` (also used by Settle). The entity page has a timeline with a running balance (uses the settlement effect), per-entity open status, "Paid <date>", expandable payment detail, a "Show settled history" toggle, Open/Settled, credit notes, "Written off and gifted" with "Start claiming", archive/restore, and Settle up |
 | Money | Reports | `ReportsView.tsx` | Range and scope (personal/household); tabs Monthly, Categories, By nature, Merchants, Cash flow; charts; CSV export; amounts drill into Activity |
 | Setup | Import | `ImportView.tsx` + `MappingEditor.tsx` | Four steps: account → file (hash, preset suggestion) → mapping → preview, errors, duplicate choice, "Older history" → commit |
 | Setup | Rules | `RulesView.tsx` | Ordered rules: match, scope, protect manual edits, action, auto-confirm. Selectable before/after preview (`previewRuleChanges` `rules.ts:172`), apply with the label `Apply rule <name>`, actor `rule`. Suggested rule (`suggestRuleFromHistory`, ≥ 3 identical-shape spends) |
@@ -406,11 +410,12 @@ Shared pieces: `SpendForm.tsx` (payer, split presets, portions with treatment, c
 - **Unlabelled updates** (no History entry, against the PHASE4 rule): the CSV import commit and mapping save (`ImportView.tsx` `commit`/`saveMappingChoice`), checkpoint add (`AccountsView.tsx:100`), Splitwise pull (`PeopleView.tsx:154`), and post-state writes. Also, `buildChangeSet` does not diff `imports`, `mappings`, `checkpoints`, `categoryMemory`, `merchantNames`, or the `splitwise*` collections, so these cannot be reverted. `updateRecords` restamps `updatedAt` only for six collections.
 - `HistoryImportPlan.skipped` is never populated; `matched` overlaps `created`/`pending`/`payments`. The tag line `row.association === "pending"` (`history-import.ts:512`) is dead code, because blank rows get `needs-share` in `portionsFor`.
 - `createSplitwiseSpend` does not set `source: "splitwise"` (ReviewView adds it at `:662`). Partly paid expenses are treated as paid by self if `yourPaidCents > 0`, although the Review UI routes those to "Enter by hand".
-- `settlements` are always self ↔ entity, so `betweenEntities` debts (for example House owes a friend after a House-account spend) are shown but **cannot be settled**.
 - Group `members` affect only default splits and Splitwise group posting (which splits equally across Splitwise members, ignoring local weights). Debts are always against the group entity as a whole.
 - `report()`/`scopeAmount` treat any portion for the `house` id as House. A custom `household` group gets no "half" treatment; only the fixed `house` entity does.
 - `monthly()` uses the local-time current month (`reports.ts:114`); the rest of the date maths is UTC or string-based.
 - The ANZ preset detection relies on the `anz-` id prefix (`csv-mapping.ts:259`), so a custom mapping whose id starts with `anz-` inherits the 8–50 column check.
+- ESLint ignores `_`-prefixed unused vars and the `reconciliation/` folder. The e2e fixture `relativeDate` clamps to the current month.
+- No e2e covers Record payment between others; the Splitwise e2e is flaky under the full parallel run.
 
 ---
 
@@ -452,7 +457,7 @@ Shared pieces: `SpendForm.tsx` (payer, split presets, portions with treatment, c
 
 ## 10. Data onboarding (Nov 2026)
 
-The hand-kept workbook (card history, Trisha's lists, Splitwise exports, bank sheets, Final settlements) was reconciled and loaded **once** by a script that writes a ledger file directly. It is not app import logic. Ongoing ingestion stays as bank CSVs (mappings → Review) plus Splitwise pull. Conventions that ledger uses, for anyone reading it later:
+The hand-kept workbook (card history, Trisha's lists, Splitwise exports, bank sheets, Final settlements) was reconciled and loaded **once** by a script that writes a ledger file directly. It is not app import logic. It also loads the bank statements as bank rows, links 29 payments to their bank rows and items/lines, categorises entries with starter categories, and adds 26 merchant Rules. Ongoing ingestion stays as bank CSVs (mappings → Review) plus Splitwise pull. Conventions that ledger uses, for anyone reading it later:
 
 - Accounts: ANZ Visa (credit, self), ANZ Savings / Westpac / ING / Revolut (asset, self), HSBC House (asset, payer House: the joint account both partners fund ≈$2,000/month), Trisha ING and Trisha Revolut (asset, payer Trisha).
 - Trisha-paid House spends: payer Trisha, House portion, so they show as **House owes Trisha** under Between others. When HSBC pays her, use Record payment.

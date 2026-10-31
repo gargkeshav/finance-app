@@ -158,6 +158,7 @@ export function MappingEditor({ text, initialMapping, onSave, onCancel }: Mappin
             <SelectContent>
               <SelectItem value="D/M/YYYY">D/M/YYYY</SelectItem>
               <SelectItem value="D Mon YYYY">D Mon YYYY</SelectItem>
+              <SelectItem value="YYYY-MM-DD">YYYY-MM-DD (time ignored)</SelectItem>
             </SelectContent>
           </Select>
         </div>

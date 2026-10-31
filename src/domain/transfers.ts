@@ -31,6 +31,8 @@ export interface CardPaymentCheckRow {
 export interface CardPaymentCheck {
   rows: CardPaymentCheckRow[];
   owedNowCents: number;
+  /** Date of the balance checkpoint the estimate starts from, if any. */
+  anchoredOn: string | null;
 }
 
 export type TransferChoice = "contribution" | "settlement";
@@ -79,10 +81,22 @@ export function cardPaymentCheck(ledger: Ledger, accountId: string): CardPayment
     }))
     .sort((first, second) => first.date.localeCompare(second.date));
 
+  // A checkpoint is the card balance from a statement (negative when owed); the estimate restarts from it.
+  const anchor = [...(ledger.checkpoints ?? [])]
+    .filter((checkpoint) => checkpoint.accountId === accountId)
+    .sort((first, second) => second.date.localeCompare(first.date))[0] ?? null;
+  let anchored = !anchor;
   let previousPaymentDate = "";
   let chargeIndex = 0;
   let owedAfterCents = 0;
+  const applyAnchor = (beforeDate: string | null) => {
+    if (anchored || !anchor || (beforeDate !== null && anchor.date >= beforeDate)) return;
+    while (chargeIndex < charges.length && charges[chargeIndex].date <= anchor.date) chargeIndex += 1;
+    owedAfterCents = -anchor.balanceCents;
+    anchored = true;
+  };
   const rows = payments.map((payment) => {
+    applyAnchor(payment.date);
     let chargesSinceCents = 0;
     while (chargeIndex < charges.length && charges[chargeIndex].date <= payment.date) {
       const charge = charges[chargeIndex++];
@@ -103,8 +117,9 @@ export function cardPaymentCheck(ledger: Ledger, accountId: string): CardPayment
     };
   });
 
+  applyAnchor(null);
   for (; chargeIndex < charges.length; chargeIndex += 1) owedAfterCents += charges[chargeIndex].amountCents;
-  return { rows, owedNowCents: owedAfterCents };
+  return { rows, owedNowCents: owedAfterCents, anchoredOn: anchor?.date ?? null };
 }
 
 export function existingEntryFor(ledger: Ledger, row: BankRow): Entry | null {
