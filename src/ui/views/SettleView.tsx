@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   balances,
   openItems,
+  settlementCoverage,
   SELF_ENTITY_ID,
   type BankRow,
-  type EntityOpenItems,
   type Ledger,
   type OpenItem,
   type Settlement,
@@ -20,6 +20,8 @@ import {
 } from "../../domain/ledger";
 import { formatMoney, parseAud } from "../../domain/value";
 import type { SplitwiseInboxItem } from "../../adapters/splitwise";
+import { BetweenOthers } from "./BetweenOthers";
+import { countLabel, differenceText, SettlementDetail } from "./SettlementDetail";
 import {
   buildPayment,
   getCurrentUser,
@@ -61,19 +63,23 @@ function centsText(cents: number): string {
   return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
 }
 
-function allocations(items: OpenItem[], amountCents: number) {
-  let remaining = amountCents;
-  return items.flatMap((item) => {
-    const appliedCents = Math.min(item.openAmountCents, remaining);
-    remaining -= appliedCents;
-    return appliedCents > 0 ? [{ item, appliedCents }] : [];
-  });
+/** Oldest items first, as many as the payment fully covers. */
+function autoPick(items: OpenItem[], amountCents: number): Set<string> {
+  const picked = new Set<string>();
+  let total = 0;
+  for (const item of items) {
+    if (item.source !== "entry") continue;
+    if (total + item.openAmountCents > amountCents) break;
+    total += item.openAmountCents;
+    picked.add(item.id);
+  }
+  return picked;
 }
 
 function ItemsTable({ title, items }: { title: string; items: OpenItem[] }) {
   return (
     <>
-      <h3>{title}</h3>
+      {title && <h3>{title}</h3>}
       {!items.length ? <p className="text-muted-foreground">Nothing open.</p> : <div className="w-full min-w-0 max-w-full overflow-x-auto">
         <Table tabIndex={0}>
           <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Item</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Open amount</TableHead></TableRow></TableHeader>
@@ -92,14 +98,6 @@ function ItemsTable({ title, items }: { title: string; items: OpenItem[] }) {
   );
 }
 
-function allocationsFor(
-  open: EntityOpenItems,
-  direction: SettlementDirection,
-  amountCents: number,
-) {
-  return allocations(direction === "theyPaidYou" ? open.theyOweYou : open.youOweThem, amountCents);
-}
-
 export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: SettleViewProps) {
   const currentLedger = useRef(ledger);
   currentLedger.current = ledger;
@@ -109,11 +107,17 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
     entity.kind !== "self" &&
     (!entity.archived || (entityBalances[entity.id] ?? 0) !== 0),
   );
-  const [entityId, setEntityId] = useState(entities[0]?.id ?? "");
+  const [entityId, setEntityId] = useState(() =>
+    [...entities].sort((first, second) => Math.abs(entityBalances[second.id] ?? 0) - Math.abs(entityBalances[first.id] ?? 0))[0]?.id ?? "");
   const [date, setDate] = useState(bankRow?.date ?? today());
-  const [direction, setDirection] = useState<SettlementDirection>(
-    bankRow && bankRow.amountCents > 0 ? "theyPaidYou" : "youPaidThem",
-  );
+  const directionFor = (id: string): SettlementDirection => bankRow
+    ? bankRow.amountCents > 0 ? "theyPaidYou" : "youPaidThem"
+    : (entityBalances[id] ?? 0) < 0 ? "youPaidThem" : "theyPaidYou";
+  const [direction, setDirection] = useState<SettlementDirection>(() => directionFor(entityId));
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  const [remainder, setRemainder] = useState<"carry" | "writeOff">("carry");
+  const [itemFilter, setItemFilter] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [amount, setAmount] = useState(bankRow ? centsText(Math.abs(bankRow.amountCents)) : "");
   const [note, setNote] = useState(bankRow?.description ?? "");
   const [error, setError] = useState("");
@@ -139,10 +143,32 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
       return 0;
     }
   })();
-  const preview = allocationsFor(items, direction, amountCents);
+  const payable = direction === "theyPaidYou" ? items.theyOweYou : items.youOweThem;
+  const pickedIds = picked ?? autoPick(payable, amountCents);
+  const pickedCents = payable.filter((item) => pickedIds.has(item.id)).reduce((total, item) => total + item.openAmountCents, 0);
+  const differenceCents = amountCents - pickedCents;
+  const filterText = itemFilter.trim().toLowerCase();
+  const shownItems = filterText
+    ? payable.filter((item) => `${item.date} ${item.description} ${formatMoney(item.openAmountCents)}`.toLowerCase().includes(filterText))
+    : payable;
+  const entityName = entity?.name ?? "them";
+
+  function chooseEntity(id: string) {
+    setEntityId(id);
+    if (!bankRow) setDirection(directionFor(id));
+    setPicked(null);
+    setItemFilter("");
+  }
+
+  function togglePicked(id: string) {
+    const next = new Set(pickedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setPicked(next);
+  }
   const netBalance = entity ? balances(ledger).byEntity[entity.id] ?? 0 : 0;
   const settlements = (ledger.settlements ?? [])
-    .filter((settlement) => settlement.entityId === entityId)
+    .filter((settlement) => settlement.entityId === entityId && !settlement.paidToEntityId)
     .sort((first, second) => second.date.localeCompare(first.date) || second.id.localeCompare(first.id));
   const splitwisePayments = (ledger.splitwiseInbox ?? []).filter((item) =>
     item.entityId === entityId && item.isPayment && ["new", "changed", "deleted"].includes(item.status),
@@ -351,15 +377,6 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
     update(nextLedger, "Record settlement");
   }
 
-  function bankActivity(settlement: (typeof settlements)[number]) {
-    const rows = settlement.bankRowIds
-      .map((id) => (ledger.bankRows ?? []).find((row) => row.id === id))
-      .filter((row): row is BankRow => Boolean(row));
-    return rows.length
-      ? rows.map((row) => `${row.date} ${row.description || "Bank transaction"}`).join("; ")
-      : "Manual";
-  }
-
   function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     let parsedAmount: number;
@@ -389,6 +406,8 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
       note,
       splitwisePaymentId: null,
       updatedAt: now,
+      ...(pickedIds.size ? { entryIds: payable.filter((item) => pickedIds.has(item.id)).map((item) => item.id) } : {}),
+      ...(pickedIds.size && remainder === "writeOff" && differenceCents !== 0 ? { remainder } : {}),
     };
     const nextLedger = {
       ...ledger,
@@ -402,11 +421,13 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
     update(nextLedger, "Record settlement");
     setSavedSettlement(settlement);
     setError("");
-    setSuccess("Settlement recorded.");
+    setSuccess(`Recorded ${formatMoney(parsedAmount)} ${direction === "theyPaidYou" ? `from ${entity.name}` : `to ${entity.name}`}${pickedIds.size ? `, covering ${pickedIds.size} item${pickedIds.size === 1 ? "" : "s"}` : ""}.`);
     setDate(today());
-    setDirection("theyPaidYou");
     setAmount("");
     setNote("");
+    setPicked(null);
+    setRemainder("carry");
+    setExpandedId(settlement.id);
     onSaved();
   }
 
@@ -437,30 +458,42 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
         {success && <p className="rounded-md border p-3 text-sm border-positive/40 text-positive" role="status">{success}</p>}
         <div className="grid gap-2">
           <Label htmlFor="settlement-who">Who</Label>
-          <Select value={entityId} onValueChange={(value) => setEntityId(value ?? "")}>
+          <Select items={entities.map((item) => ({ value: item.id, label: item.name }))} value={entityId} onValueChange={(value) => chooseEntity(value ?? "")}>
             <SelectTrigger id="settlement-who"><SelectValue placeholder="Choose an entity" /></SelectTrigger>
             <SelectContent>
-              {entities.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
+              {entities.map((item) => {
+                const cents = entityBalances[item.id] ?? 0;
+                return <SelectItem key={item.id} value={item.id}>{item.name}{cents !== 0 && <span className="ml-2 text-muted-foreground tabular-nums">{cents > 0 ? `owes you ${formatMoney(cents)}` : `you owe ${formatMoney(-cents)}`}</span>}</SelectItem>;
+              })}
             </SelectContent>
           </Select>
         </div>
         <label className="grid gap-2">
           Direction
-          <select value={direction} onChange={(event) => setDirection(event.target.value as SettlementDirection)}>
-            <option value="theyPaidYou">They paid me</option>
-            <option value="youPaidThem">I paid them</option>
+          <select value={direction} onChange={(event) => { setDirection(event.target.value as SettlementDirection); setPicked(null); }}>
+            <option value="theyPaidYou">{entityName} paid me</option>
+            <option value="youPaidThem">I paid {entityName}</option>
           </select>
         </label>
         <label className="grid gap-2">
           Amount
-          <Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required />
+          <Input inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => { setAmount(event.target.value.replace(/[$,\s]/g, "")); setPicked(null); }} required />
         </label>
+        {netBalance !== 0 && (
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" type="button" onClick={() => {
+              setDirection(netBalance > 0 ? "theyPaidYou" : "youPaidThem");
+              setAmount(centsText(Math.abs(netBalance)));
+              setPicked(null);
+            }}>Full balance {formatMoney(Math.abs(netBalance))}</Button>
+          </div>
+        )}
         <label className="grid gap-2">Date<Input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
         <label className="grid gap-2">
           Note
           <Input value={note} onChange={(event) => setNote(event.target.value)} />
         </label>
-        <div className="flex justify-end"><Button disabled={!entities.length} type="submit">Record settlement</Button></div>
+        <div className="flex justify-end"><Button disabled={!entities.length || amountCents <= 0} type="submit">Record payment</Button></div>
       </form>
 
       {savedSettlement && ledger.settlements?.some((settlement) => settlement.id === savedSettlement.id) &&
@@ -512,24 +545,62 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
         </section>
       )}
 
-      {amount.trim() && <>
-        <h2>Payment allocation</h2>
-        <p className="text-muted-foreground">Applied oldest first. Allocation is fixed.</p>
-        {!preview.length ? <p className="text-muted-foreground">Nothing open.</p> : <div className="w-full min-w-0 max-w-full overflow-x-auto">
+      <section className="grid gap-3 rounded-lg border p-4" aria-label="What this payment covers">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2>{direction === "theyPaidYou" ? `What ${entityName} is paying for` : `What you are paying ${entityName} for`}</h2>
+          <span className="text-sm text-muted-foreground">{payable.length} open item{payable.length === 1 ? "" : "s"} · {formatMoney(payable.reduce((total, item) => total + item.openAmountCents, 0))}</span>
+        </div>
+        <p className="text-sm text-muted-foreground">Tick the items this payment covers. With an amount entered, the oldest items it fully covers are ticked for you. Unticked items stay open.</p>
+        {payable.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Input className="max-w-xs" placeholder="Filter items" value={itemFilter} onChange={(event) => setItemFilter(event.target.value)} aria-label="Filter open items" />
+            <Button size="sm" variant="outline" type="button" onClick={() => setPicked(new Set([...pickedIds, ...shownItems.filter((item) => item.source === "entry").map((item) => item.id)]))}>Tick {filterText ? "shown" : "all"}</Button>
+            <Button size="sm" variant="outline" type="button" onClick={() => setPicked(new Set())}>Clear</Button>
+          </div>
+        )}
+        {!payable.length ? <p className="text-muted-foreground">Nothing open in this direction.</p> : <div className="max-h-96 w-full min-w-0 max-w-full overflow-auto">
           <Table tabIndex={0}>
-            <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Item</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Applied</TableHead></TableRow></TableHeader>
-            <TableBody>{preview.map(({ item, appliedCents }, index) => <TableRow key={`${item.id}-${index}`}>
-              <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{item.date || "Opening"}</TableCell><TableCell>{item.description} {item.source === "credit" && <Badge variant="outline">Credit</Badge>}</TableCell><TableCell className="text-right tabular-nums">{formatMoney(appliedCents)}</TableCell>
-            </TableRow>)}</TableBody>
+            <TableHeader><TableRow><TableHead className="w-10"><span className="sr-only">Covered</span></TableHead><TableHead className="hidden !text-secondary-foreground !font-semibold sm:table-cell">Date</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Item</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Open</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {shownItems.map((item, index) => (
+                <TableRow key={`${item.id}-${index}`} className={pickedIds.has(item.id) ? "bg-muted/40" : undefined}>
+                  <TableCell>{item.source === "entry" && <input aria-label={`Covers ${item.description}`} checked={pickedIds.has(item.id)} onChange={() => togglePicked(item.id)} type="checkbox" />}</TableCell>
+                  <TableCell className="hidden whitespace-nowrap tabular-nums text-muted-foreground sm:table-cell">{item.date || "Opening"}</TableCell>
+                  <TableCell className="whitespace-normal break-words">
+                    {item.description} {item.source !== "entry" && <Badge variant="outline">{item.source === "baseline" ? "Opening balance" : "Credit"}</Badge>}
+                    <span className="block text-xs tabular-nums text-muted-foreground sm:hidden">{item.date || "Opening"}</span>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{formatMoney(item.openAmountCents)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
           </Table>
         </div>}
-      </>}
+        {(pickedIds.size > 0 || amountCents > 0) && (
+          <div className="grid gap-2 rounded-md bg-muted/40 p-3 text-sm" role="status">
+            <p className="tabular-nums">Payment {formatMoney(amountCents)} · ticked {pickedIds.size} item{pickedIds.size === 1 ? "" : "s"} {formatMoney(pickedCents)} · {differenceCents === 0 ? "matches exactly" : differenceCents > 0 ? `${formatMoney(differenceCents)} over` : `${formatMoney(-differenceCents)} under`}</p>
+            {pickedIds.size > 0 && differenceCents !== 0 && (
+              <fieldset className="flex flex-wrap gap-4">
+                <legend className="sr-only">Difference</legend>
+                <label className="flex items-center gap-2"><input checked={remainder === "carry"} name="remainder" onChange={() => setRemainder("carry")} type="radio" />
+                  {differenceCents > 0 ? "Apply the extra to other open items, then keep it as credit" : "Keep the shortfall as still owed"}</label>
+                <label className="flex items-center gap-2"><input checked={remainder === "writeOff"} name="remainder" onChange={() => setRemainder("writeOff")} type="radio" />
+                  Write off the {formatMoney(Math.abs(differenceCents))} difference</label>
+              </fieldset>
+            )}
+            {!pickedIds.size && amountCents > 0 && <p className="text-muted-foreground">Nothing ticked: the payment pays the oldest items first.</p>}
+          </div>
+        )}
+        {items[direction === "theyPaidYou" ? "youOweThem" : "theyOweYou"].length > 0 && (
+          <details open={items[direction === "theyPaidYou" ? "youOweThem" : "theyOweYou"].some((item) => item.source === "credit")}>
+            <summary className="cursor-pointer text-sm">{direction === "theyPaidYou" ? "You also owe them" : "They also owe you"} {formatMoney(items[direction === "theyPaidYou" ? "youOweThem" : "theyOweYou"].reduce((total, item) => total + item.openAmountCents, 0))}</summary>
+            <ItemsTable title="" items={items[direction === "theyPaidYou" ? "youOweThem" : "theyOweYou"]} />
+          </details>
+        )}
+      </section>
 
-      <h2>Open items</h2>
-      <ItemsTable title="They owe you" items={items.theyOweYou} />
-      <ItemsTable title="You owe them" items={items.youOweThem} />
-
-      <h3>Recorded in Splitwise</h3>
+      {splitwisePayments.length > 0 && <>
+      <h3>Splitwise payments to record</h3>
       <div className="w-full min-w-0 max-w-full overflow-x-auto">
         <Table tabIndex={0}>
           <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Payment</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Direction</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold" /></TableRow></TableHeader>
@@ -547,27 +618,47 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
             ))}
           </TableBody>
         </Table>
-        {!splitwisePayments.length && <p className="text-sm text-muted-foreground p-4">No unrecorded Splitwise payments.</p>}
       </div>
-      <h2>Past settlements</h2>
+      </>}
+      <h2>Past payments with {entityName}</h2>
       <div className="w-full min-w-0 max-w-full overflow-x-auto">
         <Table tabIndex={0}>
-          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Direction</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Note</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Bank activity</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold" /></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !font-semibold">Date</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Direction</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Amount</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Covers</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Note</TableHead><TableHead className="!text-secondary-foreground !font-semibold" /></TableRow></TableHeader>
           <TableBody>
-            {settlements.map((settlement) => (
-              <TableRow key={settlement.id}>
-                <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{settlement.date}</TableCell>
-                <TableCell>{settlement.direction === "theyPaidYou" ? "They paid you" : "You paid them"}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(settlement.amountCents)}</TableCell>
-                <TableCell>{settlement.note}</TableCell>
-                <TableCell>{bankActivity(settlement)}</TableCell>
-                <TableCell><Button variant="outline" onClick={() => setDeletingSettlement(settlement)} type="button">Delete settlement</Button></TableCell>
-              </TableRow>
-            ))}
+            {settlements.map((settlement) => {
+              const coverage = settlementCoverage(ledger, settlement);
+              const linked = coverage.items.length + coverage.lines.length;
+              const expanded = expandedId === settlement.id;
+              return (
+                <Fragment key={settlement.id}>
+                  <TableRow>
+                    <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{settlement.date}</TableCell>
+                    <TableCell>{settlement.direction === "theyPaidYou" ? `${entityName} paid you` : `You paid ${entityName}`}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatMoney(settlement.amountCents)}</TableCell>
+                    <TableCell className="text-sm">
+                      {linked ? <>
+                        {coverage.lines.length ? countLabel(coverage.lines.length, "line") : countLabel(coverage.items.length, "item")}
+                        <span className="block text-muted-foreground">{differenceText(coverage.differenceCents, settlement.remainder, coverage.lines.length ? "the lines" : "the items")}</span>
+                      </> : <span className="text-muted-foreground">Oldest items first</span>}
+                      {!settlement.bankRowIds.length && <Badge className="mt-1" variant="outline">No bank row</Badge>}
+                    </TableCell>
+                    <TableCell className="text-sm">{settlement.note}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? null : settlement.id)} type="button">{expanded ? "Hide" : "Details"}</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setDeletingSettlement(settlement)} type="button">Delete</Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {expanded && <TableRow><TableCell colSpan={6}><SettlementDetail ledger={ledger} settlement={settlement} /></TableCell></TableRow>}
+                </Fragment>
+              );
+            })}
           </TableBody>
         </Table>
-        {!settlements.length && <p className="text-sm text-muted-foreground p-4">No settlements recorded.</p>}
+        {!settlements.length && <p className="text-sm text-muted-foreground p-4">No payments recorded yet.</p>}
       </div>
+      <BetweenOthers ledger={ledger} update={update} />
       <AlertDialog open={Boolean(deletingSettlement)} onOpenChange={(open) => { if (!open) setDeletingSettlement(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>

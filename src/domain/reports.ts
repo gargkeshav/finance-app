@@ -259,7 +259,7 @@ export function cashFlow(ledger: Ledger, from: string, to: string): CashFlowRepo
   }
 
   for (const settlement of ledger.settlements ?? []) {
-    if (settlement.date < from || settlement.date > to) continue;
+    if (settlement.date < from || settlement.date > to || settlement.paidToEntityId) continue;
     addCashFlow(result.settlements, settlement.direction === "theyPaidYou" ? settlement.amountCents : -settlement.amountCents);
   }
 

@@ -6,6 +6,7 @@ import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type 
 import { addStarterCategories, STARTER_CATEGORIES } from "../../domain/taxonomy";
 import { formatAud, formatMoney, parseAud, sumCents } from "../../domain/value";
 import type { EntryFilter } from "../../domain/query";
+import { BetweenOthers } from "./BetweenOthers";
 
 interface BalancesViewProps {
   ledger: Ledger;
@@ -254,23 +255,7 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
         })}
       </div>
 
-      {overall.betweenEntities.length > 0 && <>
-      <h2>Between others</h2>
-      <div className="w-full min-w-0 max-w-full overflow-x-auto">
-        <Table tabIndex={0}>
-          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Debtor</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Creditor</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead></TableRow></TableHeader>
-          <TableBody>
-            {overall.betweenEntities.map((debt) => (
-              <TableRow key={`${debt.debtorId}-${debt.creditorId}`}>
-                <TableCell>{ledger.entities.find((entity) => entity.id === debt.debtorId)?.name ?? "Unknown"}</TableCell>
-                <TableCell>{ledger.entities.find((entity) => entity.id === debt.creditorId)?.name ?? "Unknown"}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(debt.amountCents)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      </>}
+      <BetweenOthers ledger={ledger} update={update} />
     </>
   );
 }

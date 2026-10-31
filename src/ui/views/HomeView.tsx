@@ -33,11 +33,16 @@ export function HomeView({ ledger, healthIssues, reviewCount, openActivity, onOp
   const currentStart = dateString(year, month, 1);
   const currentEnd = dateString(year, month, new Date(year, month + 1, 0).getDate());
   const currentReport = report(ledger.entries, currentStart, currentEnd);
-  const entityBalances = balances(ledger).byEntity;
+  const overallBalances = balances(ledger);
+  const entityBalances = overallBalances.byEntity;
   const nonzeroEntities = ledger.entities
     .filter((entity) => entity.kind !== "self" && (entityBalances[entity.id] ?? 0) !== 0)
     .map((entity) => ({ entity, amount: entityBalances[entity.id] ?? 0 }));
-  const balanceEntities = ledger.entities.map((entity) => ({ entity, amount: entityBalances[entity.id] ?? 0 }));
+  const balanceEntities = [...nonzeroEntities].sort((first, second) => Math.abs(second.amount) - Math.abs(first.amount));
+  const settledNames = ledger.entities
+    .filter((entity) => entity.kind !== "self" && !entity.archived && (entityBalances[entity.id] ?? 0) === 0)
+    .map((entity) => entity.name);
+  const entityName = (id: string) => ledger.entities.find((entity) => entity.id === id)?.name ?? "Unknown";
   const owedToYou = sumCents(nonzeroEntities.filter(({ amount }) => amount > 0).map(({ amount }) => amount));
   const youOwe = sumCents(nonzeroEntities.filter(({ amount }) => amount < 0).map(({ amount }) => -amount));
   const chartRows = Array.from({ length: 6 }, (_, index) => {
@@ -127,7 +132,14 @@ export function HomeView({ ledger, healthIssues, reviewCount, openActivity, onOp
               </li>
             ))}
           </ul>
-        ) : <p className="text-muted-foreground">No entities yet.</p>}
+        ) : <p className="text-muted-foreground">Everyone is settled.</p>}
+        {overallBalances.betweenEntities.map((debt) => (
+          <p className="rounded-lg border p-4 text-sm" key={`${debt.debtorId}-${debt.creditorId}`}>
+            {entityName(debt.debtorId)} owes {entityName(debt.creditorId)} <span className="font-medium tabular-nums">{formatMoney(debt.amountCents)}</span>
+            <span className="text-muted-foreground"> · record it in Balances when it is paid</span>
+          </p>
+        ))}
+        {settledNames.length > 0 && <p className="text-sm text-muted-foreground">Settled: {settledNames.join(", ")}</p>}
       </section>
 
       <section aria-labelledby="trend-heading" className="space-y-3">

@@ -89,11 +89,13 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
       setError("Enter a valid checkpoint date.");
       return;
     }
+    const isCard = ledger.accounts.find((account) => account.id === checkpointAccountId)?.type === "credit";
     const checkpoint: BalanceCheckpoint = {
       id: crypto.randomUUID(),
       accountId: checkpointAccountId,
       date: checkpointDate,
-      balanceCents,
+      // Cards are entered as the amount owed and stored like bank rows, negative when owed.
+      balanceCents: isCard ? -balanceCents : balanceCents,
       note: checkpointNote.trim(),
       updatedAt: new Date().toISOString(),
     };
@@ -237,9 +239,22 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
                   </Table>
                 </div>
                 {paymentCheck.rows.length === 0 && <p className="text-sm text-muted-foreground">No card payments found.</p>}
-                {paymentCheck.rows[0] && paymentCheck.rows[0].payment.amountCents > paymentCheck.rows[0].chargesSinceCents && (
+                {paymentCheck.rows[0] && paymentCheck.rows[0].payment.amountCents > paymentCheck.rows[0].chargesSinceCents && !paymentCheck.anchoredOn && (
                   <p className="text-sm text-muted-foreground">Add a balance checkpoint at the start of this card&apos;s history.</p>
                 )}
+                {(() => {
+                  if (paymentCheck.anchoredOn || paymentCheck.rows.length < 3) return null;
+                  const lowestCents = Math.min(...paymentCheck.rows.map((row) => row.owedAfterCents));
+                  const largestPaymentCents = Math.max(...paymentCheck.rows.map((row) => row.payment.amountCents));
+                  if (lowestCents <= largestPaymentCents) return null;
+                  return (
+                    <div className="rounded-md border border-warning/40 p-3 text-sm" role="status">
+                      Payments look missing: the estimate never drops below {formatMoney(lowestCents)} after a payment, so about that much was paid
+                      before {paymentCheck.rows[0].payment.date}, the first payment recorded. Add a checkpoint with the amount owed on a recent statement to correct it.
+                    </div>
+                  );
+                })()}
+                {paymentCheck.anchoredOn && <p className="text-sm text-muted-foreground">Estimate starts from the {paymentCheck.anchoredOn} checkpoint.</p>}
               </CardContent>
             </Card>
           );
@@ -253,7 +268,7 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
           </DialogHeader>
           <form className="grid gap-4" onSubmit={saveCheckpoint}>
             <div className="grid gap-2"><Label htmlFor="checkpoint-date">Date</Label><Input id="checkpoint-date" type="date" value={checkpointDate} onChange={(event) => setCheckpointDate(event.target.value)} required /></div>
-            <div className="grid gap-2"><Label htmlFor="checkpoint-balance">Balance (AUD)</Label><Input id="checkpoint-balance" inputMode="decimal" value={checkpointBalance} onChange={(event) => setCheckpointBalance(event.target.value)} required /></div>
+            <div className="grid gap-2"><Label htmlFor="checkpoint-balance">{ledger.accounts.find((account) => account.id === checkpointAccountId)?.type === "credit" ? "Amount owed on the statement (AUD)" : "Balance (AUD)"}</Label><Input id="checkpoint-balance" inputMode="decimal" value={checkpointBalance} onChange={(event) => setCheckpointBalance(event.target.value)} required /></div>
             <div className="grid gap-2"><Label htmlFor="checkpoint-note">Note</Label><Input id="checkpoint-note" value={checkpointNote} onChange={(event) => setCheckpointNote(event.target.value)} /></div>
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
             <DialogFooter>

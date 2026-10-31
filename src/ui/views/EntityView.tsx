@@ -1,7 +1,9 @@
+import { Fragment } from "react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { balances, debtsOf, openEntryIds, openItems, SELF_ENTITY_ID, type Entry, type Ledger, type Settlement } from "../../domain/ledger";
+import { balances, debtsOf, openItems, SELF_ENTITY_ID, settlementCoverage, settlementEffectCents, settlementsForEntry, type Entry, type Ledger, type Settlement } from "../../domain/ledger";
+import { SettlementDetail, countLabel, differenceText } from "./SettlementDetail";
 import { formatMoney, sumCents } from "../../domain/value";
 import type { EntryFilter } from "../../domain/query";
 
@@ -21,13 +23,16 @@ interface TimelineItem {
   amountCents: number;
   entry?: Entry;
   settled?: boolean;
+  settlement?: Settlement;
+  balanceEffectCents?: number;
+  paidOn?: string;
 }
 
 function settlementCredit(ledger: Ledger, entityId: string, settlement: Settlement): number {
-  const ordered = [...(ledger.settlements ?? [])]
-    .sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
-  const priorSettlements = ordered.filter((item) =>
-    item.date < settlement.date || item.date === settlement.date && item.id < settlement.id,
+  const all = ledger.settlements ?? [];
+  const position = all.indexOf(settlement);
+  const priorSettlements = all.filter((item, index) =>
+    item.date < settlement.date || item.date === settlement.date && index < position,
   );
   const prior = { ...ledger, settlements: priorSettlements };
   const open = openItems(prior, entityId);
@@ -38,6 +43,8 @@ function settlementCredit(ledger: Ledger, entityId: string, settlement: Settleme
 
 export function EntityView({ ledger, update, entityId, openActivity, onSettle, onBack }: EntityViewProps) {
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   const entity = ledger.entities.find((item) => item.id === entityId);
   if (!entity) {
     return <>
@@ -49,10 +56,14 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
   }
 
   const balanceCents = balances(ledger).byEntity[entityId] ?? 0;
+  const paidOn = (entryId: string) => settlementsForEntry(ledger, entryId).find((settlement) => settlement.entityId === entityId)?.date;
   const baselineCents = sumCents(ledger.baselines
     .filter((baseline) => baseline.entityId === entityId)
     .map((baseline) => baseline.amountCents));
-  const openIds = openEntryIds(ledger);
+  const entityOpen = openItems(ledger, entityId);
+  const openIds = new Set([...entityOpen.theyOweYou, ...entityOpen.youOweThem]
+    .filter((item) => item.source === "entry")
+    .map((item) => item.id));
   const items: TimelineItem[] = [{
     id: `opening-${entityId}`,
     date: "",
@@ -63,28 +74,49 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
   for (const entry of ledger.entries) {
     for (const debt of debtsOf(entry, ledger.bankRows ?? [])) {
       if (debt.debtorId === entityId && debt.creditorId === SELF_ENTITY_ID) {
-        items.push({ id: `entry-${entry.id}`, date: entry.date, label: entry.description || entry.kind, amountCents: debt.amountCents, entry, settled: !openIds.has(entry.id) });
+        items.push({ id: `entry-${entry.id}`, date: entry.date, label: entry.displayName || entry.description || entry.kind, amountCents: debt.amountCents, entry, settled: !openIds.has(entry.id), paidOn: paidOn(entry.id) });
       } else if (debt.debtorId === SELF_ENTITY_ID && debt.creditorId === entityId) {
-        items.push({ id: `entry-${entry.id}`, date: entry.date, label: entry.description || entry.kind, amountCents: -debt.amountCents, entry, settled: !openIds.has(entry.id) });
+        items.push({ id: `entry-${entry.id}`, date: entry.date, label: entry.displayName || entry.description || entry.kind, amountCents: -debt.amountCents, entry, settled: !openIds.has(entry.id), paidOn: paidOn(entry.id) });
       }
     }
   }
 
+  if (showHistory) {
+    for (const entry of ledger.entries) {
+      if (entry.countsTowardDebt || (entry.kind !== "spend" && entry.kind !== "refund")) continue;
+      const sign = entry.kind === "refund" ? -1 : 1;
+      const theirs = entry.payerEntityId === SELF_ENTITY_ID
+        ? sumCents(entry.portions.filter((portion) => portion.entityId === entityId && (portion.treatment ?? "claim") === "claim").map((portion) => portion.amountCents))
+        : entry.payerEntityId === entityId
+          ? -sumCents(entry.portions.filter((portion) => portion.entityId === SELF_ENTITY_ID && (portion.treatment ?? "claim") === "claim").map((portion) => portion.amountCents))
+          : 0;
+      if (!theirs) continue;
+      items.push({ id: `history-${entry.id}`, date: entry.date, label: entry.displayName || entry.description || entry.kind, amountCents: sign * theirs, balanceEffectCents: 0, entry, settled: true, paidOn: paidOn(entry.id) });
+    }
+  }
+
   for (const settlement of ledger.settlements ?? []) {
-    if (settlement.entityId !== entityId) continue;
-    const creditCents = settlementCredit(ledger, entityId, settlement);
+    if (settlement.entityId !== entityId || settlement.paidToEntityId) continue;
+    const creditCents = settlement.remainder === "writeOff" ? 0 : settlementCredit(ledger, entityId, settlement);
+    const sign = settlement.direction === "theyPaidYou" ? -1 : 1;
+    const coverage = settlementCoverage(ledger, settlement);
+    const covered = coverage.lines.length || coverage.items.length
+      ? ` · ${coverage.lines.length ? countLabel(coverage.lines.length, "line") : countLabel(coverage.items.length, "item")}, ${differenceText(coverage.differenceCents, settlement.remainder, coverage.lines.length ? "the lines" : "the items").toLowerCase()}`
+      : "";
     items.push({
       id: `settlement-${settlement.id}`,
       date: settlement.date,
-      label: `${settlement.direction === "theyPaidYou" ? "They paid you" : "You paid them"}${creditCents > 0 ? ` · includes ${formatMoney(creditCents)} credit` : ""}`,
-      amountCents: settlement.direction === "theyPaidYou" ? -settlement.amountCents : settlement.amountCents,
+      label: `${settlement.direction === "theyPaidYou" ? `${entity.name} paid you` : `You paid ${entity.name}`}${creditCents > 0 ? ` · includes ${formatMoney(creditCents)} credit` : ""}${covered}`,
+      amountCents: sign * settlement.amountCents,
+      balanceEffectCents: sign * settlementEffectCents(ledger, settlement),
+      settlement,
     });
   }
 
   items.sort((first, second) => first.date.localeCompare(second.date) || first.id.localeCompare(second.id));
   let runningBalanceCents = 0;
   const rows = items.map((item) => {
-    runningBalanceCents += item.amountCents;
+    runningBalanceCents += item.balanceEffectCents ?? item.amountCents;
     return { ...item, runningBalanceCents };
   });
   const treatedPortions = ledger.entries.flatMap((entry) => entry.portions.flatMap((portion, portionIndex) => {
@@ -141,21 +173,31 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
         <Button onClick={onSettle} type="button">Settle up</Button>
       </div>
     </header>
+    <label className="flex w-fit items-center gap-2 text-sm">
+      <input checked={showHistory} onChange={(event) => setShowHistory(event.target.checked)} type="checkbox" />
+      Show settled history (items already paid before tracking; they don't change the balance)
+    </label>
     <div className="min-w-0 max-w-full overflow-x-auto">
       <Table tabIndex={0}>
         <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Activity</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Status</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Balance</TableHead></TableRow></TableHeader>
         <TableBody>
           {rows.map((row) => {
             const entryId = row.entry?.id;
-            return <TableRow key={row.id}>
-              <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{row.date || "Opening"}</TableCell>
-              <TableCell>{entryId
-                ? <Button variant="link" className="h-auto p-0" onClick={() => openActivity({ entryIds: [entryId] })} type="button">{row.label}</Button>
-                : row.label}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatMoney(row.amountCents)}</TableCell>
-              <TableCell>{row.entry ? row.settled ? "Settled" : "Open" : ""}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatMoney(row.runningBalanceCents)}</TableCell>
-            </TableRow>;
+            const expanded = row.settlement && expandedId === row.settlement.id;
+            return <Fragment key={row.id}>
+              <TableRow>
+                <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{row.date || "Opening"}</TableCell>
+                <TableCell>{entryId
+                  ? <Button variant="link" className="h-auto whitespace-normal p-0 text-left" onClick={() => openActivity({ entryIds: [entryId] })} type="button">{row.label}</Button>
+                  : row.settlement
+                    ? <Button variant="link" className="h-auto whitespace-normal p-0 text-left" aria-expanded={Boolean(expanded)} onClick={() => setExpandedId(expanded ? null : row.settlement!.id)} type="button">{row.label}</Button>
+                    : row.label}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(row.amountCents)}</TableCell>
+                <TableCell>{row.entry ? row.settled ? row.paidOn ? `Paid ${row.paidOn}` : row.balanceEffectCents === 0 ? "Settled earlier" : "Settled" : "Open" : row.settlement ? row.balanceEffectCents === 0 ? "History" : "Payment" : ""}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(row.runningBalanceCents)}</TableCell>
+              </TableRow>
+              {expanded && row.settlement && <TableRow><TableCell colSpan={5}><SettlementDetail ledger={ledger} settlement={row.settlement} /></TableCell></TableRow>}
+            </Fragment>;
           })}
         </TableBody>
       </Table>

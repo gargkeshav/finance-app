@@ -10,10 +10,11 @@ export type LedgerOptions = {
   checkpointDifference?: { accountId?: string; differenceCents?: number };
 };
 
+// Days before today, kept inside the current month so "this month" totals hold early in a month.
 function relativeDate(offsetDays: number): string {
   const today = new Date();
-  const date = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + offsetDays));
-  return date.toISOString().slice(0, 10);
+  const day = Math.max(1, today.getDate() + offsetDays);
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function baseTimestamp(): string {

@@ -194,6 +194,18 @@ const settlementSchema = z.object({
   note: z.string(),
   splitwisePaymentId: idSchema.nullable().default(null),
   updatedAt: updatedAtSchema,
+  paidToEntityId: idSchema.optional(),
+  entryIds: z.array(idSchema).optional(),
+  lines: z.array(z.object({
+    label: z.string(),
+    amountCents: centsSchema,
+    entryIds: z.array(idSchema),
+    note: z.string().optional(),
+  })).optional(),
+  remainder: z.enum(["carry", "writeOff"]).optional(),
+}).refine((settlement) => settlement.paidToEntityId !== settlement.entityId, {
+  message: "A settlement cannot pay the same entity.",
+  path: ["paidToEntityId"],
 });
 
 const importSchema = z.object({
