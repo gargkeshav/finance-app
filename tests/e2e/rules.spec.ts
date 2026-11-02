@@ -12,10 +12,15 @@ test("create a suggested rule, preview it, and apply it", async ({ app, page }) 
   await expect(page.getByRole("heading", { name: "Rules", exact: true }).first()).toBeVisible();
   await page.getByText("Ledger opened.").waitFor({ state: "hidden" });
   await app.checkA11y();
+  for (const width of [390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  }
   await expect(page.getByText("Suggested rule", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Add rule", exact: true })).toBeVisible();
+  await page.getByText("Advanced matching and automation", { exact: true }).click();
   await page.getByLabel("Scope").selectOption("existingEntries");
   await page.getByLabel("Protect manual edits").uncheck();
   await page.getByRole("button", { name: "Preview", exact: true }).click();

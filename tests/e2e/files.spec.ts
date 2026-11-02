@@ -48,9 +48,11 @@ test("a ledger can be opened and saved through the file controls", async ({ app,
   await expect(status).toHaveText("Saving…");
   await expect(status).toHaveText("Saved");
 
-  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await openActivityView(page);
+  await (await activityEntry(page, "Fuel")).click();
+  await page.getByRole("button", { name: "Edit entry", exact: true }).click();
   await app.failNextWrite();
-  const description = page.getByRole("textbox", { name: "Fuel description" });
+  const description = page.getByRole("textbox", { name: "Description", exact: true });
   await description.fill("Fuel and parking");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
@@ -91,7 +93,8 @@ test("unsaved work without an open file is marked not saved", async ({ app, page
   await page.getByRole("button", { name: "Add spend", exact: true }).click();
   await page.getByRole("textbox", { name: "Description", exact: true }).fill("Unfiled spend");
   await page.getByRole("textbox", { name: "Amount (AUD)", exact: true }).fill("10.00");
-  await page.getByRole("button", { name: "All to You", exact: true }).click();
+  await page.getByRole("combobox", { name: "Split method" }).selectOption("payer");
+  await page.getByRole("button", { name: "Apply split", exact: true }).click();
   await page.getByRole("button", { name: "Save spend", exact: true }).click();
   await openMobileSidebar(page);
   await expect(status).toHaveText("Not saved");

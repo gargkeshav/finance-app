@@ -6,6 +6,7 @@ import {
   ChartNoAxesCombined,
   ClipboardCheck,
   Database,
+  Ellipsis,
   FileClock,
   FileInput,
   HeartPulse,
@@ -135,9 +136,9 @@ function SidebarNavigation({
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
   return (
-    <SidebarContent>
+    <SidebarContent className="gap-1">
       {navigationGroups.map((group) => (
-        <SidebarGroup key={group.label}>
+        <SidebarGroup className="py-2" key={group.label}>
           <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -665,19 +666,28 @@ export function LocalApp() {
     <SidebarProvider>
       <Sidebar collapsible="icon">
         <SidebarHeader>
-          <div className="flex items-center gap-2 px-2 py-2 font-semibold">
-            <House className="size-5" />
-            <span>Finance</span>
+          <div className="flex items-center gap-3 px-2 py-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <House className="size-4" />
+            </span>
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-sm font-semibold">Finance</span>
+              <span className="text-xs text-muted-foreground">Local AUD ledger</span>
+            </span>
           </div>
         </SidebarHeader>
         <SidebarNavigation view={view} reviewCount={reviewCount} healthCount={healthCount} navigate={navigate} />
         <SidebarFooter>
-          <section aria-label="Ledger file" className="flex min-w-0 flex-col gap-2">
-            <div className="truncate text-sm" title={fileName || "No file open"}>{fileName || "No file open"}</div>
-            <span className="text-xs text-muted-foreground" role="status">{saveStatus}</span>
+          <section aria-label="Ledger file" className="flex min-w-0 flex-col gap-2 border-t pt-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className={`size-2 shrink-0 rounded-full ${hasUnsavedChanges ? "bg-warning" : "bg-positive"}`} aria-hidden="true" />
+              <div className="truncate text-sm font-medium" title={fileName || "No file open"}>{fileName || "No file open"}</div>
+            </div>
+            <span className="pl-4 text-xs text-muted-foreground" role="status">{saveStatus}</span>
             <DropdownMenu>
-              <DropdownMenuTrigger render={<Button className="w-full justify-start" variant="outline" />}>
-                Ledger file actions
+              <DropdownMenuTrigger render={<Button aria-label="Ledger file actions" className="w-full justify-between" size="sm" variant="outline" />}>
+                <span>File actions</span>
+                <Ellipsis />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 <DropdownMenuItem onClick={openLedger}>Open</DropdownMenuItem>
@@ -689,9 +699,8 @@ export function LocalApp() {
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-w-0">
-        <header className="sticky top-0 z-10 flex min-h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur">
+        <header className="sticky top-0 z-10 flex min-h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-6">
           <SidebarTrigger aria-label="Toggle navigation" />
-          <span className="font-medium">{view}</span>
           <div className="ml-auto">
             <Button aria-label="Search ⌘K" onClick={() => setCommandOpen(true)} variant="outline">
               <Search />
@@ -700,7 +709,7 @@ export function LocalApp() {
             </Button>
           </div>
         </header>
-        <main className="min-w-0 p-4 md:p-6">
+        <main className="mx-auto min-w-0 w-full max-w-[1600px] p-4 sm:p-6 lg:p-8">
           <input
             ref={uploadInput}
             accept="application/json,.json,.finance.json"

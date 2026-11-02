@@ -49,8 +49,18 @@ export function DataView({ mode, onSave, onChooseBackupFolder, onRestore, ledger
   }
 
   return (
-    <div className="grid min-w-0 gap-6">
-      <header><h1 className="text-2xl font-semibold tracking-tight">Data</h1></header>
+    <div className="mx-auto grid min-w-0 gap-6">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="grid gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Data</h1>
+          <p className="text-sm text-muted-foreground">Save a copy of your ledger or restore it from a backup.</p>
+        </div>
+        {preview ? (
+          <Button disabled={!onRestore} onClick={() => setRestoreOpen(true)} type="button">Restore backup</Button>
+        ) : (
+          <Button onClick={onSave} type="button">Save JSON</Button>
+        )}
+      </header>
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
       <Card>
         <CardHeader>
@@ -76,12 +86,11 @@ export function DataView({ mode, onSave, onChooseBackupFolder, onRestore, ledger
       <Card>
         <CardHeader>
           <CardTitle>Export</CardTitle>
-          <CardDescription>Save the current ledger as a JSON file.</CardDescription>
+          <CardDescription>Your ledger is stored in one JSON file. Keep a private backup.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
           <p className="text-sm">Active storage mode: {mode === "in-place" ? "open and save one local file" : "download and upload JSON"}.</p>
           {mode === "download" && <p className="text-sm text-muted-foreground">Android Chrome uses download and upload because its file picker API is unavailable.</p>}
-          <Button className="w-fit" onClick={onSave} type="button">Save JSON</Button>
         </CardContent>
       </Card>
       <Card>
@@ -89,10 +98,15 @@ export function DataView({ mode, onSave, onChooseBackupFolder, onRestore, ledger
           <CardTitle>Backup</CardTitle>
           <CardDescription>The ledger file is unencrypted. Keep it somewhere private and make regular backups.</CardDescription>
         </CardHeader>
-        <CardContent className="grid justify-items-start gap-3">
-          <Button disabled={!onChooseBackupFolder} onClick={onChooseBackupFolder} type="button" variant="outline">Choose backup folder</Button>
-          {!onChooseBackupFolder && <p className="text-sm text-muted-foreground">Backups need Chrome or Edge with folder access support.</p>}
-          <Button onClick={() => backupInput.current?.click()} type="button" variant="outline">Restore from backup</Button>
+        <CardContent className="grid gap-3">
+          <details className="rounded-md border p-3">
+            <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">More backup actions</summary>
+            <div className="grid justify-items-start gap-3 pt-3">
+              <Button disabled={!onChooseBackupFolder} onClick={onChooseBackupFolder} type="button" variant="outline">Choose backup folder</Button>
+              {!onChooseBackupFolder && <p className="text-sm text-muted-foreground">Automatic backups need Chrome or Edge with folder access support.</p>}
+              <Button onClick={() => backupInput.current?.click()} type="button" variant="outline">Choose a backup to restore</Button>
+            </div>
+          </details>
           <input
             ref={backupInput}
             accept="application/json,.json,.finance.json"
@@ -102,11 +116,11 @@ export function DataView({ mode, onSave, onChooseBackupFolder, onRestore, ledger
             type="file"
           />
           {preview && (
-            <div className="grid w-full gap-3 rounded-md border p-4" aria-label="Backup preview">
-              <h2 className="font-medium">{preview.fileName}</h2>
+            <div className="grid w-full gap-2 rounded-md border bg-muted/30 p-4" aria-label="Backup preview">
+              <h2 className="break-all font-medium">{preview.fileName}</h2>
               <p className="text-sm text-muted-foreground">{preview.ledger.entries.length} entries, {(preview.ledger.bankRows ?? []).length} rows, {(preview.ledger.settlements ?? []).length} settlements.</p>
-              <Button className="w-fit" onClick={() => setRestoreOpen(true)} type="button">Restore this backup</Button>
-              <Button className="w-fit" onClick={() => setPreview(null)} type="button" variant="outline">Cancel</Button>
+              <p className="text-sm">Check this file before replacing your current ledger.</p>
+              <Button className="w-fit" onClick={() => setPreview(null)} type="button" variant="outline">Cancel restore</Button>
             </div>
           )}
         </CardContent>

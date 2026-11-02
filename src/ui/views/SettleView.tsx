@@ -82,7 +82,7 @@ function ItemsTable({ title, items }: { title: string; items: OpenItem[] }) {
       {title && <h3>{title}</h3>}
       {!items.length ? <p className="text-muted-foreground">Nothing open.</p> : <div className="w-full min-w-0 max-w-full overflow-x-auto">
         <Table tabIndex={0}>
-          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Item</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Open amount</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Item</TableHead><TableHead className="text-right">Open amount</TableHead></TableRow></TableHeader>
           <TableBody>
             {items.map((item, index) => (
               <TableRow key={`${item.id}-${index}`}>
@@ -444,19 +444,35 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
 
   return (
     <>
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1>Settle</h1>
+      <div className="grid gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Payments and balances</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Settle</h1>
+        </div>
+        {entities.length > 1 && <span className="text-sm text-muted-foreground">{entities.length} people or groups</span>}
       </header>
-      <section className="rounded-lg border bg-card p-4 text-card-foreground shadow-sm" aria-label="Current balance">
-        <p>{entity ? `${entity.name}: ` : "Balance: "}{netBalance > 0 ? `They owe you ${formatMoney(netBalance)}` : netBalance < 0 ? `You owe ${entity?.name ?? "them"} ${formatMoney(Math.abs(netBalance))}` : "Settled"}</p>
-        {entity?.splitwise?.kind === "user" && balanceUnavailableFor !== entity.id && <Button variant="outline" disabled={checkingBalance} onClick={() => void checkSplitwiseBalance()} type="button">{checkingBalance ? "Checking Splitwise…" : "Check Splitwise balance"}</Button>}
-        {checkedBalance && checkedBalance.entityId === entity?.id && <p>Splitwise: {formatMoney(checkedBalance.splitwiseCents)}. Difference: {formatMoney(checkedBalance.splitwiseCents - netBalance)}. A difference means an unmatched entry or settlement.</p>}
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-card-foreground" aria-label="Current balance">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{entity?.name ?? "Current balance"}</p>
+          <p className={`text-lg font-semibold tabular-nums ${netBalance > 0 ? "text-positive" : netBalance < 0 ? "text-negative" : ""}`}>
+            {netBalance > 0 ? `Owes you ${formatMoney(netBalance)}` : netBalance < 0 ? `You owe ${formatMoney(Math.abs(netBalance))}` : "Settled"}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {entity?.splitwise?.kind === "user" && balanceUnavailableFor !== entity.id && <Button size="sm" variant="outline" disabled={checkingBalance} onClick={() => void checkSplitwiseBalance()} type="button">{checkingBalance ? "Checking Splitwise…" : "Check Splitwise"}</Button>}
+          {checkedBalance && checkedBalance.entityId === entity?.id && <p className="max-w-md text-sm text-muted-foreground">Splitwise {formatMoney(checkedBalance.splitwiseCents)} · difference {formatMoney(checkedBalance.splitwiseCents - netBalance)}</p>}
+        </div>
       </section>
 
-      <form className="grid gap-4 rounded-lg border p-4" id="settlement-form" onSubmit={save}>
-        {error && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{error}</p>}
-        {success && <p className="rounded-md border p-3 text-sm border-positive/40 text-positive" role="status">{success}</p>}
-        <div className="grid gap-2">
+      <form className="grid gap-4 rounded-lg border bg-card p-4 sm:grid-cols-2 sm:gap-x-5" id="settlement-form" onSubmit={save}>
+        <div className="sm:col-span-2">
+          <h2 className="font-semibold">Record a payment</h2>
+          <p className="text-sm text-muted-foreground">Choose who paid and match the payment to open items.</p>
+        </div>
+        {error && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive sm:col-span-2" role="alert">{error}</p>}
+        {success && <p className="rounded-md border p-3 text-sm border-positive/40 text-positive sm:col-span-2" role="status">{success}</p>}
+        <div className="grid content-start gap-2">
           <Label htmlFor="settlement-who">Who</Label>
           <Select items={entities.map((item) => ({ value: item.id, label: item.name }))} value={entityId} onValueChange={(value) => chooseEntity(value ?? "")}>
             <SelectTrigger id="settlement-who"><SelectValue placeholder="Choose an entity" /></SelectTrigger>
@@ -468,38 +484,48 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
             </SelectContent>
           </Select>
         </div>
-        <label className="grid gap-2">
-          Direction
-          <select value={direction} onChange={(event) => { setDirection(event.target.value as SettlementDirection); setPicked(null); }}>
-            <option value="theyPaidYou">{entityName} paid me</option>
-            <option value="youPaidThem">I paid {entityName}</option>
-          </select>
-        </label>
-        <label className="grid gap-2">
-          Amount
-          <Input inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => { setAmount(event.target.value.replace(/[$,\s]/g, "")); setPicked(null); }} required />
-        </label>
+        <div className="grid content-start gap-2">
+          <Label htmlFor="settlement-direction">Direction</Label>
+          <Select value={direction} onValueChange={(value) => { setDirection(value as SettlementDirection); setPicked(null); }}>
+            <SelectTrigger id="settlement-direction">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="theyPaidYou">{entityName} paid you</SelectItem>
+              <SelectItem value="youPaidThem">You paid {entityName}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid content-start gap-2">
+          <Label htmlFor="settlement-amount">Amount (AUD)</Label>
+          <Input id="settlement-amount" inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => { setAmount(event.target.value.replace(/[$,\s]/g, "")); setPicked(null); }} required />
+        </div>
+        <div className="grid content-start gap-2">
+          <Label htmlFor="settlement-date">Date</Label>
+          <Input id="settlement-date" type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+        </div>
+        <div className="grid content-start gap-2 sm:col-span-2">
+          <Label htmlFor="settlement-note">Note <span className="font-normal text-muted-foreground">(optional)</span></Label>
+          <Input id="settlement-note" value={note} onChange={(event) => setNote(event.target.value)} />
+        </div>
         {netBalance !== 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="sm:col-span-2">
             <Button size="sm" variant="outline" type="button" onClick={() => {
               setDirection(netBalance > 0 ? "theyPaidYou" : "youPaidThem");
               setAmount(centsText(Math.abs(netBalance)));
               setPicked(null);
-            }}>Full balance {formatMoney(Math.abs(netBalance))}</Button>
+            }}>Use full balance · {formatMoney(Math.abs(netBalance))}</Button>
           </div>
         )}
-        <label className="grid gap-2">Date<Input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
-        <label className="grid gap-2">
-          Note
-          <Input value={note} onChange={(event) => setNote(event.target.value)} />
-        </label>
-        <div className="flex justify-end"><Button disabled={!entities.length || amountCents <= 0} type="submit">Record payment</Button></div>
+        <div className="flex justify-end sm:col-span-2">
+          <Button className="w-full sm:w-auto" disabled={!entities.length || amountCents <= 0} type="submit">Record payment</Button>
+        </div>
       </form>
 
       {savedSettlement && ledger.settlements?.some((settlement) => settlement.id === savedSettlement.id) &&
         !savedSettlement.splitwisePaymentId && ledger.entities.find((item) => item.id === savedSettlement.entityId)?.splitwise && (
-        <section className="rounded-lg border bg-card p-4 text-card-foreground shadow-sm" aria-label="Record settlement in Splitwise">
-          <h2>Splitwise payment</h2>
+        <section className="grid gap-3 rounded-lg border bg-card p-4 text-card-foreground" aria-label="Record settlement in Splitwise">
+          <h2 className="font-semibold">Splitwise</h2>
           {settlementPost?.state === "posted" && <p>Posted to Splitwise ({settlementPost.splitwiseExpenseId}).</p>}
           {(settlementPost?.state === "posting" || pendingPayment) && <p role="status">Posting to Splitwise.</p>}
           {(settlementPost?.state === "unknown" || settlementPost?.state === "posting" && !pendingPayment) && <div className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="status">
@@ -516,11 +542,11 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
               <label>Group member<select value={selectedPaymentMemberId} onChange={(event) => setSelectedPaymentMemberId(event.target.value)}>
                 {paymentContext.members.map((member) => <option key={member.id} value={member.id}>{`${member.first_name} ${member.last_name}`.trim()}</option>)}
               </select></label>
-              <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={!selectedPaymentMemberId} onClick={() => {
+              <Button variant="outline" disabled={!selectedPaymentMemberId} onClick={() => {
                 const settlement = ledger.settlements?.find((item) => item.id === paymentContext.settlementId);
                 if (settlement) stagePayment(settlement, Number(selectedPaymentMemberId), paymentContext.youId);
-              }} type="button">Continue</button>
-              <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => setPaymentContext(null)} type="button">Cancel</button>
+              }} type="button">Continue</Button>
+              <Button variant="ghost" onClick={() => setPaymentContext(null)} type="button">Cancel</Button>
             </div>
           )}
           {stagedPayment && (
@@ -537,8 +563,8 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
                 <option value={stagedPayment.youId}>You</option>
               </select></label>
               <div className="flex flex-wrap justify-end gap-2">
-                <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={pendingPayment} onClick={() => void submitPayment()} type="button">Confirm and post</button>
-                <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={pendingPayment} onClick={() => setStagedPayment(null)} type="button">Cancel</button>
+                <Button variant="outline" disabled={pendingPayment} onClick={() => void submitPayment()} type="button">Confirm and post</Button>
+                <Button variant="ghost" disabled={pendingPayment} onClick={() => setStagedPayment(null)} type="button">Cancel</Button>
               </div>
             </div>
           )}
@@ -620,10 +646,14 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
         </Table>
       </div>
       </>}
-      <h2>Past payments with {entityName}</h2>
+      <section className="grid gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold">Past payments</h2>
+        <span className="text-sm text-muted-foreground">with {entityName}</span>
+      </div>
       <div className="w-full min-w-0 max-w-full overflow-x-auto">
         <Table tabIndex={0}>
-          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !font-semibold">Date</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Direction</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Amount</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Covers</TableHead><TableHead className="!text-secondary-foreground !font-semibold">Note</TableHead><TableHead className="!text-secondary-foreground !font-semibold" /></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Direction</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="hidden sm:table-cell">Covers</TableHead><TableHead className="hidden lg:table-cell">Note</TableHead><TableHead><span className="sr-only">Payment actions</span></TableHead></TableRow></TableHeader>
           <TableBody>
             {settlements.map((settlement) => {
               const coverage = settlementCoverage(ledger, settlement);
@@ -635,19 +665,22 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
                     <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{settlement.date}</TableCell>
                     <TableCell>{settlement.direction === "theyPaidYou" ? `${entityName} paid you` : `You paid ${entityName}`}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatMoney(settlement.amountCents)}</TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="hidden text-sm sm:table-cell">
                       {linked ? <>
                         {coverage.lines.length ? countLabel(coverage.lines.length, "line") : countLabel(coverage.items.length, "item")}
                         <span className="block text-muted-foreground">{differenceText(coverage.differenceCents, settlement.remainder, coverage.lines.length ? "the lines" : "the items")}</span>
                       </> : <span className="text-muted-foreground">Oldest items first</span>}
                       {!settlement.bankRowIds.length && <Badge className="mt-1" variant="outline">No bank row</Badge>}
                     </TableCell>
-                    <TableCell className="text-sm">{settlement.note}</TableCell>
+                    <TableCell className="hidden max-w-48 truncate text-sm lg:table-cell">{settlement.note || "—"}</TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? null : settlement.id)} type="button">{expanded ? "Hide" : "Details"}</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setDeletingSettlement(settlement)} type="button">Delete</Button>
-                      </div>
+                      <details className="relative">
+                        <summary className="cursor-pointer rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Actions</summary>
+                        <div className="absolute right-0 z-10 mt-1 grid min-w-32 rounded-md border bg-popover p-1 shadow-md">
+                          <Button size="sm" variant="ghost" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? null : settlement.id)} type="button">{expanded ? "Hide details" : "Details"}</Button>
+                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeletingSettlement(settlement)} type="button">Delete</Button>
+                        </div>
+                      </details>
                     </TableCell>
                   </TableRow>
                   {expanded && <TableRow><TableCell colSpan={6}><SettlementDetail ledger={ledger} settlement={settlement} /></TableCell></TableRow>}
@@ -658,6 +691,7 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
         </Table>
         {!settlements.length && <p className="text-sm text-muted-foreground p-4">No payments recorded yet.</p>}
       </div>
+      </section>
       <BetweenOthers ledger={ledger} update={update} />
       <AlertDialog open={Boolean(deletingSettlement)} onOpenChange={(open) => { if (!open) setDeletingSettlement(null); }}>
         <AlertDialogContent>
@@ -685,6 +719,7 @@ export function SettleView({ ledger, update, saveNow, bankRow, onSaved }: Settle
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </>
   );
 }

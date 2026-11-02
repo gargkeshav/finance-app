@@ -5,14 +5,6 @@ import {
   type CsvMapping,
 } from "../../adapters/csv-mapping";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -144,88 +136,85 @@ export function MappingEditor({ text, initialMapping, onSave, onCancel }: Mappin
   const effectiveDateIndex = dateIndex || "auto";
   const effectiveBalanceIndex = balanceIndex || "auto";
 
+  const fieldClass = "grid min-w-0 gap-2 text-sm font-medium";
+
   return (
-    <form className="grid gap-4" onSubmit={save}>
-      <div className="grid gap-2 sm:grid-cols-2">
+    <form className="grid gap-5 py-4" onSubmit={save}>
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label htmlFor="mapping-name">Mapping name</Label>
           <Input id="mapping-name" value={name} onChange={(event) => setName(event.target.value)} required />
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="mapping-date-format">Date format</Label>
-          <Select value={dateFormat} onValueChange={(value) => value && setDateFormat(value as CsvMapping["dateFormat"])}>
-            <SelectTrigger id="mapping-date-format"><SelectValue /></SelectTrigger>
+        <label className={fieldClass}>
+          Amount format
+          <Select value={amountMode} onValueChange={(value) => value && setAmountMode(value as typeof amountMode)}>
+            <SelectTrigger aria-label="Amount format"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="D/M/YYYY">D/M/YYYY</SelectItem>
-              <SelectItem value="D Mon YYYY">D Mon YYYY</SelectItem>
-              <SelectItem value="YYYY-MM-DD">YYYY-MM-DD (time ignored)</SelectItem>
+              <SelectItem value="signed">Signed amount</SelectItem>
+              <SelectItem value="debit-credit">Separate debit and credit</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-      </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input checked={hasHeader} onChange={(event) => setHasHeader(event.target.checked)} type="checkbox" />
-        First row contains column names
-      </label>
-      <div className="grid gap-2">
-        <Label>Column mapping</Label>
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader><TableRow><TableHead>Field</TableHead><TableHead>CSV column</TableHead></TableRow></TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>{selectColumn("Date", effectiveDateIndex, (value) => setDateIndex(value === "auto" ? "" : value), true)}</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>Amount format</TableCell>
-                <TableCell>
-                  <Select value={amountMode} onValueChange={(value) => value && setAmountMode(value as typeof amountMode)}>
-                    <SelectTrigger aria-label="Amount format" className="w-full min-w-40"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="signed">Signed amount</SelectItem>
-                      <SelectItem value="debit-credit">Separate debit and credit</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-              </TableRow>
-              {amountMode === "signed" ? (
-                <TableRow>
-                  <TableCell>Amount</TableCell>
-                  <TableCell>{selectColumn("Amount", signedIndex, setSignedIndex)}</TableCell>
-                </TableRow>
-              ) : (
-                <>
-                  <TableRow><TableCell>Debit</TableCell><TableCell>{selectColumn("Debit", debitIndex, setDebitIndex)}</TableCell></TableRow>
-                  <TableRow><TableCell>Credit</TableCell><TableCell>{selectColumn("Credit", creditIndex, setCreditIndex)}</TableCell></TableRow>
-                </>
-              )}
-              {descriptionColumnIndex.map((value, index) => (
-                <TableRow key={`description-${index}`}>
-                  <TableCell>Description {index + 1}</TableCell>
-                  <TableCell className="flex items-center gap-2">
-                    {selectColumn(`Description ${index + 1}`, value, (next) => setDescriptionColumnIndex((current) => current.map((item, currentIndex) => currentIndex === index ? next : item)), true)}
-                    {descriptionColumnIndex.length > 1 && <Button aria-label={`Remove description column ${index + 1}`} onClick={() => setDescriptionColumnIndex((current) => current.filter((_, currentIndex) => currentIndex !== index))} size="sm" type="button" variant="outline">Remove</Button>}
-                  </TableCell>
-                </TableRow>
-              ))}
-              <TableRow>
-                <TableCell colSpan={2}>
-                  <Button onClick={() => setDescriptionColumnIndex((current) => [...current, "auto"])} size="sm" type="button" variant="outline">Add description column</Button>
-                </TableCell>
-              </TableRow>
-              <TableRow><TableCell>Balance</TableCell><TableCell>{selectColumn("Balance", effectiveBalanceIndex, (value) => setBalanceIndex(value === "auto" ? "" : value), true)}</TableCell></TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-      {amountMode === "signed" && (
-        <label className="flex items-center gap-2 text-sm">
-          <input checked={negate} onChange={(event) => setNegate(event.target.checked)} type="checkbox" />
-          Reverse amount sign
         </label>
-      )}
-      <div className="flex flex-wrap justify-end gap-2">
+      </div>
+      <section className="grid gap-3">
+        <div>
+          <h3 className="font-medium">CSV columns</h3>
+          <p className="text-sm text-muted-foreground">Choose the columns that identify each bank row.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className={fieldClass}>Date column{selectColumn("Date", effectiveDateIndex, (value) => setDateIndex(value === "auto" ? "" : value), true)}</label>
+          {amountMode === "signed" ? (
+            <label className={fieldClass}>Amount column{selectColumn("Amount", signedIndex, setSignedIndex)}</label>
+          ) : (
+            <>
+              <label className={fieldClass}>Debit column{selectColumn("Debit", debitIndex, setDebitIndex)}</label>
+              <label className={fieldClass}>Credit column{selectColumn("Credit", creditIndex, setCreditIndex)}</label>
+            </>
+          )}
+          {descriptionColumnIndex.map((value, index) => (
+            <div className="grid min-w-0 gap-2" key={`description-${index}`}>
+              <span className="text-sm font-medium">Description column {index + 1}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  {selectColumn(`Description ${index + 1}`, value, (next) => setDescriptionColumnIndex((current) => current.map((item, currentIndex) => currentIndex === index ? next : item)), true)}
+                </div>
+                {descriptionColumnIndex.length > 1 && <Button aria-label={`Remove description column ${index + 1}`} onClick={() => setDescriptionColumnIndex((current) => current.filter((_, currentIndex) => currentIndex !== index))} size="sm" type="button" variant="outline">Remove</Button>}
+              </div>
+            </div>
+          ))}
+          <div className="flex items-end">
+            <Button className="w-full sm:w-auto" onClick={() => setDescriptionColumnIndex((current) => [...current, "auto"])} type="button" variant="outline">Add description column</Button>
+          </div>
+        </div>
+      </section>
+      <details className="rounded-md border p-3">
+        <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Advanced format options</summary>
+        <div className="grid gap-4 pt-4 sm:grid-cols-2">
+          <label className={fieldClass}>
+            Date format
+            <Select value={dateFormat} onValueChange={(value) => value && setDateFormat(value as CsvMapping["dateFormat"])}>
+              <SelectTrigger aria-label="Date format"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="D/M/YYYY">D/M/YYYY</SelectItem>
+                <SelectItem value="D Mon YYYY">D Mon YYYY</SelectItem>
+                <SelectItem value="YYYY-MM-DD">YYYY-MM-DD (time ignored)</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="flex items-center gap-2 self-end text-sm">
+            <input checked={hasHeader} onChange={(event) => setHasHeader(event.target.checked)} type="checkbox" />
+            First row contains column names
+          </label>
+          <label className={fieldClass}>Balance column{selectColumn("Balance", effectiveBalanceIndex, (value) => setBalanceIndex(value === "auto" ? "" : value), true)}</label>
+          {amountMode === "signed" && (
+            <label className="flex items-center gap-2 self-end text-sm">
+              <input checked={negate} onChange={(event) => setNegate(event.target.checked)} type="checkbox" />
+              Reverse amount sign
+            </label>
+          )}
+        </div>
+      </details>
+      <div className="flex flex-col-reverse justify-end gap-2 sm:flex-row">
         <Button onClick={onCancel} type="button" variant="outline">Cancel</Button>
         <Button disabled={!firstRow.length || !name.trim() || (amountMode === "signed" ? !columnAt(signedIndex) : !columnAt(debitIndex) || !columnAt(creditIndex))} type="submit">Save mapping</Button>
       </div>

@@ -83,19 +83,39 @@ export function HomeView({ ledger, healthIssues, reviewCount, openActivity, onOp
       view: issue.view,
     })),
   ];
+  const primaryTodo = todoItems[0];
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-7 sm:space-y-8">
+      <header className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm text-foreground">Overview</p>
-          <h1>Home</h1>
+          <p className="text-sm font-medium text-muted-foreground">Your money at a glance</p>
+          <h1 className="mt-1">Home</h1>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">See what needs attention and how spending is changing.</p>
         </div>
-        <button className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 font-semibold text-background hover:bg-foreground/90 focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => openActivity()} type="button">Open Activity</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="inline-flex min-h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => primaryTodo ? onNavigate(primaryTodo.view) : openActivity()}
+            type="button"
+          >
+            {primaryTodo ? "Review next item" : "Open Activity"}
+          </button>
+          <details className="relative">
+            <summary className="flex min-h-10 cursor-pointer list-none items-center rounded-md border px-3 text-sm font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+              More
+            </summary>
+            <div className="absolute right-0 z-10 mt-2 grid min-w-44 gap-1 rounded-lg border bg-popover p-2 text-popover-foreground shadow-md">
+              <button className="rounded-md px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => openActivity()} type="button">Open Activity</button>
+              <button className="rounded-md px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => onNavigate("Reports")} type="button">Open Reports</button>
+              <button className="rounded-md px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => onNavigate("Import")} type="button">Import a file</button>
+            </div>
+          </details>
+        </div>
       </header>
 
       <section aria-label="Summary" className="space-y-3">
-        <h2 className="text-xl font-semibold">Balances</h2>
+        <h2 className="text-lg font-semibold">Balances</h2>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader><CardTitle>Owed to you</CardTitle></CardHeader>
@@ -106,7 +126,7 @@ export function HomeView({ ledger, healthIssues, reviewCount, openActivity, onOp
           <CardContent><strong className={`text-2xl font-bold tabular-nums ${youOwe > 0 ? "text-negative" : "text-foreground"}`}>{formatMoney(youOwe)}</strong></CardContent>
         </Card>
         </div>
-        <h2 className="text-xl font-semibold">This month</h2>
+        <h2 className="pt-3 text-lg font-semibold">This month</h2>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader><CardTitle>Personal (incl. ½ House)</CardTitle></CardHeader>
@@ -119,8 +139,11 @@ export function HomeView({ ledger, healthIssues, reviewCount, openActivity, onOp
         </div>
       </section>
 
-      <section aria-labelledby="balance-heading" className="space-y-3">
-        <h2 id="balance-heading" className="text-xl font-semibold">Entity balances</h2>
+      <section aria-labelledby="balance-heading" className="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
+        <div>
+          <h2 id="balance-heading" className="text-lg font-semibold">Entity balances</h2>
+          <p className="mt-1 text-sm text-muted-foreground">What each person or group owes, or is owed.</p>
+        </div>
         {balanceEntities.length > 0 ? (
           <ul className="grid gap-2 sm:grid-cols-2">
             {balanceEntities.map(({ entity, amount }) => (
@@ -142,9 +165,12 @@ export function HomeView({ ledger, healthIssues, reviewCount, openActivity, onOp
         {settledNames.length > 0 && <p className="text-sm text-muted-foreground">Settled: {settledNames.join(", ")}</p>}
       </section>
 
-      <section aria-labelledby="trend-heading" className="space-y-3">
-        <h2 id="trend-heading" className="text-xl font-semibold">Spending · last 6 months</h2>
-        <ChartContainer aria-label="Personal and House spending for the last six months" className="h-72 w-full" config={chartConfig} role="img">
+      <section aria-labelledby="trend-heading" className="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
+        <div>
+          <h2 id="trend-heading" className="text-lg font-semibold">Spending · last 6 months</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Personal includes half of House spending.</p>
+        </div>
+        <ChartContainer aria-label="Personal and House spending for the last six months" className="h-64 w-full sm:h-72" config={chartConfig} role="img">
           <BarChart accessibilityLayer data={chartRows} margin={{ left: 12, right: 12 }}>
             <CartesianGrid vertical={false} />
             <XAxis axisLine={false} dataKey="month" tickLine={false} />
@@ -157,15 +183,18 @@ export function HomeView({ ledger, healthIssues, reviewCount, openActivity, onOp
       </section>
 
       <section aria-labelledby="todo-heading" className="space-y-3">
-        <h2 id="todo-heading" className="text-xl font-semibold">To do</h2>
+        <div>
+          <h2 id="todo-heading" className="text-lg font-semibold">Needs attention</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Items that may need a quick review.</p>
+        </div>
         {todoItems.length > 0 ? (
           <ul className="divide-y rounded-lg border">
             {todoItems.map((item, index) => (
-              <li className="flex flex-wrap items-center gap-3 p-4" key={`${item.kind}-${index}`}>
+              <li className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center" key={`${item.kind}-${index}`}>
                 <span className="font-medium">{item.kind}</span>
                 <span className="rounded-full bg-muted px-2 py-0.5 text-sm tabular-nums">{item.count}</span>
-                <span className="min-w-0 flex-1 text-muted-foreground">{item.detail}</span>
-                <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => onNavigate(item.view)} type="button">Open {item.view}</button>
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">{item.detail}</span>
+                <button className="min-h-9 self-start rounded-md px-3 py-2 text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 sm:self-auto" onClick={() => onNavigate(item.view)} type="button">Open {item.view}</button>
               </li>
             ))}
           </ul>
@@ -198,11 +227,16 @@ export function HomeView({ ledger, healthIssues, reviewCount, openActivity, onOp
           </CardContent>
         </Card>
       ) : (
-        <section aria-labelledby="accounts-heading" className="space-y-2">
-          <h2 id="accounts-heading" className="text-xl font-semibold">Accounts</h2>
-          <p>Last covered date: {lastCoveredDate ?? "No coverage yet"}</p>
-          <p>Coverage gaps: {gapCount}</p>
-          <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => onNavigate("Import")} type="button">Open Import</button>
+        <section aria-labelledby="accounts-heading" className="space-y-3 rounded-xl border bg-card p-4 sm:p-5">
+          <div>
+            <h2 id="accounts-heading" className="text-lg font-semibold">Account coverage</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Keep imports up to date to make balances more complete.</p>
+          </div>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+            <div><dt className="text-muted-foreground">Last covered date</dt><dd className="mt-1 font-medium">{lastCoveredDate ?? "No coverage yet"}</dd></div>
+            <div><dt className="text-muted-foreground">Coverage gaps</dt><dd className="mt-1 font-medium">{gapCount}</dd></div>
+          </dl>
+          <button className="min-h-9 rounded-md px-3 py-2 text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => onNavigate("Import")} type="button">Import transactions</button>
         </section>
       )}
     </div>

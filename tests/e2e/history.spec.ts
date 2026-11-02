@@ -28,16 +28,16 @@ test("reverting the latest change undoes it", async ({ app, page }) => {
   };
   await app.openLedger(withLatestChange);
   await app.goToView("History");
-  await expect(page.getByText("Edit description")).toBeVisible();
+  await expect(page.locator("td:visible, h3:visible").filter({ hasText: /^Edit description$/ })).toBeVisible();
   await app.checkA11y();
-  await page.getByRole("button", { name: /Revert/i }).press("Enter");
+  for (const width of [390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  }
+  await page.getByRole("button", { name: "Revert latest change" }).press("Enter");
   await page.getByRole("alertdialog").getByRole("button", { name: "Revert", exact: true }).click();
   await app.goToView("Activity");
   await app.checkA11y();
-  const isMobile = await page.evaluate(() => window.innerWidth < 640);
-  if (isMobile) {
-    await expect(page.getByRole("article").filter({ hasText: "Dinner with Alex" })).toBeVisible();
-  } else {
-    await expect(page.getByRole("textbox", { name: "Dinner with Alex description" })).toHaveValue("Dinner with Alex");
-  }
+  await expect.poll(async () => (await app.savedLedger()).entries.find((entry) => entry.id === originalEntry.id)?.description)
+    .toBe(before.description);
 });

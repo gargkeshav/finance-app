@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   Combobox,
   ComboboxContent,
@@ -24,6 +24,7 @@ interface ComboFieldProps {
 }
 
 export function ComboField({ label, value, options, nonePlaceholder, onChange, onCreate }: ComboFieldProps) {
+  const inputId = useId();
   const selectedName = options.find((option) => option.id === value)?.name ?? "";
   const [text, setText] = useState(selectedName);
   const normalizedOptions = useMemo(() => options.map((option) => ({
@@ -53,8 +54,8 @@ export function ComboField({ label, value, options, nonePlaceholder, onChange, o
   }
 
   return (
-    <div className="grid gap-2">
-      <label className="text-sm font-medium">{label}</label>
+    <div className="grid min-w-0 gap-1.5 text-sm font-medium">
+      <label htmlFor={inputId}>{label}</label>
       <Combobox
         items={normalizedOptions}
         value={value || null}
@@ -71,7 +72,7 @@ export function ComboField({ label, value, options, nonePlaceholder, onChange, o
         onInputValueChange={setText}
       >
         <ComboboxInput
-          aria-label={label}
+          id={inputId}
           onBlur={(event) => commitText(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {

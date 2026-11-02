@@ -41,3 +41,19 @@ test("reports start at the first recent spend month and export plain decimals", 
   expect(csv).not.toContain("$");
   expect(csv).toMatch(/"-?\d+\.\d{2}"/);
 });
+
+test("reports stay readable at mobile, tablet and desktop widths", async ({ app, page }) => {
+  await app.goto();
+  await app.openLedger(scenario.full());
+  await app.goToView("Reports");
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Ledger opened.")).toBeHidden();
+  for (const width of [390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole("button", { name: "Download CSV" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Monthly" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Report start date" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    await app.checkA11y();
+  }
+});

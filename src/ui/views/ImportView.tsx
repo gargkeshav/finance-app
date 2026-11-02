@@ -9,7 +9,6 @@ import {
 import type { BankRow, Ledger, LedgerImport } from "../../domain/ledger";
 import { formatMoney } from "../../domain/value";
 import { MappingEditor } from "./MappingEditor";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -76,7 +75,7 @@ export function ImportView({ ledger, update }: ImportViewProps) {
   const newRows = parsed ? findNewRows(existingRows, parsed.rows) : [];
   const duplicateCount = parsed ? parsed.rows.length - newRows.length : 0;
   const rowsToAdd = duplicateChoice === "add" ? parsed?.rows ?? [] : newRows;
-  const stepFourComplete = Boolean(parsed && !parsed.errors.length && !sameFile && (duplicateCount === 0 || duplicateChoice !== null));
+  const stepFourComplete = Boolean(account && parsed && !parsed.errors.length && !sameFile && (duplicateCount === 0 || duplicateChoice !== null));
 
   function saveMappingChoice(mapping: CsvMapping) {
     const nextMappings = mappings.some((item) => item.id === mapping.id)
@@ -205,22 +204,22 @@ export function ImportView({ ledger, update }: ImportViewProps) {
   ];
 
   return (
-    <div className="grid min-w-0 gap-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto grid min-w-0 gap-6">
+      <header className="grid gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Import CSV</h1>
-        <Button disabled={!stepFourComplete} onClick={commit} type="button">Import {rowsToAdd.length} rows</Button>
+        <p className="text-sm text-muted-foreground">Add bank rows to an account, then review them before recording spending.</p>
       </header>
       {message && <p className="text-sm text-positive" role="status">{message}</p>}
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
       <Card>
         <CardHeader>
-          <CardTitle>Choose a CSV file</CardTitle>
-          <CardDescription>Select an account, then drop a CSV here or browse for it.</CardDescription>
+          <CardTitle>1. Choose an account and CSV</CardTitle>
+          <CardDescription>Select the account these bank rows belong to, then choose a statement file.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <label className="grid gap-2 text-sm font-medium">
+          <label className="grid content-start gap-2 text-sm font-medium">
             Account
-            <select className="h-10 rounded-md border bg-background px-3 text-sm" value={accountId} onChange={(event) => changeAccount(event.target.value)} required>
+            <select className="h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={accountId} onChange={(event) => changeAccount(event.target.value)} required>
               <option value="">Choose an account</option>
               {ledger.accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
@@ -241,10 +240,9 @@ export function ImportView({ ledger, update }: ImportViewProps) {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <CardTitle>Column mapping</CardTitle>
-                <CardDescription>Choose how this file's columns map to bank rows.</CardDescription>
+                <CardTitle>2. Choose a format</CardTitle>
+                <CardDescription>We suggest a format when the columns look familiar.</CardDescription>
               </div>
-              <Button onClick={() => setShowMappingEditor(true)} type="button" variant="outline">New format</Button>
             </div>
           </CardHeader>
           <CardContent className="grid gap-4">
@@ -257,7 +255,13 @@ export function ImportView({ ledger, update }: ImportViewProps) {
                 </SelectContent>
               </Select>
             </label>
-            {selectedMapping && <Badge variant="secondary">Ready to preview</Badge>}
+              <p className="text-sm text-muted-foreground">The preview below shows exactly which rows will be added.</p>
+              <details className="group rounded-md border p-3">
+                <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Need a different format?</summary>
+                <div className="pt-3">
+                  <Button onClick={() => setShowMappingEditor(true)} type="button" variant="outline">Create or edit a format</Button>
+                </div>
+              </details>
           </CardContent>
         </Card>
       )}
@@ -270,16 +274,20 @@ export function ImportView({ ledger, update }: ImportViewProps) {
       {parsed && (
         <Card>
           <CardHeader>
-            <CardTitle>Preview rows</CardTitle>
+            <CardTitle>3. Review rows</CardTitle>
             <CardDescription>{newRows.length} new, {duplicateCount} already imported.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             {sameFile && <p className="text-sm text-warning">This file has already been imported for this account. No rows were added.</p>}
-            <label className="flex items-center gap-2 text-sm">
-              <input checked={olderHistory} onChange={(event) => setOlderHistory(event.target.checked)} type="checkbox" />
-              Older history: keep out of balances
-            </label>
-            <p className="text-sm text-muted-foreground">Use this for old statements. The rows appear in reports but do not change who owes what.</p>
+            <details className="rounded-md border p-3">
+              <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Advanced import options</summary>
+              <div className="grid gap-2 pt-3">
+                <label className="flex items-start gap-2 text-sm">
+                  <input checked={olderHistory} className="mt-0.5" onChange={(event) => setOlderHistory(event.target.checked)} type="checkbox" />
+                  <span><span className="font-medium">Treat as older history</span><span className="block text-muted-foreground">Rows appear in reports but do not change who owes what.</span></span>
+                </label>
+              </div>
+            </details>
             {duplicateCount > 0 && <fieldset className="grid gap-2 rounded-md border p-4">
               <legend className="px-1 text-sm font-medium">{duplicateCount} already imported. Choose whether to skip or add these rows again.</legend>
               <label className="flex items-center gap-2 text-sm"><input checked={duplicateChoice === "skip"} onChange={() => setDuplicateChoice("skip")} type="radio" />Skip existing rows</label>
@@ -289,15 +297,33 @@ export function ImportView({ ledger, update }: ImportViewProps) {
               <strong>Errors ({parsed.errors.length})</strong>
               <ul className="mt-2 list-disc pl-5">{parsed.errors.map((rowError, index) => <li key={`${rowError.line}-${index}`}>Line {rowError.line}: {rowError.message}</li>)}</ul>
             </div>}
-            <div className="w-full min-w-0 overflow-x-auto rounded-md border">
+            <div className="hidden w-full min-w-0 overflow-x-auto rounded-md border sm:block">
               <Table>
                 <TableHeader><TableRow><TableHead>Line</TableHead><TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
                 <TableBody>{parsed.rows.slice(0, 20).map((row) => <TableRow key={`${row.line}-${row.date}`}>
                   <TableCell>{row.line}</TableCell><TableCell className="whitespace-nowrap">{row.date}</TableCell><TableCell>{row.description}</TableCell><TableCell className="text-right tabular-nums">{formatMoney(row.amountCents)}</TableCell>
                 </TableRow>)}</TableBody>
               </Table>
-              {!parsed.rows.length && <p className="p-4 text-sm text-muted-foreground">No valid rows to preview.</p>}
             </div>
+            <ul className="grid gap-2 sm:hidden">
+              {parsed.rows.slice(0, 20).map((row) => (
+                <li className="grid gap-1 rounded-md border p-3" key={`${row.line}-${row.date}`}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-xs text-muted-foreground">Line {row.line} · {row.date}</span>
+                    <span className="text-right font-medium tabular-nums">{formatMoney(row.amountCents)}</span>
+                  </div>
+                  <p className="break-words text-sm">{row.description}</p>
+                </li>
+              ))}
+            </ul>
+            {!parsed.rows.length && <p className="rounded-md border p-4 text-sm text-muted-foreground">No valid rows to preview.</p>}
+            {!showMappingEditor && (
+              <div className="flex justify-end border-t pt-4">
+                <Button className="w-full sm:w-auto" disabled={!stepFourComplete} onClick={commit} type="button">
+                  Import {rowsToAdd.length} {rowsToAdd.length === 1 ? "row" : "rows"}
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

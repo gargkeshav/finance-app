@@ -685,32 +685,62 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
   }
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-6 sm:space-y-8">
+      <header className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">Review imported bank rows</p>
-          <h1 ref={headingRef} tabIndex={-1}>Review</h1>
+          <p className="text-sm font-medium text-muted-foreground">Work through your latest imports</p>
+          <h1 className="mt-1" ref={headingRef} tabIndex={-1}>Review</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {pendingRows.length ? `${pendingRows.length} ${pendingRows.length === 1 ? "row" : "rows"} need attention.` : "Everything that needs your attention is up to date."}
+          </p>
         </div>
-        {autoRuleRows.length > 0
-          ? <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={applyAutoRules} type="button">Apply {autoRuleRows.length} auto rules</button>
-          : suggestedSpends.length > 0 && <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggested</button>}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="inline-flex min-h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+            disabled={!pendingRows.length && !waitingRows.length}
+            onClick={() => {
+              if (!pendingRows.length) {
+                setQueueTab("waiting");
+                return;
+              }
+              setQueueTab("needs");
+              setActiveRowId(pendingRows[0].id);
+              setFocusNextId(pendingRows[0].id);
+            }}
+            type="button"
+          >
+            {pendingRows.length ? "Review next row" : waitingRows.length ? "View waiting rows" : "All caught up"}
+          </button>
+          {(autoRuleRows.length > 0 || suggestedSpends.length > 0) && (
+            <details className="relative">
+              <summary className="flex min-h-10 cursor-pointer list-none items-center rounded-md border px-3 text-sm font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">More actions</summary>
+              <div aria-label="Suggested actions" className="absolute right-0 z-10 mt-2 grid min-w-52 gap-1 rounded-lg border bg-popover p-2 text-popover-foreground shadow-md">
+                {autoRuleRows.length > 0 && <button className="rounded-md px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2" onClick={applyAutoRules} type="button">Apply {autoRuleRows.length} auto rules</button>}
+                {suggestedSpends.length > 0 && <button className="rounded-md px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} suggestions</button>}
+              </div>
+            </details>
+          )}
+        </div>
       </header>
       {transferMessage && <p className="text-sm text-destructive" role="alert">{transferMessage}</p>}
-      <div aria-label="Keyboard shortcuts" className="flex flex-wrap gap-2 text-sm text-foreground">
-        <span><Kbd className="bg-background text-foreground">J</Kbd>/<Kbd className="bg-background text-foreground">K</Kbd> move</span>
-        <span><Kbd className="bg-background text-foreground">S</Kbd> spend</span>
-        <span><Kbd className="bg-background text-foreground">I</Kbd> income</span>
-        <span><Kbd className="bg-background text-foreground">T</Kbd> transfer</span>
-        <span><Kbd className="bg-background text-foreground">X</Kbd> skip</span>
-        <span><Kbd className="bg-background text-foreground">E</Kbd> settlement</span>
-        <span><Kbd className="bg-background text-foreground">R</Kbd> refund</span>
-        <span><Kbd className="bg-background text-foreground">Enter</Kbd> open spend</span>
-      </div>
+      <details className="w-fit rounded-lg border px-3 py-2">
+        <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2">Keyboard shortcuts</summary>
+        <div aria-label="Keyboard shortcuts" className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-foreground">
+          <span><Kbd className="bg-background text-foreground">J</Kbd>/<Kbd className="bg-background text-foreground">K</Kbd> move</span>
+          <span><Kbd className="bg-background text-foreground">S</Kbd> spend</span>
+          <span><Kbd className="bg-background text-foreground">I</Kbd> income</span>
+          <span><Kbd className="bg-background text-foreground">T</Kbd> transfer</span>
+          <span><Kbd className="bg-background text-foreground">X</Kbd> skip</span>
+          <span><Kbd className="bg-background text-foreground">E</Kbd> settlement</span>
+          <span><Kbd className="bg-background text-foreground">R</Kbd> refund</span>
+          <span><Kbd className="bg-background text-foreground">Enter</Kbd> open spend</span>
+        </div>
+      </details>
       <Tabs onValueChange={setQueueTab} value={queueTab}>
-        <TabsList aria-label="Review queues" className="flex h-auto flex-wrap bg-background text-foreground">
-          <TabsTrigger value="needs">Needs you <Badge className="ml-2">{pendingRows.length}</Badge></TabsTrigger>
-          <TabsTrigger value="waiting">Waiting <Badge className="ml-2">{waitingRows.length}</Badge></TabsTrigger>
-          <TabsTrigger value="recorded">Already recorded <Badge className="ml-2">{recordedRows.length}</Badge></TabsTrigger>
+        <TabsList aria-label="Review queues" className="grid h-auto w-full grid-cols-3 gap-1 bg-background text-foreground">
+          <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center" value="needs">Needs you <Badge className="ml-1 sm:ml-2">{pendingRows.length}</Badge></TabsTrigger>
+          <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center" value="waiting">Waiting <Badge className="ml-1 sm:ml-2">{waitingRows.length}</Badge></TabsTrigger>
+          <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center" value="recorded">Already recorded<Badge className="ml-1 sm:ml-2">{recordedRows.length}</Badge></TabsTrigger>
         </TabsList>
         <TabsContent className="space-y-4" value="waiting">
           {waitingRows.map((row) => {
@@ -746,12 +776,10 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
               <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => linkRecordedRows([record])} type="button">Link row</button>
             </article>;
           })}
-          {recordedRows.length > 1 && <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => linkRecordedRows(recordedRows)} type="button">Link all {recordedRows.length}</button>}
+          {recordedRows.length > 1 && <button className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => linkRecordedRows(recordedRows)} type="button">Link all {recordedRows.length}</button>}
           {!recordedRows.length && <p className="rounded-lg border p-4 text-muted-foreground">No rows are already recorded.</p>}
         </TabsContent>
         <TabsContent className="space-y-4" value="needs">
-      {waitingRows.length > 0 && <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => setQueueTab("waiting")} type="button">Waiting on another account {waitingRows.length}</button>}
-      {autoRuleRows.length > 0 && suggestedSpends.length > 0 && <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={acceptSuggestedSpends} type="button">Accept {suggestedSpends.length} memory suggestions</button>}
       <details className="rounded-lg border p-4">
         <summary className="cursor-pointer font-medium">Bulk review actions</summary>
       <div className="mt-4 flex flex-wrap items-end gap-3" aria-label="Bulk review">
@@ -784,7 +812,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
           nonePlaceholder="Uncategorized" onChange={setBulkCategoryId} onCreate={createCategory} />
         <label className="flex items-center gap-2"><input aria-label="Select all review rows" checked={pendingRows.length > 0 && selectedRows.length === pendingRows.length} onChange={(event) => setSelectedRowIds(event.target.checked ? new Set(pendingRows.map((row) => row.id)) : new Set())} type="checkbox" /> Select all</label>
         <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={!selectedRows.length} onClick={skipSelected} type="button">Bulk skip rows</button>
-        <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={!selectedRows.length || selectedRows.some((row) => row.amountCents >= 0) || !selectedBulkPreset()} onClick={spendSelected} type="button">Bulk spend rows</button>
+        <button className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={!selectedRows.length || selectedRows.some((row) => row.amountCents >= 0) || !selectedBulkPreset()} onClick={spendSelected} type="button">Bulk spend rows</button>
       </div>
       </details>
       {splitwiseItems.length > 0 && (
@@ -813,7 +841,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
               {item.status === "deleted" && <p className="text-sm">{splitwiseChangeText(item)}</p>}
               <div className="flex flex-wrap gap-2">
                 {item.status === "changed" && match ? (
-                  <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => applySplitwiseChange(item, match)} type="button">Apply to entry</button>
+                  <button className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => applySplitwiseChange(item, match)} type="button">Apply to entry</button>
                 ) : item.status === "deleted" && match ? (
                   <>
                     <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => keepDeletedSplitwiseOut(item, match)} type="button">Keep out of balances</button>
@@ -829,7 +857,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
                 ) : (
                   <>
                     {match && <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => completeSplitwise(item, match.id, fullySelfPaid)} type="button">Link</button>}
-                    <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => createFromSplitwise(item)} type="button">{fullySelfPaid ? "Create" : "Confirm"}</button>
+                    <button className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => createFromSplitwise(item)} type="button">{fullySelfPaid ? "Create" : "Confirm"}</button>
                   </>
                 )}
               </div>
@@ -876,27 +904,27 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
                     else actionRefs.current.delete(row.id);
                     shortcutRef(row.id, "s")(button);
                     shortcutRef(row.id, "row")(button);
-                  }} className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => setOpenDetail({ rowId: row.id, kind: "spend" })} type="button">Spend row <Kbd aria-hidden="true" className="bg-background text-foreground">S</Kbd> <Kbd aria-hidden="true" className="bg-background text-foreground">Enter</Kbd></button>}
+                  }} className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setOpenDetail({ rowId: row.id, kind: "spend" })} type="button">Spend row <Kbd aria-hidden="true" className="bg-background text-foreground">S</Kbd> <Kbd aria-hidden="true" className="bg-background text-foreground">Enter</Kbd></button>}
                   {row.amountCents > 0 && <button ref={(button) => {
                     if (button) actionRefs.current.set(row.id, button);
                     else actionRefs.current.delete(row.id);
                     shortcutRef(row.id, "i")(button);
                     shortcutRef(row.id, "row")(button);
-                  }} className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => classifyIncome(row)} type="button">Income row <Kbd aria-hidden="true" className="bg-background text-foreground">I</Kbd></button>}
-                  <button ref={shortcutRef(row.id, "t")} className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => {
-                    setTransferPartnerId("");
-                    setOpenDetail({ rowId: row.id, kind: suggestion && otherRow ? "suggestion" : "transfer" });
-                  }} type="button">Transfer row <Kbd aria-hidden="true" className="bg-background text-foreground">T</Kbd></button>
-                  <button ref={(button) => {
-                    shortcutRef(row.id, "x")(button);
-                    if (row.amountCents === 0) {
-                      if (button) actionRefs.current.set(row.id, button);
-                      else actionRefs.current.delete(row.id);
-                    }
-                  }} className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => skipRow(row)} type="button">Skip row <Kbd aria-hidden="true" className="bg-background text-foreground">X</Kbd></button>
+                  }} className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => classifyIncome(row)} type="button">Income row <Kbd aria-hidden="true" className="bg-background text-foreground">I</Kbd></button>}
                   <details className="rounded-md border px-3 py-2">
-                    <summary className="cursor-pointer">More</summary>
+                    <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2">More actions</summary>
                     <div className="mt-2 flex flex-wrap gap-2">
+                      <button ref={shortcutRef(row.id, "t")} className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => {
+                        setTransferPartnerId("");
+                        setOpenDetail({ rowId: row.id, kind: suggestion && otherRow ? "suggestion" : "transfer" });
+                      }} type="button">Transfer row <Kbd aria-hidden="true" className="bg-background text-foreground">T</Kbd></button>
+                      <button ref={(button) => {
+                        shortcutRef(row.id, "x")(button);
+                        if (row.amountCents === 0) {
+                          if (button) actionRefs.current.set(row.id, button);
+                          else actionRefs.current.delete(row.id);
+                        }
+                      }} className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => skipRow(row)} type="button">Skip row <Kbd aria-hidden="true" className="bg-background text-foreground">X</Kbd></button>
                       {row.amountCents > 0 && <button ref={shortcutRef(row.id, "r")} className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => {
                         setRefundOfId(refundCandidates(row)[0]?.id ?? "");
                         setOpenDetail({ rowId: row.id, kind: "refund" });
@@ -950,7 +978,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
                   })()}
                   {detailIsOpen && openDetail.kind === "suggestion" && suggestion && otherRow && otherAccount && <section className="space-y-3" aria-label="Transfer suggestion">
                     <p>Looks like a transfer {row.amountCents < 0 ? "to" : "from"} {otherAccount.name} on {displayDate(otherRow.date)}. {formatMoney(Math.abs(row.amountCents))}.</p>
-                    <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => requestConfirm(suggestion.outgoing, suggestion.incoming)} type="button">Confirm transfer</button>
+                    <button className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => requestConfirm(suggestion.outgoing, suggestion.incoming)} type="button">Confirm transfer</button>
                     <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => { dismissPair(row, otherRow); setOpenDetail(null); }} type="button">Not a transfer</button>
                     {choiceActions(suggestion.outgoing, suggestion.incoming)}
                   </section>}
@@ -966,7 +994,7 @@ export function ReviewView({ ledger, update, onSettle, onCreateRule }: ReviewVie
                       const partner = pendingRows.find((item) => item.id === transferPartnerId);
                       if (!partner) return null;
                       const pair = pendingPair(row, partner);
-                      return <><button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => requestConfirm(pair.outgoing, pair.incoming)} type="button">Confirm transfer</button>{choiceActions(pair.outgoing, pair.incoming)}</>;
+                      return <><button className="inline-flex min-h-9 items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => requestConfirm(pair.outgoing, pair.incoming)} type="button">Confirm transfer</button>{choiceActions(pair.outgoing, pair.incoming)}</>;
                     })()}
                   </section>}
                   {paymentCycle && <p className="text-sm text-muted-foreground">Card payments this cycle: {formatMoney(paymentCycle.sumCents)}. Difference {formatMoney(paymentCycle.differenceCents)}. This may be interest or a fee.</p>}

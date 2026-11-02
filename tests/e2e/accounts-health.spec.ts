@@ -94,6 +94,7 @@ test("card payment health and payer choices use shadcn views", async ({ app, pag
 
   await app.goToView("Accounts");
   await app.checkA11y();
+  await page.getByText("Ahead card payments", { exact: true }).click();
   await expect(page.getByText("In credit", { exact: false })).toBeVisible();
   await expect(page.getByText("Possible duplicate", { exact: true })).toHaveCount(2);
 
@@ -107,4 +108,19 @@ test("card payment health and payer choices use shadcn views", async ({ app, pag
   await app.goToView("Health");
   await app.checkA11y();
   await expect(page.getByText("Amended amounts without a note", { exact: true })).toHaveCount(0);
+});
+
+test("finance views stay readable across mobile, tablet, and desktop widths", async ({ app, page }) => {
+  await app.goto();
+  await app.openLedger(healthScenario());
+  const widths = [390, 768, 1280];
+
+  for (const view of ["Accounts", "People", "Health", "Balances"] as const) {
+    await app.goToView(view);
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(page.getByRole("heading", { name: view, exact: true })).toBeVisible();
+      if (width === 390) await app.checkA11y();
+    }
+  }
 });

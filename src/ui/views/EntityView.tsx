@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -49,8 +49,8 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
   if (!entity) {
     return <>
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1>Entity not found</h1>
-        <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={onBack} type="button">Back</button>
+        <h1 className="text-2xl font-semibold tracking-tight">Entity not found</h1>
+        <Button variant="outline" onClick={onBack} type="button">Back</Button>
       </header>
     </>;
   }
@@ -162,24 +162,30 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
       : "Settled";
 
   return <>
-    <header className="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <button className="text-sm underline-offset-4 hover:underline" onClick={onBack} type="button">Back</button>
-        <h1>{entity.name}</h1>
-        <p className={balanceCents > 0 ? "text-right tabular-nums text-positive" : balanceCents < 0 ? "text-right tabular-nums text-negative" : "text-muted-foreground"}>{balanceText}</p>
+    <div className="grid gap-4">
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div className="grid gap-1">
+        <Button className="w-fit px-0 text-muted-foreground" variant="link" onClick={onBack} type="button">Back to balances</Button>
+        <h1 className="text-2xl font-semibold tracking-tight">{entity.name}</h1>
+        <p className={`font-medium tabular-nums ${balanceCents > 0 ? "text-positive" : balanceCents < 0 ? "text-destructive" : "text-muted-foreground"}`}>{balanceText}</p>
       </div>
       <div className="flex items-center gap-2">
-        {canArchive && <Button variant="outline" onClick={() => setConfirmArchive(true)} type="button">{entity.archived ? "Restore" : "Archive"}</Button>}
+        {canArchive && <details className="relative">
+          <summary className="cursor-pointer rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Actions</summary>
+          <div className="absolute right-0 z-10 mt-1 grid min-w-32 rounded-md border bg-popover p-1 shadow-md">
+            <Button size="sm" variant="ghost" onClick={() => setConfirmArchive(true)} type="button">{entity.archived ? "Restore" : "Archive"}</Button>
+          </div>
+        </details>}
         <Button onClick={onSettle} type="button">Settle up</Button>
       </div>
     </header>
-    <label className="flex w-fit items-center gap-2 text-sm">
-      <input checked={showHistory} onChange={(event) => setShowHistory(event.target.checked)} type="checkbox" />
+    <label className="flex w-fit items-center gap-2 text-sm text-muted-foreground">
+      <input aria-label="Show settled history" checked={showHistory} onChange={(event) => setShowHistory(event.target.checked)} type="checkbox" />
       Show settled history (items already paid before tracking; they don't change the balance)
     </label>
     <div className="min-w-0 max-w-full overflow-x-auto">
-      <Table tabIndex={0}>
-        <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Activity</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Amount</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Status</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Balance</TableHead></TableRow></TableHeader>
+      <Table tabIndex={0} className="min-w-[36rem] text-sm">
+        <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Activity</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Balance</TableHead></TableRow></TableHeader>
         <TableBody>
           {rows.map((row) => {
             const entryId = row.entry?.id;
@@ -202,31 +208,31 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
         </TableBody>
       </Table>
     </div>
-    <section>
-      <h2>Written off and gifted</h2>
+    <section className="grid gap-3">
+      <div><h2 className="text-lg font-semibold">Written off and gifted</h2><p className="text-sm text-muted-foreground">Portions that do not currently count toward the balance.</p></div>
       {treatedPortions.length === 0
         ? <p className="text-sm text-muted-foreground p-4">No written-off or gifted portions.</p>
         : <div className="w-full min-w-0 overflow-x-auto">
-          <table>
-            <thead><tr><th>Date</th><th>Activity</th><th>Treatment</th><th>Would-be debt</th><th>Action</th></tr></thead>
-            <tbody>
+          <Table className="min-w-[42rem] text-sm">
+            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Activity</TableHead><TableHead>Treatment</TableHead><TableHead>Would-be debt</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
+            <TableBody>
               {treatedPortions.map(({ entry, portionIndex, portion, debt }) => {
                 const debtorId = debt && (debt.amountCents < 0 ? debt.creditorId : debt.debtorId);
                 const creditorId = debt && (debt.amountCents < 0 ? debt.debtorId : debt.creditorId);
                 const debtorName = ledger.entities.find((item) => item.id === debtorId)?.name ?? "Unknown";
                 const creditorName = ledger.entities.find((item) => item.id === creditorId)?.name ?? "Unknown";
-                return <tr key={`${entry.id}-${portionIndex}`}>
-                  <td className="whitespace-nowrap tabular-nums text-muted-foreground">{entry.date}</td>
-                  <td><button className="transaction-link" onClick={() => openActivity({ entryIds: [entry.id] })} type="button">{entry.description || entry.kind}</button></td>
-                  <td>{portion.treatment === "writeOff" ? "Write off" : "Gift"}</td>
-                  <td>{debt
+                return <TableRow key={`${entry.id}-${portionIndex}`}>
+                  <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{entry.date}</TableCell>
+                  <TableCell><Button variant="link" className="h-auto whitespace-normal p-0 text-left" onClick={() => openActivity({ entryIds: [entry.id] })} type="button">{entry.description || entry.kind}</Button></TableCell>
+                  <TableCell>{portion.treatment === "writeOff" ? "Write off" : "Gift"}</TableCell>
+                  <TableCell>{debt
                     ? `${debtorName} owes ${creditorName} ${formatMoney(Math.abs(debt.amountCents))}`
-                    : "No debt would be created"}</td>
-                  <td>{portion.treatment === "writeOff" && <button className="text-sm underline-offset-4 hover:underline" onClick={() => startClaiming(entry.id, portionIndex)} type="button">Start claiming</button>}</td>
-                </tr>;
+                    : "No debt would be created"}</TableCell>
+                  <TableCell>{portion.treatment === "writeOff" && <Button size="sm" variant="outline" onClick={() => startClaiming(entry.id, portionIndex)} type="button">Start claiming</Button>}</TableCell>
+                </TableRow>;
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>}
     </section>
     <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
@@ -241,6 +247,6 @@ export function EntityView({ ledger, update, entityId, openActivity, onSettle, o
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    </div>
   </>;
 }
-import { useState } from "react";

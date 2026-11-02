@@ -46,16 +46,18 @@ export function BetweenOthers({ ledger, update }: { ledger: Ledger; update: (nex
   }
 
   return (
-    <section className="grid gap-2" aria-label="Between others">
-      <h2>Between others</h2>
-      <p className="text-sm text-muted-foreground">Money owed between two other parties, such as the House account and your partner. Record it here when one pays the other.</p>
+    <section className="grid gap-3" aria-label="Between others">
+      <div>
+        <h2 className="text-lg font-semibold">Between others</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Money owed between two other parties. Record it here when one pays the other.</p>
+      </div>
       <div className="w-full min-w-0 max-w-full overflow-x-auto">
         <Table tabIndex={0}>
           <TableHeader><TableRow>
             <TableHead className={headClass}>Who owes</TableHead>
             <TableHead className={headClass}>Owed to</TableHead>
-            <TableHead className={headClass}>Amount</TableHead>
-            <TableHead className={headClass} />
+            <TableHead className={`${headClass} text-right`}>Amount</TableHead>
+            <TableHead><span className="sr-only">Payment action</span></TableHead>
           </TableRow></TableHeader>
           <TableBody>
             {debts.map((debt) => {
@@ -64,24 +66,32 @@ export function BetweenOthers({ ledger, update }: { ledger: Ledger; update: (nex
                 <TableRow key={key}>
                   <TableCell>{name(debt.debtorId)}</TableCell>
                   <TableCell>{name(debt.creditorId)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(debt.amountCents)}</TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">{formatMoney(debt.amountCents)}</TableCell>
                   <TableCell>
                     {payment?.key === key ? (
-                      <div className="flex flex-wrap items-end gap-2">
-                        <label className="grid gap-1 text-sm">Date<Input type="date" value={payment.date} onChange={(event) => setPayment({ ...payment, date: event.target.value })} /></label>
-                        <label className="grid gap-1 text-sm">Amount<Input inputMode="decimal" value={payment.amount} onChange={(event) => setPayment({ ...payment, amount: event.target.value })} aria-invalid={Boolean(error)} /></label>
-                        <Button onClick={() => record(debt)} type="button">Save payment</Button>
-                        <Button onClick={() => { setPayment(null); setError(""); }} type="button" variant="outline">Cancel</Button>
-                        {error && <p className="w-full text-sm text-destructive" role="alert">{error}</p>}
+                      <div className="grid min-w-56 gap-2 rounded-md border bg-card p-3 sm:min-w-72">
+                        <label className="grid gap-1 text-xs font-medium text-muted-foreground">Date<Input className="text-foreground" type="date" value={payment.date} onChange={(event) => setPayment({ ...payment, date: event.target.value })} /></label>
+                        <label className="grid gap-1 text-xs font-medium text-muted-foreground">Amount (AUD)<Input className="text-foreground" inputMode="decimal" value={payment.amount} onChange={(event) => setPayment({ ...payment, amount: event.target.value })} aria-invalid={Boolean(error)} /></label>
+                        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button size="sm" onClick={() => record(debt)} type="button">Save</Button>
+                          <Button size="sm" onClick={() => { setPayment(null); setError(""); }} type="button" variant="ghost">Cancel</Button>
+                        </div>
                       </div>
                     ) : (
-                      <Button
-                        onClick={() => { setPayment({ key, amount: formatAud(debt.amountCents).slice(4), date: new Date().toISOString().slice(0, 10) }); setError(""); }}
-                        type="button"
-                        variant="outline"
-                      >
-                        Record payment
-                      </Button>
+                      <details className="relative">
+                        <summary className="cursor-pointer rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Record</summary>
+                        <div className="absolute right-0 z-10 mt-1">
+                          <Button
+                            onClick={() => { setPayment({ key, amount: formatAud(debt.amountCents).slice(4), date: new Date().toISOString().slice(0, 10) }); setError(""); }}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                          >
+                            Enter payment
+                          </Button>
+                        </div>
+                      </details>
                     )}
                   </TableCell>
                 </TableRow>

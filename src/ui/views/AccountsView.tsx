@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -109,8 +109,11 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
 
   return (
     <div className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)]">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1>Accounts</h1>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Manage bank and credit accounts</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
+        </div>
         <Button
           onClick={() => {
             setEditingId(null);
@@ -127,7 +130,7 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
       </header>
 
       <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{editingId ? "Rename account" : "Add account"}</DialogTitle>
             <DialogDescription>{editingId ? "Change the display name for this account." : "Add an asset or credit account to your ledger."}</DialogDescription>
@@ -162,32 +165,53 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
       </Dialog>
 
       <div className="w-full min-w-0 max-w-full overflow-x-auto">
-        <Table tabIndex={0}>
-          <TableHeader className="bg-card"><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Name</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Type</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Paid by</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Coverage</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Balance checkpoints</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold" /></TableRow></TableHeader>
+        <Table tabIndex={0} className="text-sm">
+          <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead>Paid by</TableHead><TableHead className="hidden lg:table-cell">Coverage</TableHead><TableHead className="hidden md:table-cell">Checkpoints</TableHead><TableHead><span className="sr-only">Account actions</span></TableHead></TableRow></TableHeader>
           <TableBody>
             {ledger.accounts.map((account) => {
               const payer = ledger.entities.find((entity) => entity.id === account.payerEntityId);
               const coverage = accountCoverage(ledger, account.id);
               const differences = checkpointDifferences(ledger, account.id);
+              const checkpoints = (ledger.checkpoints ?? []).filter((item) => item.accountId === account.id).sort((first, second) => first.date.localeCompare(second.date));
               return (
                 <TableRow key={account.id}>
-                  <TableCell><Button variant="link" className="h-auto p-0" onClick={() => openActivity({ accountId: account.id })} type="button">{account.name}</Button></TableCell>
+                  <TableCell>
+                    <Button variant="link" className="h-auto p-0 text-left" onClick={() => openActivity({ accountId: account.id })} type="button">{account.name}</Button>
+                    <details className="mt-1 md:hidden">
+                      <summary className="cursor-pointer text-xs text-muted-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">History</summary>
+                      <div className="grid gap-1 pt-2 text-xs text-muted-foreground">
+                        {coverage.ranges.length ? coverage.ranges.map((range) => <p key={`${range.from}-${range.to}`}>Coverage: {range.from}–{range.to}</p>) : <p>No imported coverage</p>}
+                        {coverage.gaps.map((gap) => <p key={`${gap.from}-${gap.to}`}>Gap: {gap.from}–{gap.to}</p>)}
+                        {checkpoints.map((checkpoint) => <p className="tabular-nums" key={checkpoint.id}>{checkpoint.date}: {formatMoney(checkpoint.balanceCents)}{checkpoint.note ? ` · ${checkpoint.note}` : ""}</p>)}
+                        {differences.map((item) => <p className="tabular-nums" key={`${item.earlier.id}-${item.later.id}`}>{item.earlier.date}–{item.later.date}: {formatMoney(item.differenceCents)} difference</p>)}
+                        {!checkpoints.length && !coverage.ranges.length && !coverage.gaps.length && <p>No balance history.</p>}
+                      </div>
+                    </details>
+                  </TableCell>
                   <TableCell>{account.type === "asset" ? "Asset" : "Credit"}</TableCell>
                   <TableCell>{account.payerEntityId === HOUSE_ENTITY_ID ? "House" : payer?.kind === "self" ? "You" : payer?.name ?? "Unknown"}</TableCell>
-                  <TableCell>
+                  <TableCell className="hidden max-w-56 text-xs text-muted-foreground lg:table-cell">
                     {coverage.ranges.length ? coverage.ranges.map((range) => <div key={`${range.from}-${range.to}`}>{range.from} to {range.to}</div>) : "No imported coverage"}
                     {coverage.gaps.map((gap) => <div key={`${gap.from}-${gap.to}`}>Gap: {gap.from} to {gap.to}</div>)}
                   </TableCell>
-                  <TableCell>
-                    {(ledger.checkpoints ?? []).filter((item) => item.accountId === account.id).sort((first, second) => first.date.localeCompare(second.date)).map((checkpoint) => (
-                      <div key={checkpoint.id}>{checkpoint.date}: <span className="text-right tabular-nums">{formatMoney(checkpoint.balanceCents)}</span>{checkpoint.note ? ` · ${checkpoint.note}` : ""}</div>
-                    ))}
-                    {differences.map((item) => <div key={`${item.earlier.id}-${item.later.id}`}>{item.earlier.date} to {item.later.date}: difference <span className={item.differenceCents === 0 ? "text-right tabular-nums" : "text-right tabular-nums text-negative"}>{formatMoney(item.differenceCents)}</span></div>)}
+                  <TableCell className="hidden max-w-64 text-xs md:table-cell">
+                    <div className="grid gap-1">
+                      {checkpoints.map((checkpoint) => (
+                        <div className="flex flex-wrap gap-x-1" key={checkpoint.id}><span className="text-muted-foreground">{checkpoint.date}:</span> <span className="tabular-nums">{formatMoney(checkpoint.balanceCents)}</span>{checkpoint.note && <span className="truncate text-muted-foreground">· {checkpoint.note}</span>}</div>
+                      ))}
+                      {differences.map((item) => <div key={`${item.earlier.id}-${item.later.id}`} className="text-muted-foreground">{item.earlier.date}–{item.later.date}: <span className={item.differenceCents === 0 ? "tabular-nums" : "tabular-nums text-destructive"}>{formatMoney(item.differenceCents)}</span></div>)}
+                      {!checkpoints.length && <span className="text-muted-foreground">None</span>}
+                    </div>
                   </TableCell>
-                  <TableCell><div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => editAccount(account)} type="button">Rename account</Button>
-                    <Button variant="outline" onClick={() => { setCheckpointAccountId(account.id); setError(""); }} type="button">Add checkpoint</Button>
-                  </div></TableCell>
+                  <TableCell>
+                    <details className="relative">
+                      <summary className="cursor-pointer rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Actions</summary>
+                      <div className="absolute right-0 z-10 mt-1 grid min-w-36 rounded-md border bg-popover p-1 shadow-md">
+                        <Button size="sm" variant="ghost" onClick={() => editAccount(account)} type="button">Rename</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setCheckpointAccountId(account.id); setError(""); }} type="button">Add checkpoint</Button>
+                      </div>
+                    </details>
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -195,7 +219,7 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
         </Table>
         {ledger.accounts.length === 0 && <p className="text-sm text-muted-foreground p-4">No accounts yet.</p>}
       </div>
-      <section className="grid gap-3">
+      <section className="grid gap-3" aria-label="Credit card payment checks">
         {ledger.accounts.filter((account) => account.type === "credit").map((account) => {
           const paymentCheck = cardPaymentCheck(ledger, account.id);
           const duplicatePaymentIds = new Set(paymentCheck.rows.flatMap((row) =>
@@ -207,21 +231,22 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
           ));
           return (
             <Card key={account.id} className="min-w-0 max-w-full">
-              <CardHeader>
-                <CardTitle className="flex flex-wrap items-center justify-between gap-2">
-                  <span>{account.name} payments</span>
-                  <span className={paymentCheck.owedNowCents < 0 ? "text-positive" : "text-negative"}>
-                    {paymentCheck.owedNowCents < 0
-                      ? `In credit ${formatMoney(Math.abs(paymentCheck.owedNowCents))}`
-                      : `Owed ${formatMoney(paymentCheck.owedNowCents)}`}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid min-w-0 gap-4">
+              <details>
+                <summary className="cursor-pointer list-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-4">
+                    <span className="font-medium">{account.name} payments</span>
+                    <span className={`font-semibold ${paymentCheck.owedNowCents < 0 ? "text-positive" : "text-destructive"}`}>
+                        {paymentCheck.owedNowCents < 0
+                          ? `In credit ${formatMoney(Math.abs(paymentCheck.owedNowCents))}`
+                          : `Owed ${formatMoney(paymentCheck.owedNowCents)}`}
+                    </span>
+                  </div>
+                </summary>
+                <CardContent className="grid min-w-0 gap-3 pt-0">
                 <p className="text-sm text-muted-foreground">A sudden jump means a row may be missing or doubled near that date.</p>
                 <div className="w-full min-w-0 max-w-full overflow-x-auto">
-                  <Table tabIndex={0}>
-                    <TableHeader className="bg-card"><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Date</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Payment</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Charges since previous payment</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Estimated owed after</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Paid from</TableHead></TableRow></TableHeader>
+                  <Table tabIndex={0} className="min-w-[40rem] text-sm">
+                    <TableHeader><TableRow><TableHead>Date</TableHead><TableHead className="text-right">Payment</TableHead><TableHead className="text-right">Charges since previous</TableHead><TableHead className="text-right">Estimated owed after</TableHead><TableHead>Paid from</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {paymentCheck.rows.map((row, index) => {
                         const previousPaymentDate = paymentCheck.rows[index - 1]?.payment.date;
@@ -255,13 +280,14 @@ export function AccountsView({ ledger, update, openActivity }: AccountsViewProps
                   );
                 })()}
                 {paymentCheck.anchoredOn && <p className="text-sm text-muted-foreground">Estimate starts from the {paymentCheck.anchoredOn} checkpoint.</p>}
-              </CardContent>
+                </CardContent>
+              </details>
             </Card>
           );
         })}
       </section>
       <Dialog open={Boolean(checkpointAccountId)} onOpenChange={(open) => { if (!open) setCheckpointAccountId(null); }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add checkpoint</DialogTitle>
             <DialogDescription>Add a balance checkpoint for {ledger.accounts.find((account) => account.id === checkpointAccountId)?.name}.</DialogDescription>

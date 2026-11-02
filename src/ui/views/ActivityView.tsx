@@ -92,51 +92,6 @@ interface ActivityRow {
   accountName: string;
 }
 
-function InlineEdit({
-  label,
-  value,
-  type = "text",
-  onSave,
-}: {
-  label: string;
-  value: string;
-  type?: "text" | "date";
-  onSave: (value: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  const skipBlur = useRef(false);
-  useEffect(() => setDraft(value), [value]);
-
-  function commit() {
-    if (skipBlur.current) {
-      skipBlur.current = false;
-      return;
-    }
-    if (draft !== value) onSave(draft);
-  }
-
-  return (
-    <Input
-      aria-label={label}
-      type={type}
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          event.currentTarget.blur();
-        } else if (event.key === "Escape") {
-          skipBlur.current = true;
-          setDraft(value);
-          event.currentTarget.blur();
-        }
-      }}
-      onClick={(event) => event.stopPropagation()}
-    />
-  );
-}
-
 interface StagedPost {
   entryId: string;
   entityId: string;
@@ -164,7 +119,6 @@ function inputCents(value: string): number | null {
 export function ActivityView({ ledger, update, saveNow, activityFilter, openActivity, onNavigate, addSpendRequest = 0 }: ActivityViewProps) {
   const [editing, setEditing] = useState<Entry | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [sheetEntryId, setSheetEntryId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([{ id: "date", desc: true }]);
@@ -234,14 +188,7 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
       accessorFn: (row) => row.entry.date,
       id: "date",
       header: "Date",
-      cell: ({ row }) => (
-        <InlineEdit
-          label={`${row.original.entry.description || row.original.entry.kind} date`}
-          type="date"
-          value={row.original.entry.date}
-          onSave={(date) => updateEntryInline(row.original.entry, { date })}
-        />
-      ),
+      cell: ({ row }) => <span className="whitespace-nowrap">{row.original.entry.date}</span>,
     },
     {
       accessorFn: (row) => row.displayDescription,
@@ -251,11 +198,6 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
       cell: ({ row }) => (
         <div className="min-w-52">
           <div className="font-medium">{row.original.displayDescription}</div>
-          <InlineEdit
-            label={`${row.original.entry.description || row.original.entry.kind} description`}
-            value={row.original.entry.description}
-            onSave={(description) => updateEntryInline(row.original.entry, { description })}
-          />
           <div className="text-xs text-muted-foreground">{row.original.entry.kind}</div>
         </div>
       ),
@@ -621,16 +563,16 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
 
   return (
     <>
-      <header className="mb-6 flex items-center justify-between gap-4">
+      <header className="mb-6 flex items-end justify-between gap-4">
         <div>
           <p className="text-sm text-muted-foreground">Ledger</p>
           <h1 className="text-2xl font-semibold">Activity</h1>
         </div>
-        <Button onClick={() => { setEditing(null); setSheetEntryId(null); setShowForm(true); }}>Add spend</Button>
+        <Button className="shrink-0" onClick={() => { setEditing(null); setSheetEntryId(null); setShowForm(true); }}>Add spend</Button>
       </header>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-48 flex-1">
+      <div className="mb-4 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex">
+        <div className="relative col-span-2 min-w-0 sm:flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             aria-label="Search"
@@ -644,21 +586,69 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
           <PopoverTrigger render={<Button variant="outline" />}>
             Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}
           </PopoverTrigger>
-          <PopoverContent align="end" className="grid w-72 gap-3">
-            <label className="grid gap-1 text-sm">From<Input aria-label="From" type="date" value={activityFilter.from ?? ""} onChange={(event) => openActivity({ ...activityFilter, from: event.target.value || undefined })} /></label>
-            <label className="grid gap-1 text-sm">To<Input aria-label="To" type="date" value={activityFilter.to ?? ""} onChange={(event) => openActivity({ ...activityFilter, to: event.target.value || undefined })} /></label>
+          <PopoverContent align="end" className="grid max-h-[75vh] w-[min(90vw,24rem)] gap-3 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-1 text-sm">From<Input aria-label="From" type="date" value={activityFilter.from ?? ""} onChange={(event) => openActivity({ ...activityFilter, from: event.target.value || undefined })} /></label>
+              <label className="grid gap-1 text-sm">To<Input aria-label="To" type="date" value={activityFilter.to ?? ""} onChange={(event) => openActivity({ ...activityFilter, to: event.target.value || undefined })} /></label>
+            </div>
             <label className="grid gap-1 text-sm">Kind
               <select aria-label="Kind" value={activityFilter.kind ?? ""} onChange={(event) => openActivity({ ...activityFilter, kind: event.target.value ? event.target.value as EntryKind : undefined })}>
                 <option value="">All activity</option>
                 {(["spend", "refund", "transfer", "income"] as const).map((kind) => <option key={kind} value={kind}>{kind}</option>)}
               </select>
             </label>
+            <details className="border-t pt-3">
+              <summary className="cursor-pointer text-sm font-medium">More filters</summary>
+              <div className="grid gap-3 pt-3">
+                <label className="grid gap-1 text-sm">Account
+                  <select aria-label="Account" value={activityFilter.accountId ?? ""} onChange={(event) => openActivity({ ...activityFilter, accountId: event.target.value || undefined })}>
+                    <option value="">All accounts</option>{ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                  </select>
+                </label>
+                <ComboField
+                  label="Category"
+                  value={activityFilter.uncategorized && !activityFilter.categoryId ? "__uncategorized__" : activityFilter.categoryId ?? ""}
+                  options={[{ id: "__uncategorized__", name: "Uncategorised" }, ...(ledger.categories ?? []).map((category) => ({ id: category.id, name: category.name }))]}
+                  nonePlaceholder="All categories"
+                  onChange={(categoryId) => openActivity({
+                    ...activityFilter,
+                    categoryId: categoryId === "__uncategorized__" ? undefined : categoryId || undefined,
+                    uncategorized: categoryId === "__uncategorized__" ? true : undefined,
+                  })}
+                  onCreate={createCategory}
+                />
+                <label className="grid gap-1 text-sm">Entity
+                  <select aria-label="Entity" value={activityFilter.entityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, entityId: event.target.value || undefined })}>
+                    <option value="">Any entity</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">Paid by
+                  <select aria-label="Paid by" value={activityFilter.payerEntityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, payerEntityId: event.target.value || undefined })}>
+                    <option value="">Anyone</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">Tag<Input aria-label="Tag" value={activityFilter.tag ?? ""} onChange={(event) => openActivity({ ...activityFilter, tag: event.target.value || undefined })} /></label>
+                <label className="grid gap-1 text-sm">Counts toward balances
+                  <select aria-label="Counts" value={activityFilter.counted === undefined ? "" : String(activityFilter.counted)} onChange={(event) => openActivity({ ...activityFilter, counted: event.target.value === "" ? undefined : event.target.value === "true" })}>
+                    <option value="">Any</option><option value="true">Included</option><option value="false">Excluded</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">Settlement
+                  <select aria-label="Settled" value={activityFilter.settled === undefined ? "" : String(activityFilter.settled)} onChange={(event) => openActivity({ ...activityFilter, settled: event.target.value === "" ? undefined : event.target.value === "true" })}>
+                    <option value="">Any</option><option value="false">Open</option><option value="true">Settled</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">Source
+                  <select aria-label="Source" value={activityFilter.source ?? ""} onChange={(event) => openActivity({ ...activityFilter, source: event.target.value ? event.target.value as EntryFilter["source"] : undefined })}>
+                    <option value="">All sources</option><option value="bank">Bank</option><option value="manual">Manual</option><option value="splitwise">Splitwise</option>
+                  </select>
+                </label>
+              </div>
+            </details>
           </PopoverContent>
         </Popover>
-        <Button aria-expanded={showAdvancedFilters} onClick={() => setShowAdvancedFilters((open) => !open)} variant="outline">
-          More filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}
-        </Button>
-        <label className="flex items-center gap-2 text-sm">Sort
+        <label className="col-span-2 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-sm sm:col-span-1">
+          <span>Sort</span>
           <select
             aria-label="Sort"
             value={`${sorting[0]?.id ?? "date"}-${sorting[0]?.desc ? "desc" : "asc"}`}
@@ -670,7 +660,7 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
             <option value="amount-asc">Lowest amount</option>
           </select>
         </label>
-        {activeFilterCount > 0 && <Button onClick={() => openActivity({})} variant="ghost">Clear filters</Button>}
+        {activeFilterCount > 0 && <Button className="col-span-2 justify-self-start sm:col-span-1" onClick={() => openActivity({})} variant="ghost">Clear filters</Button>}
       </div>
 
       {activeFilterCount > 0 && (
@@ -685,54 +675,6 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
               {key}: {String(value)} ×
             </Button>
           ))}
-        </div>
-      )}
-
-      {showAdvancedFilters && (
-        <div className="mb-4 grid gap-3 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="grid gap-1 text-sm">Account
-            <select aria-label="Account" value={activityFilter.accountId ?? ""} onChange={(event) => openActivity({ ...activityFilter, accountId: event.target.value || undefined })}>
-              <option value="">All accounts</option>{ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
-            </select>
-          </label>
-          <ComboField
-            label="Category"
-            value={activityFilter.uncategorized && !activityFilter.categoryId ? "__uncategorized__" : activityFilter.categoryId ?? ""}
-            options={[{ id: "__uncategorized__", name: "Uncategorised" }, ...(ledger.categories ?? []).map((category) => ({ id: category.id, name: category.name }))]}
-            nonePlaceholder="All categories"
-            onChange={(categoryId) => openActivity({
-              ...activityFilter,
-              categoryId: categoryId === "__uncategorized__" ? undefined : categoryId || undefined,
-              uncategorized: categoryId === "__uncategorized__" ? true : undefined,
-            })}
-            onCreate={createCategory}
-          />
-          <label className="grid gap-1 text-sm">Entity
-            <select aria-label="Entity" value={activityFilter.entityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, entityId: event.target.value || undefined })}>
-              <option value="">Any entity</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm">Paid by
-            <select aria-label="Paid by" value={activityFilter.payerEntityId ?? ""} onChange={(event) => openActivity({ ...activityFilter, payerEntityId: event.target.value || undefined })}>
-              <option value="">Anyone</option>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm">Tag<Input aria-label="Tag" value={activityFilter.tag ?? ""} onChange={(event) => openActivity({ ...activityFilter, tag: event.target.value || undefined })} /></label>
-          <label className="grid gap-1 text-sm">Counts
-            <select aria-label="Counts" value={activityFilter.counted === undefined ? "" : String(activityFilter.counted)} onChange={(event) => openActivity({ ...activityFilter, counted: event.target.value === "" ? undefined : event.target.value === "true" })}>
-              <option value="">Any</option><option value="true">Included</option><option value="false">Excluded</option>
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm">Settled
-            <select aria-label="Settled" value={activityFilter.settled === undefined ? "" : String(activityFilter.settled)} onChange={(event) => openActivity({ ...activityFilter, settled: event.target.value === "" ? undefined : event.target.value === "true" })}>
-              <option value="">Any</option><option value="false">Open</option><option value="true">Settled</option>
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm">Source
-            <select aria-label="Source" value={activityFilter.source ?? ""} onChange={(event) => openActivity({ ...activityFilter, source: event.target.value ? event.target.value as EntryFilter["source"] : undefined })}>
-              <option value="">All sources</option><option value="bank">Bank</option><option value="manual">Manual</option><option value="splitwise">Splitwise</option>
-            </select>
-          </label>
         </div>
       )}
 
@@ -757,20 +699,29 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
 
       {selectedVisibleIds.length > 0 && (
         <div className="sticky top-14 z-10 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-background p-3 shadow-sm">
-          <span>{selectedVisibleIds.length} selected</span>
-          <Button onClick={() => updateSelectedEntries(true)} size="sm" variant="outline">Bulk include</Button>
-          <Button onClick={() => updateSelectedEntries(false)} size="sm" variant="outline">Bulk exclude</Button>
-          <ComboField label="Bulk category" value={bulkCategoryId} options={[{ id: "__none__", name: "Uncategorised" }, ...(ledger.categories ?? []).map((category) => ({ id: category.id, name: category.name }))]} nonePlaceholder="Choose category" onChange={setBulkCategoryId} onCreate={createCategory} />
-          <Button disabled={!bulkCategoryId} onClick={() => applyBulkEdit("category")} size="sm" variant="outline">Bulk apply category</Button>
-          <label className="grid gap-1 text-sm">Bulk tag<Input aria-label="Bulk tag" value={bulkTag} onChange={(event) => setBulkTag(event.target.value)} /></label>
-          <Button disabled={!bulkTag.trim()} onClick={() => applyBulkEdit("addTag")} size="sm" variant="outline">Bulk add tag</Button>
-          <label className="grid gap-1 text-sm">Bulk remove tag
-            <select aria-label="Bulk remove tag" value={removeTag} onChange={(event) => setRemoveTag(event.target.value)}>
-              <option value="">Choose tag</option>{availableTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-            </select>
-          </label>
-          <Button disabled={!removeTag} onClick={() => applyBulkEdit("removeTag")} size="sm" variant="outline">Bulk remove tag</Button>
-          <Button onClick={() => setSelectedEntryIds([])} size="sm" variant="ghost">Clear selection</Button>
+          <span className="mr-auto">{selectedVisibleIds.length} selected</span>
+          <details className="basis-full border-t pt-2">
+            <summary className="cursor-pointer text-sm font-medium">Selection actions</summary>
+            <div className="grid gap-4 pt-3">
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => updateSelectedEntries(true)} size="sm" variant="outline">Bulk include</Button>
+                <Button onClick={() => updateSelectedEntries(false)} size="sm" variant="outline">Bulk exclude</Button>
+                <Button onClick={() => setSelectedEntryIds([])} size="sm" variant="ghost">Clear selection</Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ComboField label="Bulk category" value={bulkCategoryId} options={[{ id: "__none__", name: "Uncategorised" }, ...(ledger.categories ?? []).map((category) => ({ id: category.id, name: category.name }))]} nonePlaceholder="Choose category" onChange={setBulkCategoryId} onCreate={createCategory} />
+                <Button className="self-end" disabled={!bulkCategoryId} onClick={() => applyBulkEdit("category")} size="sm" variant="outline">Apply category</Button>
+                <label className="grid gap-1 text-sm">Add tag<Input aria-label="Bulk tag" value={bulkTag} onChange={(event) => setBulkTag(event.target.value)} /></label>
+                <Button className="self-end" disabled={!bulkTag.trim()} onClick={() => applyBulkEdit("addTag")} size="sm" variant="outline">Add tag to selection</Button>
+                <label className="grid gap-1 text-sm">Remove tag
+                  <select aria-label="Bulk remove tag" value={removeTag} onChange={(event) => setRemoveTag(event.target.value)}>
+                    <option value="">Choose tag</option>{availableTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                  </select>
+                </label>
+                <Button className="self-end" disabled={!removeTag} onClick={() => applyBulkEdit("removeTag")} size="sm" variant="outline">Remove tag from selection</Button>
+              </div>
+            </div>
+          </details>
         </div>
       )}
 
@@ -848,10 +799,7 @@ export function ActivityView({ ledger, update, saveNow, activityFilter, openActi
                     </button>
                     <strong className="shrink-0 tabular-nums">{formatMoney(entry.amountCents)}</strong>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <InlineEdit label={`${entry.description || entry.kind} date`} type="date" value={entry.date} onSave={(date) => updateEntryInline(entry, { date })} />
-                    <InlineEdit label={`${entry.description || entry.kind} description`} value={entry.description} onSave={(description) => updateEntryInline(entry, { description })} />
-                  </div>
+                  <span className="text-sm text-muted-foreground">{entry.date}</span>
                 </article>
               );
             })}

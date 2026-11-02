@@ -325,13 +325,16 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
   }
 
   const fieldClass = "grid gap-2 text-sm font-medium";
-  const selectClass = "h-10 rounded-md border bg-background px-3 text-sm";
+  const selectClass = "h-10 rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <div className="mx-auto grid min-w-0 gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Rules</h1>
-        <Button onClick={startNew} type="button">Add rule</Button>
+        <div className="grid gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Rules</h1>
+          <p className="text-sm text-muted-foreground">Set up repeatable choices for matching bank rows.</p>
+        </div>
+        {!showEditor && <Button onClick={startNew} type="button">Add rule</Button>}
       </header>
       {visibleSuggestion && (
         <Card role="status">
@@ -342,7 +345,7 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <Button onClick={() => createSuggestedRule(visibleSuggestion)} type="button">Create</Button>
+            <Button onClick={() => createSuggestedRule(visibleSuggestion)} type="button" variant="outline">Create</Button>
             <Button onClick={() => setDismissedSuggestionKeys((current) => new Set([...current, visibleSuggestion.key]))} type="button" variant="outline">Dismiss</Button>
           </CardContent>
         </Card>
@@ -354,16 +357,11 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
         <SheetContent className="w-full overflow-y-auto sm:max-w-4xl">
           <SheetHeader><SheetTitle>{editingId ? "Edit rule" : "Add rule"}</SheetTitle></SheetHeader>
           <form className="grid gap-5 py-4" onSubmit={saveRule}>
+            <p className="text-sm text-muted-foreground">Start with the description and the details to apply when it matches.</p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className={fieldClass}>Rule name<input className={selectClass} value={draft.name} onChange={(event) => changeDraft((current) => ({ ...current, name: event.target.value }))} required /></label>
               <label className={fieldClass}>Description contains or starts with<input className={selectClass} value={draft.match.text} onChange={(event) => updateMatch("text", event.target.value)} /></label>
               <label className={fieldClass}>Text mode<select className={selectClass} value={draft.match.mode} onChange={(event) => updateMatch("mode", event.target.value as EntryRule["match"]["mode"])}><option value="contains">Contains</option><option value="startsWith">Starts with</option></select></label>
-              <label className={fieldClass}>Description regex<input className={selectClass} value={draft.match.descriptionRegex ?? ""} onChange={(event) => updateMatch("descriptionRegex", event.target.value)} /></label>
-              <label className={fieldClass}>Account<select className={selectClass} value={draft.match.accountId ?? ""} onChange={(event) => updateMatch("accountId", event.target.value || null)}><option value="">Any account</option>{ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-              <label className={fieldClass}>Direction<select className={selectClass} value={draft.match.sign} onChange={(event) => updateMatch("sign", event.target.value as EntryRule["match"]["sign"])}><option value="any">Any</option><option value="out">Money out</option><option value="in">Money in</option></select></label>
-              <label className={fieldClass}>Minimum amount (cents)<input className={selectClass} min="0" step="1" type="number" value={draft.match.minCents ?? ""} onChange={(event) => updateMatch("minCents", event.target.value === "" ? null : Number(event.target.value))} /></label>
-              <label className={fieldClass}>Maximum amount (cents)<input className={selectClass} min="0" step="1" type="number" value={draft.match.maxCents ?? ""} onChange={(event) => updateMatch("maxCents", event.target.value === "" ? null : Number(event.target.value))} /></label>
-              <label className={fieldClass}>Scope<select className={selectClass} value={draft.scope ?? "newRows"} onChange={(event) => changeDraft((current) => ({ ...current, scope: event.target.value as EntryRule["scope"] }))}><option value="newRows">New bank rows</option><option value="existingEntries">Existing entries</option><option value="both">Both</option></select></label>
               <label className={fieldClass}>Display name<input className={selectClass} value={draft.action.displayName ?? ""} onChange={(event) => updateAction("displayName", event.target.value || null)} /></label>
               <label className={fieldClass}>Category<select className={selectClass} value={draft.action.categoryId ?? ""} onChange={(event) => updateAction("categoryId", event.target.value || null)}><option value="">No category</option>{(ledger.categories ?? []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
               <label className={fieldClass}>Split<select className={selectClass} value={splitKind(draft.action.split)} onChange={(event) => setSplitKind(event.target.value)}><option value="none">No split</option><option value="payer">Payer</option><option value="halfHouse">Half House</option><option value="allHouse">All House</option><option value="entity">One entity</option><option value="equal">Equal entities</option></select></label>
@@ -374,29 +372,42 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
               }}>{ledger.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>}
               <label className={fieldClass}>Tags (comma-separated)<input className={selectClass} value={tagsText} onChange={(event) => { setTagsText(event.target.value); setPreview(null); setSelectedItems(new Set()); }} /></label>
             </div>
-            <fieldset className="grid gap-2 rounded-md border p-3">
-              <legend className="px-1 text-sm font-medium">Weekdays</legend>
-              <div className="flex flex-wrap gap-x-4 gap-y-2">
-                {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day, weekday) => (
-                  <label className="flex items-center gap-2 text-sm" key={day}>
-                    <input checked={(draft.match.weekday ?? []).includes(weekday)} onChange={(event) => updateMatch("weekday", event.target.checked
-                      ? [...new Set([...(draft.match.weekday ?? []), weekday])].sort((first, second) => first - second)
-                      : (draft.match.weekday ?? []).filter((value) => value !== weekday))} type="checkbox" />
-                    {day}
-                  </label>
-                ))}
+            <details className="rounded-md border p-3">
+              <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Advanced matching and automation</summary>
+              <div className="grid gap-4 pt-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className={fieldClass}>Description regex<input className={selectClass} value={draft.match.descriptionRegex ?? ""} onChange={(event) => updateMatch("descriptionRegex", event.target.value)} /></label>
+                  <label className={fieldClass}>Account<select className={selectClass} value={draft.match.accountId ?? ""} onChange={(event) => updateMatch("accountId", event.target.value || null)}><option value="">Any account</option>{ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+                  <label className={fieldClass}>Direction<select className={selectClass} value={draft.match.sign} onChange={(event) => updateMatch("sign", event.target.value as EntryRule["match"]["sign"])}><option value="any">Any</option><option value="out">Money out</option><option value="in">Money in</option></select></label>
+                  <label className={fieldClass}>Minimum amount (cents)<input className={selectClass} min="0" step="1" type="number" value={draft.match.minCents ?? ""} onChange={(event) => updateMatch("minCents", event.target.value === "" ? null : Number(event.target.value))} /></label>
+                  <label className={fieldClass}>Maximum amount (cents)<input className={selectClass} min="0" step="1" type="number" value={draft.match.maxCents ?? ""} onChange={(event) => updateMatch("maxCents", event.target.value === "" ? null : Number(event.target.value))} /></label>
+                  <label className={fieldClass}>Scope<select className={selectClass} value={draft.scope ?? "newRows"} onChange={(event) => changeDraft((current) => ({ ...current, scope: event.target.value as EntryRule["scope"] }))}><option value="newRows">New bank rows</option><option value="existingEntries">Existing entries</option><option value="both">Both</option></select></label>
+                </div>
+                <fieldset className="grid gap-2 rounded-md border p-3">
+                  <legend className="px-1 text-sm font-medium">Match weekdays</legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day, weekday) => (
+                      <label className="flex items-center gap-2 text-sm" key={day}>
+                        <input checked={(draft.match.weekday ?? []).includes(weekday)} onChange={(event) => updateMatch("weekday", event.target.checked
+                          ? [...new Set([...(draft.match.weekday ?? []), weekday])].sort((first, second) => first - second)
+                          : (draft.match.weekday ?? []).filter((value) => value !== weekday))} type="checkbox" />
+                        {day}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <div className="flex flex-wrap gap-x-5 gap-y-2">
+                  <label className="flex items-center gap-2 text-sm"><input checked={draft.protectManualEdits ?? true} onChange={(event) => changeDraft((current) => ({ ...current, protectManualEdits: event.target.checked }))} type="checkbox" />Protect manual edits</label>
+                  <label className="flex items-center gap-2 text-sm"><input checked={draft.autoConfirm} onChange={(event) => changeDraft((current) => ({ ...current, autoConfirm: event.target.checked }))} type="checkbox" />Auto-confirm when a split is set</label>
+                </div>
               </div>
-            </fieldset>
-            <div className="flex flex-wrap gap-x-5 gap-y-2">
-              <label className="flex items-center gap-2 text-sm"><input checked={draft.protectManualEdits ?? true} onChange={(event) => changeDraft((current) => ({ ...current, protectManualEdits: event.target.checked }))} type="checkbox" />Protect manual edits</label>
-              <label className="flex items-center gap-2 text-sm"><input checked={draft.autoConfirm} onChange={(event) => changeDraft((current) => ({ ...current, autoConfirm: event.target.checked }))} type="checkbox" />Auto-confirm when a split is set</label>
-            </div>
+            </details>
             <section className="grid gap-3">
               <h3 className="font-semibold">Preview changes</h3>
               <Button className="w-fit" onClick={runPreview} type="button" variant="outline">Preview</Button>
               {preview && <>
                 <p className="text-sm text-muted-foreground">{preview.bankRows.length + preview.entries.length} matching items</p>
-                <div className="w-full min-w-0 overflow-x-auto rounded-md border">
+                <div className="hidden w-full min-w-0 overflow-x-auto rounded-md border sm:block">
                   <Table>
                     <TableHeader><TableRow><TableHead>Select</TableHead><TableHead>Item</TableHead><TableHead>Before</TableHead><TableHead>After</TableHead></TableRow></TableHeader>
                     <TableBody>
@@ -428,12 +439,49 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
                     </TableBody>
                   </Table>
                 </div>
+                <ul className="grid gap-3 sm:hidden">
+                  {preview.bankRows.map(({ row, after }) => {
+                    const key = `row:${row.id}`;
+                    return (
+                      <li className="grid gap-2 rounded-md border p-3" key={key}>
+                        <label className="flex items-start gap-2 text-sm">
+                          <input aria-label={`Select ${row.description}`} checked={selectedItems.has(key)} onChange={(event) => setSelectedItems((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(key); else next.delete(key);
+                            return next;
+                          })} type="checkbox" />
+                          <span>{row.date} · {row.description} · {formatMoney(Math.abs(row.amountCents))}</span>
+                        </label>
+                        <p className="text-sm text-muted-foreground">New spend</p>
+                        <div className="grid gap-1 text-sm">{renderSummary(after)}</div>
+                      </li>
+                    );
+                  })}
+                  {preview.entries.map(({ entry, before, after }) => {
+                    const key = `entry:${entry.id}`;
+                    return (
+                      <li className="grid gap-2 rounded-md border p-3" key={key}>
+                        <label className="flex items-start gap-2 text-sm">
+                          <input aria-label={`Select ${entry.description}`} checked={selectedItems.has(key)} onChange={(event) => setSelectedItems((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(key); else next.delete(key);
+                            return next;
+                          })} type="checkbox" />
+                          <span>{entry.date} · {entry.description} · {formatMoney(entry.amountCents)}</span>
+                        </label>
+                        <div className="grid gap-1 text-sm"><strong>Before</strong>{renderSummary(before)}</div>
+                        <div className="grid gap-1 text-sm"><strong>After</strong>{renderSummary(after)}</div>
+                      </li>
+                    );
+                  })}
+                  {preview.bankRows.length + preview.entries.length === 0 && <li className="text-sm text-muted-foreground">No matching changes.</li>}
+                </ul>
               </>}
             </section>
             {formError && <p className="text-sm text-destructive" role="alert">{formError}</p>}
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button disabled={!preview || (!selectedItems.size && !preview.bankRows.length && !preview.entries.length)} onClick={() => applyPreview(selectedItems.size === 0)} type="button">Apply rules</Button>
-              <Button type="submit" variant="outline">Save rule</Button>
+            <div className="flex flex-col-reverse justify-end gap-2 sm:flex-row">
+              <Button disabled={!preview || (!selectedItems.size && !preview.bankRows.length && !preview.entries.length)} onClick={() => applyPreview(selectedItems.size === 0)} type="button" variant={preview ? "default" : "outline"}>Apply rules</Button>
+              <Button type="submit" variant={preview ? "outline" : "default"}>Save rule</Button>
               <Button onClick={() => { setShowEditor(false); onClearInitialDescription(); }} type="button" variant="outline">Cancel</Button>
             </div>
           </form>
@@ -443,7 +491,8 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
         <CardHeader><CardTitle>Rules</CardTitle><CardDescription>{rules.length} rules in order of application.</CardDescription></CardHeader>
         <CardContent>
           {rules.length === 0 ? <p className="text-sm text-muted-foreground">No rules yet.</p> : (
-            <div className="w-full min-w-0 overflow-x-auto rounded-md border">
+          <>
+          <div className="hidden w-full min-w-0 overflow-x-auto rounded-md border sm:block">
               <Table>
                 <TableHeader><TableRow><TableHead>Order</TableHead><TableHead>Rule</TableHead><TableHead>Match</TableHead><TableHead>Action</TableHead><TableHead>Enabled</TableHead><TableHead>Manage</TableHead></TableRow></TableHeader>
                 <TableBody>{rules.map((rule, index) => {
@@ -454,17 +503,61 @@ export function RulesView({ ledger, update, initialDescription = "", onClearInit
                     <TableCell>{rule.match.descriptionRegex || rule.match.text || "Any description"} · {rule.match.descriptionRegex ? "regex" : rule.match.mode === "contains" ? "contains" : "starts with"}</TableCell>
                     <TableCell>{rule.action.displayName || "Raw description"}{rule.action.categoryId && ` · ${ledger.categories?.find((category) => category.id === rule.action.categoryId)?.name ?? "Category"}`}{rule.action.tags.length > 0 && ` · ${rule.action.tags.join(", ")}`}</TableCell>
                     <TableCell><input aria-label={`Enable ${rule.name}`} checked={rule.enabled} onChange={() => toggleRule(rule)} type="checkbox" /></TableCell>
-                    <TableCell className="flex flex-wrap gap-2">
-                      <Button aria-label={`Move ${rule.name} up`} disabled={index === 0} onClick={() => moveRule(index, -1)} size="sm" type="button" variant="outline">Up</Button>
-                      <Button aria-label={`Move ${rule.name} down`} disabled={index === rules.length - 1} onClick={() => moveRule(index, 1)} size="sm" type="button" variant="outline">Down</Button>
-                      <Button onClick={() => editRule(rule)} size="sm" type="button" variant="outline">Edit rule</Button>
-                      <Button onClick={() => setPendingDelete(rule)} size="sm" type="button" variant="destructive">Delete rule</Button>
-                      {entryCount > 0 && <Button onClick={() => setPendingUndoRule(rule)} size="sm" type="button" variant="outline">Undo rule entries ({entryCount})</Button>}
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button onClick={() => editRule(rule)} size="sm" type="button" variant="outline">Edit rule</Button>
+                        <details className="relative">
+                          <summary className="flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">More actions</summary>
+                          <div className="absolute right-0 z-10 mt-1 grid min-w-44 gap-1 rounded-md border bg-popover p-2 text-popover-foreground shadow-md">
+                            <Button aria-label={`Move ${rule.name} up`} disabled={index === 0} onClick={() => moveRule(index, -1)} size="sm" type="button" variant="ghost">Move up</Button>
+                            <Button aria-label={`Move ${rule.name} down`} disabled={index === rules.length - 1} onClick={() => moveRule(index, 1)} size="sm" type="button" variant="ghost">Move down</Button>
+                            <Button onClick={() => setPendingDelete(rule)} size="sm" type="button" variant="ghost">Delete rule</Button>
+                            {entryCount > 0 && <Button onClick={() => setPendingUndoRule(rule)} size="sm" type="button" variant="ghost">Undo rule entries ({entryCount})</Button>}
+                          </div>
+                        </details>
+                      </div>
                     </TableCell>
                   </TableRow>;
                 })}</TableBody>
               </Table>
             </div>
+            <ul className="grid gap-3 sm:hidden">
+              {rules.map((rule, index) => {
+                const entryCount = ledger.entries.filter((entry) => entry.ruleId === rule.id).length;
+                return (
+                  <li className="grid min-w-0 gap-3 rounded-md border p-3" key={rule.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="grid min-w-0 gap-1">
+                        <h3 className="break-words font-medium">{index + 1}. {rule.name}</h3>
+                        <p className="break-words text-sm text-muted-foreground">{rule.match.descriptionRegex || rule.match.text || "Any description"} · {rule.match.descriptionRegex ? "regex" : rule.match.mode === "contains" ? "contains" : "starts with"}</p>
+                      </div>
+                      <label className="flex shrink-0 items-center gap-2 text-sm">
+                        <input aria-label={`Enable ${rule.name}`} checked={rule.enabled} onChange={() => toggleRule(rule)} type="checkbox" />
+                        On
+                      </label>
+                    </div>
+                    <p className="break-words text-sm">
+                      {rule.action.displayName || "Raw description"}
+                      {rule.action.categoryId && ` · ${ledger.categories?.find((category) => category.id === rule.action.categoryId)?.name ?? "Category"}`}
+                      {rule.action.tags.length > 0 && ` · ${rule.action.tags.join(", ")}`}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button onClick={() => editRule(rule)} size="sm" type="button" variant="outline">Edit rule</Button>
+                      <details className="relative">
+                        <summary className="flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">More actions</summary>
+                        <div className="absolute right-0 z-10 mt-1 grid min-w-44 gap-1 rounded-md border bg-popover p-2 text-popover-foreground shadow-md">
+                          <Button aria-label={`Move ${rule.name} up`} disabled={index === 0} onClick={() => moveRule(index, -1)} size="sm" type="button" variant="ghost">Move up</Button>
+                          <Button aria-label={`Move ${rule.name} down`} disabled={index === rules.length - 1} onClick={() => moveRule(index, 1)} size="sm" type="button" variant="ghost">Move down</Button>
+                          <Button onClick={() => setPendingDelete(rule)} size="sm" type="button" variant="ghost">Delete rule</Button>
+                          {entryCount > 0 && <Button onClick={() => setPendingUndoRule(rule)} size="sm" type="button" variant="ghost">Undo rule entries ({entryCount})</Button>}
+                        </div>
+                      </details>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            </>
           )}
         </CardContent>
       </Card>

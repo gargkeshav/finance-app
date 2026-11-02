@@ -50,13 +50,13 @@ export function SettlementDetail({ ledger, settlement }: { ledger: Ledger; settl
 
   return (
     <div className="grid gap-3 rounded-md border bg-muted/30 p-3 text-sm" aria-label="What this payment covered">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+      <dl className="grid grid-cols-[minmax(5.5rem,auto)_1fr] gap-x-3 gap-y-2 sm:grid-cols-[minmax(7rem,auto)_1fr] sm:gap-x-5">
         <dt className="text-muted-foreground">Payment</dt>
-        <dd className="tabular-nums">{formatMoney(settlement.amountCents)}</dd>
+        <dd className="font-medium tabular-nums">{formatMoney(settlement.amountCents)}</dd>
         <dt className="text-muted-foreground">{coverage.lines.length ? "Lines total" : "Items total"}</dt>
         <dd className="tabular-nums">{formatMoney(statedCents)}</dd>
         <dt className="text-muted-foreground">Difference</dt>
-        <dd className={coverage.differenceCents === 0 ? "text-positive" : ""}>{differenceText(coverage.differenceCents, settlement.remainder, coverage.lines.length ? "the lines" : "the items")}</dd>
+        <dd className={coverage.differenceCents === 0 ? "text-positive" : "text-foreground"}>{differenceText(coverage.differenceCents, settlement.remainder, coverage.lines.length ? "the lines" : "the items")}</dd>
         <dt className="text-muted-foreground">Bank</dt>
         <dd>{bankRows.length
           ? bankRows.map((row) => `${row.date} · ${accountName(row.accountId)} · ${row.description} · ${formatMoney(Math.abs(row.amountCents))}`).join("; ")
@@ -64,7 +64,7 @@ export function SettlementDetail({ ledger, settlement }: { ledger: Ledger; settl
       </dl>
       {coverage.lines.length > 0 && (
         <div className="w-full min-w-0 max-w-full overflow-x-auto">
-          <Table>
+          <Table className="min-w-[36rem]">
             <TableHeader><TableRow>
               <TableHead className={headClass}>Line</TableHead>
               <TableHead className={headClass}>Amount</TableHead>
@@ -93,7 +93,7 @@ export function SettlementDetail({ ledger, settlement }: { ledger: Ledger; settl
           {coverage.lines.filter(({ items }) => items.length).map(({ line, items }, index) => (
             <div className="mt-2" key={`${line.label}-rows-${index}`}>
               <p className="font-medium">{line.label}</p>
-              <Table><TableBody><ItemRows items={items} /></TableBody></Table>
+              <Table className="min-w-[24rem]"><TableBody><ItemRows items={items} /></TableBody></Table>
             </div>
           ))}
         </details>
@@ -101,7 +101,7 @@ export function SettlementDetail({ ledger, settlement }: { ledger: Ledger; settl
       {looseItems.length > 0 && (
         <div className="w-full min-w-0 max-w-full overflow-x-auto">
           <p className="font-medium">Items paid ({looseItems.length})</p>
-          <Table><TableBody><ItemRows items={looseItems} /></TableBody></Table>
+          <Table className="min-w-[24rem]"><TableBody><ItemRows items={looseItems} /></TableBody></Table>
         </div>
       )}
       {!coverage.lines.length && !coverage.items.length && (

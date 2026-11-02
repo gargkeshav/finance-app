@@ -34,6 +34,7 @@ test("skipping a bank row removes it from Review and offers Undo", async ({ app,
   await app.checkA11y();
   const row = page.getByRole("row").filter({ hasText: /Payment received/ });
   await expect(row).toBeVisible();
+  await row.getByText("More actions").click();
   await row.getByRole("button", { name: "Skip row" }).press("Enter");
   await expect(row).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
@@ -70,4 +71,19 @@ test("spending a bank row adds it to Activity", async ({ app, page }) => {
   await app.goToView("Activity");
   await page.keyboard.press("Escape");
   await expect(page.getByText(/Card payment/).first()).toBeAttached();
+});
+
+test("review stays usable at mobile, tablet and desktop widths", async ({ app, page }) => {
+  await app.goto();
+  await app.openLedger(scenario.full());
+  await app.goToView("Review");
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Ledger opened.")).toBeHidden();
+  for (const width of [390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole("button", { name: "Review next row" })).toBeVisible();
+    await expect(page.locator("[data-review-row]").first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    await app.checkA11y();
+  }
 });

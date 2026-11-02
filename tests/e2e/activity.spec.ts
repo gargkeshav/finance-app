@@ -5,7 +5,7 @@ import { test } from "./fixtures/app";
 test("activity filters, edits, and deletes entries through the sheet", async ({ app, page }) => {
   await app.goto();
   await app.openLedger(scenario.full());
-  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await app.goToView("Activity");
   await expect(page.getByRole("dialog", { name: "Sidebar" })).toBeHidden();
   await app.checkA11y();
 
@@ -22,13 +22,11 @@ test("activity filters, edits, and deletes entries through the sheet", async ({ 
   expect(coffee).toBeDefined();
   const historyCount = beforeEdit.history?.length ?? 0;
 
-  const description = page.getByRole("textbox", { name: "Coffee with Jo description" });
+  await coffeeEntry().click();
+  await page.getByRole("button", { name: "Edit entry", exact: true }).click();
+  const description = page.getByRole("textbox", { name: "Description", exact: true });
   await description.fill("Coffee with Jo in town");
-  await page.waitForTimeout(1200);
-  const beforeBlur = await app.savedLedger();
-  expect(beforeBlur.entries.find((entry) => entry.id === coffee?.id)?.description).toBe("Coffee with Jo");
-  expect(beforeBlur.history?.length ?? 0).toBe(historyCount);
-  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Save spend", exact: true }).click();
   await expect.poll(async () => {
     const saved = await app.savedLedger();
     return saved.entries.find((entry) => entry.id === coffee?.id)?.description;
@@ -57,6 +55,25 @@ test("activity filters, edits, and deletes entries through the sheet", async ({ 
   await search.fill("Coffee with Jo in town");
   await page.reload();
   await expect(page.getByRole("textbox", { name: "Search" })).toHaveValue("Coffee with Jo in town");
+});
+
+test("spend entry stays usable at mobile, tablet, and desktop widths", async ({ app, page }) => {
+  await app.goto();
+  await app.openLedger(scenario.full());
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Sidebar" })).toBeHidden();
+  await page.getByRole("button", { name: "Add spend", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCSS("opacity", "1");
+
+  for (const width of [390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole("textbox", { name: "Description", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Date", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Amount (AUD)", { exact: true })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Split method" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save spend", exact: true })).toBeVisible();
+    await app.checkA11y();
+  }
 });
 
 test("an amended spend shows the amount line once", async ({ app, page }) => {

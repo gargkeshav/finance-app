@@ -17,6 +17,7 @@ import { STARTER_CATEGORIES } from "../../domain/taxonomy";
 import { formatMoney } from "../../domain/value";
 import { ComboField } from "./ComboField";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface HistoryImportViewProps {
@@ -178,33 +179,42 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
   return (
     <Card aria-label="One-time history import">
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-          One-time ANZ credit history
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid gap-1">
+            <CardTitle>One-time ANZ credit history</CardTitle>
+            <p className="text-sm text-muted-foreground">Match this statement to your ledger, then review what will be added.</p>
+          </div>
           <Badge variant="outline">Dev only</Badge>
-        </CardTitle>
+        </div>
       </CardHeader>
       <CardContent className="grid gap-5">
-      <label>
-        Credit account
-        <select value={accountId} onChange={(event) => { setAccountId(event.target.value); setPlan(null); setMapping(null); setMessage(""); }}>
-          <option value="">Choose an account</option>
-          {ledger.accounts.filter((account) => account.type === "credit").map((account) => (
-            <option key={account.id} value={account.id}>{account.name}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        History CSV
-        <input accept=".csv,text/csv" disabled={!accountId || busy} onChange={(event) => void readHistory(event)} type="file" />
-      </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="grid content-start gap-2 text-sm font-medium">
+          1. Credit account
+          <select className="h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={accountId} onChange={(event) => { setAccountId(event.target.value); setPlan(null); setMapping(null); setMessage(""); }}>
+            <option value="">Choose an account</option>
+            {ledger.accounts.filter((account) => account.type === "credit").map((account) => (
+              <option key={account.id} value={account.id}>{account.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid content-start gap-2 text-sm font-medium">
+          2. History CSV
+          <input className="min-h-10 w-full rounded-md border bg-background px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1 file:text-secondary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" accept=".csv,text/csv" disabled={!accountId || busy} onChange={(event) => void readHistory(event)} type="file" />
+          <span className="text-xs font-normal text-muted-foreground">Choose the ANZ history file to build a review preview.</span>
+        </label>
+      </div>
       {busy && <p role="status">Reading history file…</p>}
       {error && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{error}</p>}
       {message && <p className="rounded-md border p-3 text-sm border-positive/40 text-positive" role="status">{message}</p>}
       {plan && (
         <>
-          <p>
-            {plan.matched.length} matched · {plan.created.length} to create · {plan.skipped.length} skipped · {plan.pending.length} pending · {plan.problems.length} problems
-          </p>
+          <section aria-label="Import summary" className="grid gap-1 rounded-md border bg-muted/30 p-4">
+            <h3 className="font-medium">3. Review the statement</h3>
+            <p className="text-sm text-muted-foreground">
+              {plan.matched.length} matched · {plan.created.length} to create · {plan.skipped.length} skipped · {plan.pending.length} pending · {plan.problems.length} problems
+            </p>
+          </section>
           <ImportRows title="Matched bank rows" rows={plan.matched} />
           <ImportRows title="Entries to create" rows={plan.created} />
           <ImportRows title="Skipped rows" rows={plan.skipped} />
@@ -218,27 +228,32 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
           )}
           {mapping && (
             <>
-              <section aria-label="Group mapping">
-                <h3>Groups</h3>
-                <div className="w-full min-w-0 overflow-x-auto">
-                  <table>
-                    <thead><tr><th>Value</th><th>Rows</th><th>Open rows</th><th>To</th><th>Name</th><th>Type</th></tr></thead>
-                    <tbody>
+              <details className="rounded-md border p-4">
+                <summary className="cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Review group and subtype mappings</summary>
+                <div className="grid gap-6 pt-4">
+                  <section aria-label="Group mapping" className="grid gap-3">
+                    <div>
+                      <h3 className="font-medium">Groups</h3>
+                      <p className="text-sm text-muted-foreground">Choose who each group name refers to in your ledger.</p>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
                       {[...groupRows.entries()].map(([key, groupItems]) => {
                         const current = mapping.groups[key] ?? { to: "person" as const, name: groupItems[0].group };
                         const mappedEntity = current.to === "person" || current.to === "group" ? current.name : "";
                         const groupOptions = mappedEntity && !entityChoices.some((option) => normalized(option.name) === normalized(mappedEntity))
                           ? [...entityChoices, { id: `new:${mappedEntity}`, name: mappedEntity }]
                           : entityChoices;
+                        const openCount = groupItems.filter((row) => row.status.toLowerCase() !== "settled").length;
                         return (
-                          <tr key={key}>
-                            <td>{groupItems[0].group}</td>
-                            <td>{groupItems.length}</td>
-                            <td>{groupItems.filter((row) => row.status.toLowerCase() !== "settled").length}</td>
-                            <td>
-                              <label>
-                                <span className="sr-only">Map {groupItems[0].group} to</span>
-                                <select value={current.to} onChange={(event) => {
+                          <article className="grid min-w-0 gap-3 rounded-md border p-3" key={key}>
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <h4 className="font-medium">{groupItems[0].group}</h4>
+                              <span className="text-xs text-muted-foreground">{groupItems.length} rows · {openCount} open</span>
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="grid gap-1 text-sm font-medium">
+                                Map to
+                                <select className="h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={current.to} onChange={(event) => {
                                   const to = event.target.value as GroupMap["to"];
                                   updateGroup(key, to === "self"
                                     ? { to, tag: current.to === "self" ? current.tag : "" }
@@ -247,14 +262,14 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                                   <option value="person">Person</option><option value="group">Group</option><option value="self">Fold into you</option>
                                 </select>
                               </label>
-                            </td>
-                            <td>
                               {current.to === "self" ? (
-                                <label><span className="sr-only">Tag for {groupItems[0].group}</span><input value={current.tag ?? ""} onChange={(event) => updateGroup(key, { ...current, tag: event.target.value })} /></label>
+                                <label className="grid gap-1 text-sm font-medium">Tag for this group
+                                  <input className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={current.tag ?? ""} onChange={(event) => updateGroup(key, { ...current, tag: event.target.value })} />
+                                </label>
                               ) : (
                                 <ComboField
                                   key={`${key}-${current.to}-${current.name}`}
-                                  label={`Name for ${groupItems[0].group}`}
+                                  label="Name"
                                   value={nameComboValue(current.name, entityChoices)}
                                   options={groupOptions}
                                   nonePlaceholder="Enter a name"
@@ -262,31 +277,26 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                                   onChange={(id) => comboNameChange(id, entityChoices, (name) => updateGroup(key, { ...current, name }))}
                                 />
                               )}
-                            </td>
-                            <td>
                               {current.to === "group" && (
-                                <label>
-                                  <span className="sr-only">Type for {groupItems[0].group}</span>
-                                  <select value={current.groupType ?? "other"} onChange={(event) => updateGroup(key, { ...current, groupType: event.target.value as NonNullable<typeof current.groupType> })}>
+                                <label className="grid gap-1 text-sm font-medium">Group type
+                                  <select className="h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={current.groupType ?? "other"} onChange={(event) => updateGroup(key, { ...current, groupType: event.target.value as NonNullable<typeof current.groupType> })}>
                                     <option value="household">Household</option><option value="trip">Trip</option><option value="friends">Friends</option><option value="project">Project</option><option value="other">Other</option>
                                   </select>
                                 </label>
                               )}
-                            </td>
-                          </tr>
+                            </div>
+                          </article>
                         );
                       })}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
+                    </div>
+                  </section>
 
-              <section aria-label="Subtype mapping">
-                <h3>Subtypes</h3>
-                <div className="w-full min-w-0 overflow-x-auto">
-                  <table>
-                    <thead><tr><th>Value</th><th>Rows</th><th>To</th><th>Category</th><th>Name or tag</th><th>Gift card</th></tr></thead>
-                    <tbody>
+                  <section aria-label="Subtype mapping" className="grid gap-3">
+                    <div>
+                      <h3 className="font-medium">Subtypes</h3>
+                      <p className="text-sm text-muted-foreground">Map statement labels to a category, merchant, or tag.</p>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
                       {[...subtypeRows.entries()].map(([key, subtypeItems]) => {
                         const current = mapping.subtypes[key] ?? { to: "category" as const, name: subtypeItems[0].subtype };
                         const categoryValue = current.to === "category" ? current.name ?? "" : current.category ?? "";
@@ -296,12 +306,14 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                         const categoryIsNew = Boolean(categoryValue) && !categoryChoices.some((option) => normalized(option.name) === normalized(categoryValue));
                         const giftCard = current.to === "merchant" && normalized(current.category ?? "") === "gift cards";
                         return (
-                          <tr key={key}>
-                            <td>{subtypeItems[0].subtype}</td><td>{subtypeItems.length}</td>
-                            <td>
-                              <label>
-                                <span className="sr-only">Map {subtypeItems[0].subtype} to</span>
-                                <select value={current.to} onChange={(event) => {
+                          <article className="grid min-w-0 gap-3 rounded-md border p-3" key={key}>
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <h4 className="font-medium">{subtypeItems[0].subtype}</h4>
+                              <span className="text-xs text-muted-foreground">{subtypeItems.length} rows</span>
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="grid gap-1 text-sm font-medium">Map to
+                                <select className="h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={current.to} onChange={(event) => {
                                   const to = event.target.value as SubtypeMap["to"];
                                   updateSubtype(key, to === "category"
                                     ? { to, name: categoryValue || subtypeItems[0].subtype }
@@ -312,70 +324,77 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                                   <option value="category">Category</option><option value="merchant">Merchant name</option><option value="tag">Tag</option>
                                 </select>
                               </label>
-                            </td>
-                            <td>
-                              <ComboField
-                                key={`${key}-category-${categoryValue}`}
-                                label={`Category for ${subtypeItems[0].subtype}`}
-                                value={nameComboValue(categoryValue, categoryChoices)}
-                                options={subtypeCategoryOptions}
-                                nonePlaceholder="No category"
-                                onCreate={(name) => `new:${name}`}
-                                onChange={(id) => comboNameChange(id, categoryChoices, (name) => {
-                                  if (current.to === "category") updateSubtype(key, { to: "category", name });
-                                  else updateSubtype(key, { ...current, category: name });
-                                })}
-                              />
-                              {categoryIsNew && <span>New</span>}
-                            </td>
-                            <td>
+                              <div className="grid min-w-0 gap-1">
+                                <ComboField
+                                  key={`${key}-category-${categoryValue}`}
+                                  label="Category"
+                                  value={nameComboValue(categoryValue, categoryChoices)}
+                                  options={subtypeCategoryOptions}
+                                  nonePlaceholder="No category"
+                                  onCreate={(name) => `new:${name}`}
+                                  onChange={(id) => comboNameChange(id, categoryChoices, (name) => {
+                                    if (current.to === "category") updateSubtype(key, { to: "category", name });
+                                    else updateSubtype(key, { ...current, category: name });
+                                  })}
+                                />
+                                {categoryIsNew && <span className="text-xs text-muted-foreground">New category</span>}
+                              </div>
                               {current.to === "merchant" ? (
-                                <label><span className="sr-only">Merchant name for {subtypeItems[0].subtype}</span><input value={current.displayName} onChange={(event) => updateSubtype(key, { ...current, displayName: event.target.value })} /></label>
+                                <label className="grid gap-1 text-sm font-medium">Merchant name
+                                  <input className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={current.displayName} onChange={(event) => updateSubtype(key, { ...current, displayName: event.target.value })} />
+                                </label>
                               ) : current.to === "tag" ? (
-                                <label><span className="sr-only">Tag for {subtypeItems[0].subtype}</span><input value={current.tag} onChange={(event) => updateSubtype(key, { ...current, tag: event.target.value })} /></label>
+                                <label className="grid gap-1 text-sm font-medium">Tag
+                                  <input className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={current.tag} onChange={(event) => updateSubtype(key, { ...current, tag: event.target.value })} />
+                                </label>
                               ) : null}
-                            </td>
-                            <td>
-                              <label className="flex items-center gap-2 text-sm">
+                              <label className="flex items-center gap-2 self-end text-sm">
                                 <input checked={giftCard} onChange={(event) => updateSubtype(key, event.target.checked
                                   ? { to: "merchant", displayName: subtypeItems[0].subtype, category: "Gift cards" }
                                   : { to: "category", name: "Gift cards" })} type="checkbox" />
-                                <span className="sr-only">Mark {subtypeItems[0].subtype} as gift card</span>
+                                Gift card
                               </label>
-                            </td>
-                          </tr>
+                            </div>
+                          </article>
                         );
                       })}
-                    </tbody>
-                  </table>
+                    </div>
+                  </section>
+                  <fieldset className="grid gap-2 rounded-md border p-3">
+                    <legend className="px-1 text-sm font-medium">When your share is blank</legend>
+                    <p className="text-sm text-muted-foreground">Choose how to interpret rows without a share amount.</p>
+                    {([
+                      ["theyOweAll", "They owe all"],
+                      ["splitEqual", "Split equally"],
+                      ["groupDefault", "Use group default"],
+                    ] as const).map(([value, label]) => (
+                      <label className="flex items-center gap-2 text-sm" key={value}>
+                        <input checked={mapping.blankShare === value} name="blank-share" onChange={() => setMapping({ ...mapping, blankShare: value })} type="radio" />
+                        {label}
+                      </label>
+                    ))}
+                  </fieldset>
                 </div>
-              </section>
+              </details>
 
-              <fieldset>
-                <legend>When your share is blank</legend>
-                {([
-                  ["theyOweAll", "They owe all"],
-                  ["splitEqual", "Split equally"],
-                  ["groupDefault", "Use group default"],
-                ] as const).map(([value, label]) => (
-                  <label className="flex items-center gap-2 text-sm" key={value}>
-                    <input checked={mapping.blankShare === value} name="blank-share" onChange={() => setMapping({ ...mapping, blankShare: value })} type="radio" />
-                    {label}
+              {replace && <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">This import will replace the earlier history import.</p>}
+              <details className="rounded-md border p-3">
+                <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Advanced replacement options</summary>
+                <div className="grid gap-3 pt-3">
+                  <label className="flex items-start gap-2 text-sm">
+                    <input className="mt-0.5" checked={replace} onChange={(event) => { setReplace(event.target.checked); setRemoveEntityIds(null); setRemoveCategoryIds(null); }} type="checkbox" />
+                    <span><span className="font-medium">Replace the earlier history import</span><span className="block text-muted-foreground">Use this when importing a corrected statement.</span></span>
                   </label>
-                ))}
-              </fieldset>
-
-              <label className="flex items-center gap-2 text-sm">
-                <input checked={replace} onChange={(event) => { setReplace(event.target.checked); setRemoveEntityIds(null); setRemoveCategoryIds(null); }} type="checkbox" />
-                Replace the earlier history import
-              </label>
+                </div>
+              </details>
 
               {previewError && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{previewError}</p>}
               {preview && (
                 <>
                   {replace && (preview.unreferencedEntities.length > 0 || preview.unreferencedCategories.length > 0) && (
-                    <section aria-label="Unreferenced records">
-                      <h3>Unreferenced records after replacement</h3>
+                    <section aria-label="Unreferenced records" className="grid gap-2 rounded-md border p-3">
+                      <h3 className="font-medium">Unreferenced records after replacement</h3>
+                      <p className="text-sm text-muted-foreground">Choose which unused records to remove.</p>
                       {preview.unreferencedEntities.map((entity) => (
                         <label className="flex items-center gap-2 text-sm" key={entity.id}>
                           <input checked={(removeEntityIds ?? preview.unreferencedEntities.map((item) => item.id)).includes(entity.id)} onChange={(event) => setRemoveEntityIds((current) => {
@@ -398,11 +417,11 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                       ))}
                     </section>
                   )}
-                  <section aria-label="Import preview">
-                    <h3>Preview</h3>
-                    <p>{preview.byKind.spend} spends · {preview.byKind.refund} refunds · {preview.payments} payments · {preview.needsShare} needs-share</p>
-                    <p>{preview.entitiesCreated.length} entities created · {preview.entitiesMerged.length} entity mappings merged · {preview.categoriesCreated.length} categories created · {preview.categoriesMerged.length} category mappings merged</p>
-                    <div className="w-full min-w-0 overflow-x-auto">
+                  <section aria-label="Import preview" className="grid gap-2">
+                    <h3 className="font-medium">Preview changes</h3>
+                    <p className="text-sm">{preview.byKind.spend} spends · {preview.byKind.refund} refunds · {preview.payments} payments · {preview.needsShare} needs-share</p>
+                    <p className="text-sm text-muted-foreground">{preview.entitiesCreated.length} entities created · {preview.entitiesMerged.length} entity mappings merged · {preview.categoriesCreated.length} categories created · {preview.categoriesMerged.length} category mappings merged</p>
+                    <div className="hidden w-full min-w-0 overflow-x-auto sm:block">
                       <table>
                         <thead><tr><th>Entity</th><th>Before</th><th>After</th></tr></thead>
                         <tbody>
@@ -416,13 +435,24 @@ export function HistoryImportView({ ledger, update }: HistoryImportViewProps) {
                         </tbody>
                       </table>
                     </div>
+                    <ul className="grid gap-2 sm:hidden">
+                      {Array.from(new Set([...Object.keys(preview.balancesBefore), ...Object.keys(preview.balancesAfter)])).map((id) => (
+                        <li className="grid gap-1 rounded-md border p-3" key={id}>
+                          <h4 className="font-medium">{ledger.entities.find((entity) => entity.id === id)?.name ?? id}</h4>
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <span>Before <strong className="block font-medium tabular-nums">{formatMoney(preview.balancesBefore[id] ?? 0)}</strong></span>
+                            <span>After <strong className="block font-medium tabular-nums">{formatMoney(preview.balancesAfter[id] ?? 0)}</strong></span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </section>
                 </>
               )}
-              <div className="flex flex-wrap justify-end gap-2">
-                <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" disabled={!preview || Boolean(previewError) || (plan.problems.length > 0 && !skipProblems)} onClick={commit} type="button">
-                  Commit import
-                </button>
+              <div className="flex justify-end border-t pt-4">
+                <Button className="w-full sm:w-auto" disabled={!preview || Boolean(previewError) || (plan.problems.length > 0 && !skipProblems)} onClick={commit} type="button" variant="outline">
+                  Add history to ledger
+                </Button>
               </div>
             </>
           )}

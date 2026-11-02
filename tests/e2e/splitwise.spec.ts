@@ -118,6 +118,7 @@ test("pulls a linked friend's expenses into Review", async ({ page, app }) => {
   await openPeople(page, app, [linkedFriend]);
 
   await expect(page.getByText("Connected as Jamie Tester")).toBeVisible();
+  await page.getByText("Linked", { exact: true }).click();
   await page.getByLabel("First pull since").fill("2026-10-24");
   await page.getByRole("button", { name: "Pull", exact: true }).press("Enter");
   await app.goToView("Review");

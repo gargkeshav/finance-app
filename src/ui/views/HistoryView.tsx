@@ -36,26 +36,45 @@ export function HistoryView({ history, onRevert }: HistoryViewProps) {
   const latest = newestFirst[0];
 
   return (
-    <div className="grid min-w-0 gap-6">
-      <header><h1 className="text-2xl font-semibold tracking-tight">History</h1></header>
+    <div className="mx-auto grid min-w-0 gap-6">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="grid gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">History</h1>
+          <p className="text-sm text-muted-foreground">A record of changes made to this ledger. Only the latest change can be reverted.</p>
+        </div>
+        {latest && <Button onClick={() => setConfirmRevert(true)} type="button">Revert latest change</Button>}
+      </header>
       <Card>
         <CardHeader><CardTitle>Changes</CardTitle><CardDescription>Recent labelled changes to this ledger.</CardDescription></CardHeader>
         <CardContent>
           {newestFirst.length === 0 ? <p className="text-sm text-muted-foreground">Labelled changes will appear here.</p> : (
-            <div className="w-full min-w-0 overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>By</TableHead><TableHead>Change</TableHead><TableHead>Records</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
-                <TableBody>{newestFirst.map((change, index) => (
-                  <TableRow key={change.id}>
-                    <TableCell className="whitespace-nowrap">{new Date(change.at).toLocaleString()}</TableCell>
-                    <TableCell>{change.actor}</TableCell>
-                    <TableCell>{change.reason}</TableCell>
-                    <TableCell>{changeSummary(change)}</TableCell>
-                    <TableCell>{index === 0 && <Button onClick={() => setConfirmRevert(true)} type="button" variant="outline">Revert</Button>}</TableCell>
-                  </TableRow>
-                ))}</TableBody>
-              </Table>
-            </div>
+            <>
+              <div className="hidden w-full min-w-0 overflow-x-auto rounded-md border sm:block">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>By</TableHead><TableHead>Change</TableHead><TableHead>Records</TableHead></TableRow></TableHeader>
+                  <TableBody>{newestFirst.map((change) => (
+                    <TableRow key={change.id}>
+                      <TableCell className="whitespace-nowrap">{new Date(change.at).toLocaleString()}</TableCell>
+                      <TableCell>{change.actor}</TableCell>
+                      <TableCell>{change.reason}</TableCell>
+                      <TableCell>{changeSummary(change)}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+              <ul className="grid gap-3 sm:hidden">
+                {newestFirst.map((change) => (
+                  <li className="grid gap-2 rounded-md border p-3" key={change.id}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <h3 className="font-medium">{change.reason}</h3>
+                      <span className="text-xs text-muted-foreground">{change.actor}</span>
+                    </div>
+                    <time className="text-sm text-muted-foreground" dateTime={change.at}>{new Date(change.at).toLocaleString()}</time>
+                    <p className="text-sm">{changeSummary(change)}</p>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </CardContent>
       </Card>

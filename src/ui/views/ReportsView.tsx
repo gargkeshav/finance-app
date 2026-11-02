@@ -161,33 +161,37 @@ export function ReportsView({ ledger, openActivity }: ReportsViewProps) {
   }
 
   return (
-    <section className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1>Reports</h1>
-        <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={exportCurrentTable} type="button">Download CSV</button>
+    <section className="space-y-6 sm:space-y-8">
+      <header className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">Spending patterns</p>
+          <h1 className="mt-1">Reports</h1>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Explore spending over time, then open a figure in Activity for details.</p>
+        </div>
+        <button className="inline-flex min-h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={exportCurrentTable} type="button">Download CSV</button>
       </header>
-      <div className="flex flex-wrap items-end gap-4">
-        <fieldset className="flex flex-wrap gap-3">
-          <legend className="mb-2 font-medium">Scope</legend>
-          <label className="flex items-center gap-2"><input checked={scope === "personal"} name="report-scope" onChange={() => setScope("personal")} type="radio" /> Personal (incl. ½ House)</label>
-          <label className="flex items-center gap-2"><input checked={scope === "household"} name="report-scope" onChange={() => setScope("household")} type="radio" /> Household</label>
+      <div className="grid gap-5 rounded-xl border bg-card p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
+        <fieldset className="grid gap-2 sm:col-span-2 lg:col-span-1">
+          <legend className="mb-1 text-sm font-medium">Scope</legend>
+          <label className="flex items-center gap-2 text-sm"><input checked={scope === "personal"} name="report-scope" onChange={() => setScope("personal")} type="radio" /> Personal (incl. ½ House)</label>
+          <label className="flex items-center gap-2 text-sm"><input checked={scope === "household"} name="report-scope" onChange={() => setScope("household")} type="radio" /> Household</label>
         </fieldset>
-        <label className="grid gap-1">From <input aria-label="Report start date" className="rounded-md border bg-background px-3 py-2" onChange={(event) => setFrom(event.target.value)} type="date" value={from} /></label>
-        <label className="grid gap-1">To <input aria-label="Report end date" className="rounded-md border bg-background px-3 py-2" onChange={(event) => setTo(event.target.value)} type="date" value={to} /></label>
-        <label className="flex items-center gap-2 pb-2">
+        <label className="grid min-w-0 gap-1 text-sm font-medium">From <input aria-label="Report start date" className="min-h-10 w-full rounded-md border bg-background px-3 py-2 font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setFrom(event.target.value)} type="date" value={from} /></label>
+        <label className="grid min-w-0 gap-1 text-sm font-medium">To <input aria-label="Report end date" className="min-h-10 w-full rounded-md border bg-background px-3 py-2 font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setTo(event.target.value)} type="date" value={to} /></label>
+        <label className="flex min-h-10 items-center gap-2 self-end text-sm">
           <Switch checked={showEmptyMonths} onCheckedChange={setShowEmptyMonths} />
           Show empty months
         </label>
       </div>
       {!rangeIsValid && <p className="text-sm text-destructive" role="status">Start date must be on or before end date.</p>}
       <Tabs onValueChange={(value) => setTable(value as ReportTable)} value={table}>
-        <TabsList aria-label="Report tables" className="flex h-auto flex-wrap bg-background text-foreground">
+        <TabsList aria-label="Report tables" className="grid h-auto w-full grid-cols-2 gap-1 bg-background text-foreground sm:grid-cols-3 xl:grid-cols-5">
           {(["Monthly", "Categories", "By nature", "Merchants", "Cash flow"] as const).map((name) => (
-            <TabsTrigger key={name} value={name}>{name}</TabsTrigger>
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center" key={name} value={name}>{name}</TabsTrigger>
           ))}
         </TabsList>
         <TabsContent value="Monthly" className="space-y-4">
-          <ChartContainer aria-label="Monthly spending, refunds, and net" className="h-72 w-full" config={reportChartConfig} role="img">
+          <ChartContainer aria-label="Monthly spending, refunds, and net" className="h-64 w-full sm:h-72" config={reportChartConfig} role="img">
             <BarChart accessibilityLayer data={visibleMonthlyRows} margin={{ left: 12, right: 12 }}>
               <CartesianGrid vertical={false} />
               <XAxis axisLine={false} dataKey="month" tickLine={false} />
@@ -222,7 +226,7 @@ export function ReportsView({ ledger, openActivity }: ReportsViewProps) {
           </div>
         </TabsContent>
         <TabsContent value="Categories" className="space-y-4">
-          <ChartContainer aria-label="Spending by category" className="h-80 w-full" config={reportChartConfig} role="img">
+          <ChartContainer aria-label="Spending by category" className="h-72 w-full sm:h-80" config={reportChartConfig} role="img">
             <BarChart accessibilityLayer data={categoryReport.rows} layout="vertical" margin={{ left: 12, right: 24 }}>
               <CartesianGrid horizontal={false} />
               <XAxis axisLine={false} tickFormatter={(value: number) => formatMoney(value)} tickLine={false} type="number" />

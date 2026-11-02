@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { balances, HOUSE_ENTITY_ID, report, SELF_ENTITY_ID, type Baseline, type CategoryNature, type Ledger } from "../../domain/ledger";
 import { addStarterCategories, STARTER_CATEGORIES } from "../../domain/taxonomy";
@@ -142,28 +144,29 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
 
   return (
     <>
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1>Balances</h1>
-        <button className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => setMonth(currentMonth())} type="button">Current month</button>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Spending and shared balances</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Balances</h1>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => setMonth(currentMonth())} type="button">Current month</Button>
       </header>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label>
-          Month
-          <input type="month" value={month} onChange={(event) => setMonth(event.target.value || currentMonth())} />
-        </label>
+      <div className="grid max-w-xs gap-2">
+        <Label htmlFor="balances-month">Month</Label>
+        <Input id="balances-month" className="w-full" type="month" value={month} onChange={(event) => setMonth(event.target.value || currentMonth())} />
       </div>
-      <section className="flex flex-wrap gap-4" aria-label="Monthly spending">
-        <div><span className="text-sm text-muted-foreground">Personal spend</span><strong className="text-right tabular-nums">{formatMoney(monthly.personalCents)}</strong></div>
-        <div><span className="text-sm text-muted-foreground">House spend</span><strong className="text-right tabular-nums">{formatMoney(monthly.houseCents)}</strong></div>
+      <section className="grid gap-3 sm:grid-cols-2" aria-label="Monthly spending">
+        <Card><CardContent className="grid gap-1 p-4"><span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Personal spend</span><strong className="text-xl font-semibold tabular-nums">{formatMoney(monthly.personalCents)}</strong></CardContent></Card>
+        <Card><CardContent className="grid gap-1 p-4"><span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">House spend</span><strong className="text-xl font-semibold tabular-nums">{formatMoney(monthly.houseCents)}</strong></CardContent></Card>
       </section>
 
-      <section className="section-heading">
-        <h2>By category</h2>
-        {hasMissingStarterCategories && <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => update(addStarterCategories(ledger, new Date().toISOString()), "Add suggested categories")} type="button">Add suggested categories</button>}
+      <section className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-lg font-semibold">By category</h2><p className="text-sm text-muted-foreground">Personal totals include your share of House spending.</p></div>
+        {hasMissingStarterCategories && <Button size="sm" variant="outline" onClick={() => update(addStarterCategories(ledger, new Date().toISOString()), "Add suggested categories")} type="button">Add suggested categories</Button>}
       </section>
       <div className="w-full min-w-0 max-w-full overflow-x-auto">
-        <Table tabIndex={0}>
-          <TableHeader><TableRow><TableHead className="!text-secondary-foreground !text-xl !font-bold">Category</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">Personal</TableHead><TableHead className="!text-secondary-foreground !text-xl !font-bold">House</TableHead></TableRow></TableHeader>
+        <Table tabIndex={0} className="text-sm">
+          <TableHeader><TableRow><TableHead>Category</TableHead><TableHead className="text-right">Personal</TableHead><TableHead className="text-right">House</TableHead></TableRow></TableHeader>
           <TableBody>
             {categoryRows.map((category) => (
               <TableRow key={category.id}>
@@ -175,10 +178,10 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
                     const defaults = { parentId: record.parentId ?? "", nature: record.nature ?? "" as const };
                     const draft = categoryDrafts[record.id] ?? defaults;
                     return (
-                      <details>
-                        <summary>Edit</summary>
-                        <div className="grid gap-4">
-                          <label>Parent
+                      <details className="relative mt-1">
+                        <summary className="cursor-pointer text-xs text-muted-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Edit category</summary>
+                        <div className="absolute left-0 z-10 mt-1 grid min-w-56 gap-3 rounded-md border bg-popover p-3 text-sm shadow-md">
+                          <label className="grid gap-1">Parent
                             <select value={draft.parentId} onChange={(event) => updateCategoryDraft(record.id, defaults, { parentId: event.target.value })}>
                               <option value="">None</option>
                               {categories.filter((candidate) => candidate.id !== record.id && !isDescendant(candidate.id, record.id)).map((candidate) => (
@@ -186,13 +189,13 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
                               ))}
                             </select>
                           </label>
-                          <label>Nature
+                          <label className="grid gap-1">Nature
                             <select value={draft.nature} onChange={(event) => updateCategoryDraft(record.id, defaults, { nature: event.target.value as CategoryNature | "" })}>
                               <option value="">Unspecified</option>
                               {CATEGORY_NATURES.map((nature) => <option key={nature} value={nature}>{nature}</option>)}
                             </select>
                           </label>
-                          <button className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" onClick={() => saveCategory(record.id)} type="button">Save</button>
+                          <Button size="sm" variant="outline" onClick={() => saveCategory(record.id)} type="button">Save</Button>
                         </div>
                       </details>
                     );
@@ -203,7 +206,7 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
               </TableRow>
             ))}
             <TableRow>
-              <TableHead scope="row" className="!text-secondary-foreground !text-xl !font-bold">Total</TableHead>
+              <TableHead scope="row">Total</TableHead>
               <TableCell className="text-right tabular-nums">{formatMoney(monthly.personalCents)}</TableCell>
               <TableCell className="text-right tabular-nums">{formatMoney(monthly.houseCents)}</TableCell>
             </TableRow>
@@ -212,9 +215,9 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
         {categoryRows.length === 0 && <p className="text-sm text-muted-foreground p-4">No spending for this month.</p>}
       </div>
 
-      <section className="section-heading">
-        <h2>Balances</h2>
-        <Button variant="outline" onClick={() => setShowBaselines((visible) => !visible)} type="button">{showBaselines ? "Hide opening balances" : "Edit opening balances"}</Button>
+      <section className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-lg font-semibold">Balances by person</h2><p className="text-sm text-muted-foreground">Current amount owed, including opening balances.</p></div>
+        <Button size="sm" variant="outline" onClick={() => setShowBaselines((visible) => !visible)} type="button">{showBaselines ? "Hide opening balances" : "Edit opening balances"}</Button>
       </section>
       {error && <p className="rounded-md border p-3 text-sm border-destructive/40 text-destructive" role="alert">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -227,21 +230,22 @@ export function BalancesView({ ledger, update, openActivity, onOpenEntity }: Bal
               ? `You owe ${entity.name} ${formatMoney(Math.abs(amount))}`
               : "Settled";
           return (
-            <Card key={entity.id} className={amount > 0 ? "border-positive/40" : amount < 0 ? "border-negative/40" : ""}>
-              <CardHeader>
+            <Card key={entity.id} className={amount > 0 ? "border-positive/40" : amount < 0 ? "border-destructive/40" : ""}>
+              <CardHeader className="pb-2">
                 <CardTitle className="text-base">
                   {onOpenEntity
                     ? <Button variant="link" className="h-auto p-0 text-base" onClick={() => onOpenEntity(entity.id)} type="button">{entity.name}</Button>
                     : entity.name}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-3">
-                <p className={`text-right tabular-nums ${amount > 0 ? "text-positive" : amount < 0 ? "text-negative" : "text-muted-foreground"}`}>{balanceLabel}</p>
+              <CardContent className="grid gap-3 pt-0">
+                <p className={`font-medium tabular-nums ${amount > 0 ? "text-positive" : amount < 0 ? "text-destructive" : "text-muted-foreground"}`}>{balanceLabel}</p>
                 {showBaselines && <div>
-                    <label>
-                      <span className="text-sm text-muted-foreground">Opening balance</span>
-                      <input
+                    <label className="grid gap-1">
+                      <span className="text-sm text-muted-foreground">Opening balance (AUD)</span>
+                      <Input
                         inputMode="decimal"
+                        aria-label={`Opening balance for ${entity.name}`}
                         value={drafts[entity.id] ?? (baseline && baseline.amountCents !== 0 ? centsText(baseline.amountCents) : "")}
                         onChange={(event) => { setDrafts((current) => ({ ...current, [entity.id]: event.target.value })); if (errorEntityId === entity.id) { setErrorEntityId(null); setError(""); } }}
                         onBlur={() => { if (entity.id in drafts) saveBaseline(entity.id); }}

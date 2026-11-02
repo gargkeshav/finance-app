@@ -52,6 +52,8 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
   );
   const [presetEntityId, setPresetEntityId] = useState(initialValues?.portions?.[0]?.entityId ?? initialValues?.payerEntityId ?? SELF_ENTITY_ID);
   const [equalEntityIds, setEqualEntityIds] = useState(initialValues?.portions?.map((portion) => portion.entityId) ?? []);
+  const [splitChoice, setSplitChoice] = useState("payer");
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(initialValues));
   const [activePreset, setActivePreset] = useState<SplitPreset | undefined>();
   const [error, setError] = useState("");
 
@@ -135,6 +137,15 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
     }
   }
 
+  function applySelectedPreset() {
+    if (splitChoice === "payer") applyPreset({ kind: "payer" });
+    else if (splitChoice === "halfHouse") applyPreset({ kind: "halfHouse" });
+    else if (splitChoice === "allHouse") applyPreset({ kind: "allHouse" });
+    else if (splitChoice === "entity" && presetEntityId) applyPreset({ kind: "entity", entityId: presetEntityId });
+    else if (splitChoice === "equal" && equalEntityIds.length) applyPreset({ kind: "equal", entityIds: equalEntityIds });
+    else if (splitChoice === "last" && accountId && ledger.lastSplitByAccount?.[accountId]) applyPreset(ledger.lastSplitByAccount[accountId]);
+  }
+
   function handleFormKeyDown(event: React.KeyboardEvent<HTMLFormElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -176,119 +187,163 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
   }
 
   return (
-    <form className="grid gap-4 py-4" onKeyDown={handleFormKeyDown} onSubmit={save}>
-      <label>
-        Date
-        <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
-      </label>
-      <label>
+    <form className="grid gap-5 py-4" onKeyDown={handleFormKeyDown} onSubmit={save}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1.5 text-sm font-medium">
+          Date
+          <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+        </label>
+        <label className="grid gap-1.5 text-sm font-medium">
+          Amount (AUD)
+          <Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required />
+        </label>
+      </div>
+      <label className="grid gap-1.5 text-sm font-medium">
         Description
         <Input value={description} onChange={(event) => setDescription(event.target.value)} required />
       </label>
-      <label>
-        Display name
-        <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-      </label>
-      <label>
-        Amount (AUD)
-        <Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required />
-      </label>
-      <ComboField label="Category" value={categoryId} options={(ledger.categories ?? [])
-        .filter((category) => !category.archived || category.id === categoryId)
-        .map((category) => ({ id: category.id, name: category.name }))}
-        nonePlaceholder="Uncategorized" onChange={setCategoryId}
-        onCreate={onAddCategory ? createCategory : undefined} />
-      {categoryId && categoryId === suggestedCategoryId && <p>Suggested from a past spend</p>}
-      <label>
-        Tags (comma-separated)
-        <Input value={tagsText} onChange={(event) => setTagsText(event.target.value)} />
-      </label>
-      <label>
-        Note
-        <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional details" required={amountAmended} />
-      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1.5 text-sm font-medium">
+          Account
+          <select
+            value={accountId}
+            onChange={(event) => {
+              const nextAccountId = event.target.value;
+              setAccountId(nextAccountId);
+              const account = ledger.accounts.find((item) => item.id === nextAccountId);
+              if (!nextAccountId || !account) setPayerEntityId(SELF_ENTITY_ID);
+              else setPayerEntityId(account.payerEntityId);
+            }}
+          >
+            <option value="">No account</option>
+            {ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+          </select>
+        </label>
+        {!selectedAccount ? (
+          <ComboField label="Paid by" value={payerEntityId} options={entityOptions}
+            nonePlaceholder="Choose payer" onChange={setPayerEntityId}
+            onCreate={onAddEntity ? createEntity : undefined} />
+        ) : (
+          <div className="grid content-center gap-1.5 text-sm">
+            <span className="font-medium">Paid by</span>
+            <span className="text-foreground">{payerName} (account default)</span>
+          </div>
+        )}
+      </div>
+      <details className="rounded-lg border px-3 py-2.5" open={detailsOpen || amountAmended}>
+        <summary
+          className="cursor-pointer text-sm font-medium"
+          onClick={(event) => {
+            event.preventDefault();
+            setDetailsOpen((open) => !open);
+          }}
+        >
+          Optional details
+        </summary>
+        <div className="grid gap-4 pt-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ComboField label="Category" value={categoryId} options={(ledger.categories ?? [])
+              .filter((category) => !category.archived || category.id === categoryId)
+              .map((category) => ({ id: category.id, name: category.name }))}
+              nonePlaceholder="Uncategorized" onChange={setCategoryId}
+              onCreate={onAddCategory ? createCategory : undefined} />
+            <label className="grid gap-1.5 text-sm font-medium">
+              Display name
+              <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            </label>
+          </div>
+          {categoryId && categoryId === suggestedCategoryId && <p className="text-sm text-foreground">Suggested from a past spend</p>}
+          <label className="grid gap-1.5 text-sm font-medium">
+            Tags
+            <Input value={tagsText} onChange={(event) => setTagsText(event.target.value)} placeholder="Separate tags with commas" />
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Note
+            <Textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional details" required={amountAmended} />
+          </label>
+        </div>
+      </details>
       {amountAmended && linkedBankAmount !== null && (
         <>
-          <p>Entry amount: <span className="tabular-nums">{amountCents === null ? "" : formatMoney(amountCents)}</span>; bank amount: <span className="tabular-nums">{formatMoney(linkedBankAmount)}</span></p>
+          <p className="rounded-md border p-3 text-sm">Entry amount: <span className="tabular-nums">{amountCents === null ? "" : formatMoney(amountCents)}</span>; bank amount: <span className="tabular-nums">{formatMoney(linkedBankAmount)}</span></p>
           <label className="flex items-center gap-2 text-sm">
             <Input type="checkbox" checked={extraReimbursable} onChange={(event) => setExtraReimbursable(event.target.checked)} />
             Extra is reimbursable
           </label>
         </>
       )}
-      <label>
-        Account
-        <select
-          value={accountId}
-          onChange={(event) => {
-            const nextAccountId = event.target.value;
-            setAccountId(nextAccountId);
-            const account = ledger.accounts.find((item) => item.id === nextAccountId);
-            if (!nextAccountId || !account) setPayerEntityId(SELF_ENTITY_ID);
-            else setPayerEntityId(account.payerEntityId);
-          }}
-        >
-          <option value="">No account</option>
-          {ledger.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
-        </select>
-      </label>
-      {!selectedAccount && (
-        <ComboField label="Paid by" value={payerEntityId} options={entityOptions}
-          nonePlaceholder="Choose payer" onChange={setPayerEntityId}
-          onCreate={onAddEntity ? createEntity : undefined} />
-      )}
-
-      <fieldset>
-        <legend>Split</legend>
-        <div className="flex flex-wrap justify-end gap-2" aria-label="Split presets">
-          <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "payer" })} type="button">Payer</Button>
-          <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "halfHouse" })} type="button">Half House</Button>
-          <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "allHouse" })} type="button">All House</Button>
-          {ledger.entities.some((entity) => !entity.archived) && <>
-            <ComboField label="Entity" value={presetEntityId} options={entityOptions}
-              nonePlaceholder="Choose entity" onChange={(entityId) => {
-                setPresetEntityId(entityId);
-                if (initialValues?.id || portions.length > 0 || amountCents === null || amountCents <= 0) return;
-                const entity = ledger.entities.find((candidate) => candidate.id === entityId);
-                if (entity?.kind !== "group" && entity?.kind !== "house") return;
-                const preset = defaultSplitPreset(entity, amountCents);
-                if (preset) applyPreset(preset);
-              }}
-              onCreate={onAddEntity ? createEntity : undefined} />
-            <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset({ kind: "entity", entityId: presetEntityId })} type="button">All to entity</Button>
-          </>}
-          <label>
-            Equal split entities
-            <select multiple size={Math.min(4, Math.max(2, ledger.entities.filter((entity) => !entity.archived).length))} value={equalEntityIds} onChange={(event) => setEqualEntityIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>
-              {ledger.entities.filter((entity) => !entity.archived || equalEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+      <fieldset className="grid gap-4 rounded-lg border p-3 sm:p-4">
+        <legend className="px-1 text-sm font-semibold">Split</legend>
+        <p className="text-sm text-foreground">Choose a split method and apply it. The payer is preselected.</p>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <label className="grid gap-1.5 text-sm font-medium">
+            Split method
+            <select value={splitChoice} onChange={(event) => setSplitChoice(event.target.value)}>
+              <option value="payer">All to payer</option>
+              <option value="halfHouse">Half to House</option>
+              <option value="allHouse">All to House</option>
+              {ledger.entities.some((entity) => !entity.archived) && <option value="entity">All to an entity</option>}
+              <option value="equal">Split equally</option>
+              {accountId && ledger.lastSplitByAccount?.[accountId] && <option value="last">Use last split for this account</option>}
             </select>
           </label>
-          <Button variant="outline" disabled={amountCents === null || amountCents <= 0 || equalEntityIds.length === 0} onClick={() => applyPreset({ kind: "equal", entityIds: equalEntityIds })} type="button">Equal split</Button>
-          {accountId && ledger.lastSplitByAccount?.[accountId] && <Button variant="outline" disabled={amountCents === null || amountCents <= 0} onClick={() => applyPreset(ledger.lastSplitByAccount![accountId])} type="button">Last split on this account</Button>}
+          <Button disabled={amountCents === null || amountCents <= 0 || splitChoice === "equal" && equalEntityIds.length === 0} onClick={applySelectedPreset} type="button" variant="outline">Apply split</Button>
         </div>
+        {splitChoice === "entity" && (
+          <ComboField label="Entity" value={presetEntityId} options={entityOptions}
+            nonePlaceholder="Choose entity" onChange={(entityId) => {
+              setPresetEntityId(entityId);
+              if (initialValues?.id || portions.length > 0 || amountCents === null || amountCents <= 0) return;
+              const entity = ledger.entities.find((candidate) => candidate.id === entityId);
+              if (entity?.kind !== "group" && entity?.kind !== "house") return;
+              const preset = defaultSplitPreset(entity, amountCents);
+              if (preset) applyPreset(preset);
+            }}
+            onCreate={onAddEntity ? createEntity : undefined} />
+        )}
+        {splitChoice === "equal" && (
+          <fieldset className="grid gap-2 rounded-md border p-3">
+            <legend className="px-1 text-sm font-medium">People in the split</legend>
+            {ledger.entities.filter((entity) => !entity.archived || equalEntityIds.includes(entity.id)).map((entity) => (
+              <label className="flex items-center gap-2 text-sm" key={entity.id}>
+                <Input
+                  type="checkbox"
+                  checked={equalEntityIds.includes(entity.id)}
+                  onChange={(event) => setEqualEntityIds((current) => event.target.checked
+                    ? [...current, entity.id]
+                    : current.filter((id) => id !== entity.id))}
+                />
+                {entity.name}
+              </label>
+            ))}
+          </fieldset>
+        )}
         {portions.map((portion, index) => (
-          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]" key={`${index}-${portion.entityId}`}>
+          <div className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_auto] sm:items-end" key={`${index}-${portion.entityId}`}>
             <ComboField label="For" value={portion.entityId} options={entityOptions}
               nonePlaceholder="Choose person" onChange={(id) => setPortion(index, "entityId", id)}
               onCreate={onAddEntity ? createEntity : undefined} />
-            <label>
+            <label className="grid gap-1.5 text-sm font-medium">
               Amount
               <Input inputMode="decimal" value={portion.amount} onChange={(event) => setPortion(index, "amount", event.target.value)} placeholder="0.00" />
             </label>
-            <label>
-              Treatment
-              <select value={portion.treatment ?? "claim"} onChange={(event) => setPortionTreatment(index, event.target.value as NonNullable<Portion["treatment"]>)}>
-                <option value="claim">Claim</option>
-                <option value="writeOff">Write off</option>
-                <option value="gift">Gift</option>
-                <option value="reportOnly">Report only</option>
-              </select>
-            </label>
-            <Button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} onClick={() => { setActivePreset(undefined); setPortions((current) => current.filter((_, row) => row !== index)); }} type="button" variant="outline">×</Button>
+            <Button aria-label={`Remove ${ledger.entities.find((entity) => entity.id === portion.entityId)?.name ?? "split"}`} className="sm:mb-0.5" onClick={() => { setActivePreset(undefined); setPortions((current) => current.filter((_, row) => row !== index)); }} type="button" variant="ghost">Remove</Button>
+            <details className="sm:col-span-3">
+              <summary className="cursor-pointer text-sm text-foreground">Treatment: {portion.treatment === "writeOff" ? "Write off" : portion.treatment === "gift" ? "Gift" : portion.treatment === "reportOnly" ? "Report only" : "Claim"}</summary>
+              <label className="mt-2 grid max-w-sm gap-1.5 text-sm font-medium">
+                Treatment
+                <select value={portion.treatment ?? "claim"} onChange={(event) => setPortionTreatment(index, event.target.value as NonNullable<Portion["treatment"]>)}>
+                  <option value="claim">Claim</option>
+                  <option value="writeOff">Write off</option>
+                  <option value="gift">Gift</option>
+                  <option value="reportOnly">Report only</option>
+                </select>
+              </label>
+            </details>
           </div>
         ))}
         {remainingCents !== null && <p className={remainingCents === 0 ? "text-right tabular-nums text-positive" : "rounded-md border p-3 text-sm border-warning/40 text-warning"}>Left to split: {formatMoney(remainingCents)}</p>}
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Button variant="outline" onClick={() => {
             const used = new Set(portions.map((portion) => portion.entityId));
             const next = ledger.entities.find((entity) => !entity.archived && entity.kind !== "self" && entity.kind !== "house" && !used.has(entity.id));
@@ -297,9 +352,7 @@ export function SpendForm({ ledger, initialValues, onSave, onAddCategory, onAddE
               setPortions((current) => [...current, { entityId: next.id, amount: "" }]);
             }
           }} type="button">Add person</Button>
-          <Button variant="outline" onClick={() => {
-            if (amountCents !== null && amountCents > 0) applyPreset({ kind: "payer" });
-            }} type="button">All to {effectivePayerId === "self" ? "You" : payerName}</Button>
+          {portions.length === 0 && <span className="text-sm text-foreground">Apply a split to continue.</span>}
         </div>
       </fieldset>
       <p aria-live="polite">

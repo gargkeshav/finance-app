@@ -10,6 +10,10 @@ test("a synthetic CSV imports into an account and its row appears in Review", as
   await app.goToView("Import");
   await expect(page.getByRole("heading", { name: "Import CSV" })).toBeVisible();
   await app.checkA11y();
+  for (const width of [390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  }
   const today = new Date();
   const date = `${today.getUTCDate()} ${new Intl.DateTimeFormat("en-AU", { month: "short", timeZone: "UTC" }).format(today)} ${today.getUTCFullYear()}`;
   const [fileChooser] = await Promise.all([
@@ -23,11 +27,12 @@ test("a synthetic CSV imports into an account and its row appears in Review", as
   });
   await page.getByRole("combobox", { name: "Format" }).click();
   await page.getByRole("option", { name: "HSBC · Suggested" }).click();
+  await expect(page.getByText("3. Review rows", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Import 1 row/ })).toBeEnabled();
   await page.getByRole("button", { name: /Import 1 row/ }).press("Enter");
   await expect(page.getByRole("main").getByRole("status")).toContainText("Import complete: 1 row added.");
   await app.goToView("Review");
   await expect(page.getByRole("heading", { name: /^Review/ })).toBeVisible();
-  await page.getByText("Waiting on another account 1").click();
+  await page.getByRole("tab", { name: /^Waiting/ }).click();
   await expect(page.getByText("Playwright coffee")).toBeVisible();
 });

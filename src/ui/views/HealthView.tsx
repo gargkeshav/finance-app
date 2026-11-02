@@ -18,35 +18,39 @@ export function HealthView({ issues, onNavigate }: HealthViewProps) {
 
   return (
     <>
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1>Health</h1>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Data checks and follow-up</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Health</h1>
+        </div>
         <Button onClick={() => onNavigate("Review")} type="button">Review items</Button>
       </header>
       {groups.length === 0 ? (
-        <Empty>All clear</Empty>
+        <Card><CardContent className="p-4"><Empty>All clear</Empty></CardContent></Card>
       ) : (
-        <section className="flex flex-wrap gap-4" aria-label="Items needing attention">
-          <span className="text-sm text-muted-foreground">{count} item{count === 1 ? "" : "s"} need attention</span>
+        <section className="rounded-lg border bg-muted/30 px-4 py-3" aria-label="Items needing attention">
+          <p className="font-medium">{count} item{count === 1 ? "" : "s"} need attention</p>
+          <p className="text-sm text-muted-foreground">Open a category to review the details and go to the right workspace.</p>
         </section>
       )}
       {groups.map((group) => {
         const groupCount = group.issues.reduce((total, issue) => total + issue.count, 0);
         return (
-          <Card key={group.kind}>
+          <Card key={group.kind} className="overflow-hidden">
             <details>
-              <summary className="cursor-pointer list-none">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between gap-3">
+              <summary className="cursor-pointer list-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <CardHeader className="py-3">
+                  <CardTitle className="flex items-center justify-between gap-3 text-base">
                     <span>{group.kind}</span>
                     <Badge variant="secondary">{groupCount}</Badge>
                   </CardTitle>
                 </CardHeader>
               </summary>
-              <CardContent className="grid gap-3">
+              <CardContent className="grid gap-2 pt-0">
                 {group.issues.map((issue, index) => (
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" key={`${issue.detail}-${index}`}>
-                    <p>{issue.detail}</p>
-                    <Button variant="link" onClick={() => onNavigate(issue.view)} type="button">Open {issue.view}</Button>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t py-2" key={`${issue.detail}-${index}`}>
+                    <p className="min-w-0 flex-1 text-sm">{issue.detail}</p>
+                    <Button size="sm" variant="outline" onClick={() => onNavigate(issue.view)} type="button">Open {issue.view}</Button>
                   </div>
                 ))}
               </CardContent>
